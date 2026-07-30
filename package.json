@@ -16,7 +16,8 @@
     "db:migrate": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js migrate deploy",
     "db:studio": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "setup:bucket": "tsx scripts/ensure-bucket.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
