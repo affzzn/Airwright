@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { UploadForm } from "@/components/upload-form";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { formatBytes } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -37,9 +38,15 @@ export default async function ProjectPage({
   if (!project) notFound();
 
   const pack = project.packs[0];
+  const hasInProgress = pack.documents.some((d) =>
+    d.extractions.some(
+      (e) => e.status === "PENDING" || e.status === "PROCESSING",
+    ),
+  );
 
   return (
     <AppShell>
+      {hasInProgress && <AutoRefresh />}
       <Link href="/" className="text-sm text-ink-muted hover:text-ink">
         ← Projects
       </Link>
