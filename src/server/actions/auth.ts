@@ -4,63 +4,66 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db";
 
-/**
- * Step 1: email a 6-digit OTP code. We use a typed code rather than a clickable
- * magic link because email scanners / browser prefetch consume single-use links
- * before the user clicks, producing the "otp_expired" error.
- */
-export async function sendOtp(formData: FormData) {
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
-  if (!email) return;
+/** Mirror the Supabase auth user into our User table on first sign-in. */
+async function ensureUser(id: string, email: string) {
+  try {
+    await prisma.user.upsert({
+      where: { id },
+      create: { id, email },
+      update: { email },
+    });
+  } catch (err) {
+    console.error("[auth] user upsert failed:", err);
+  }
+}
+
+/** Sign in with email + password (no email round-trip once confirmed). */
+export async function signIn(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  if (!email || !password) return;
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithOtp({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
-    options: { shouldCreateUser: true },
+    password,
   });
   if (error) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
-  redirect(`/login?step=code&email=${encodeURIComponent(email)}`);
+  if (data.user?.email) await ensureUser(data.user.id, data.user.email);
+  redirect("/");
 }
 
-/** Step 2: verify the typed code, set the session, mirror the User row. */
-export async function verifyOtp(formData: FormData) {
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
-  const token = String(formData.get("token") ?? "").trim();
-  if (!email || !token) return;
+/**
+ * Create an account. If email confirmation is ON in Supabase, the user gets a
+ * "Confirm sign up" email and must confirm before signing in. If it's OFF, they
+ * are signed in immediately.
+ */
+export async function signUp(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  if (!email || !password) return;
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.verifyOtp({
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const { data, error } = await supabase.auth.signUp({
     email,
-    token,
-    type: "email",
+    password,
+    options: { emailRedirectTo: `${siteUrl}/auth/callback` },
   });
-
   if (error) {
-    redirect(
-      `/login?step=code&email=${encodeURIComponent(email)}&error=${encodeURIComponent(error.message)}`,
-    );
+    redirect(`/login?mode=signup&error=${encodeURIComponent(error.message)}`);
   }
 
-  const user = data.user;
-  if (user?.email) {
-    try {
-      await prisma.user.upsert({
-        where: { id: user.id },
-        create: { id: user.id, email: user.email },
-        update: { email: user.email },
-      });
-    } catch (err) {
-      console.error("[auth] user upsert failed:", err);
-    }
+  if (data.session && data.user?.email) {
+    // Confirmation is OFF — signed in straight away.
+    await ensureUser(data.user.id, data.user.email);
+    redirect("/");
   }
 
-  redirect("/");
+  // Confirmation is ON — tell them to confirm, then sign in.
+  redirect("/login?checkEmail=1");
 }
 
 /** Sign out and return to the login screen. */

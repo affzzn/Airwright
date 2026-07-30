@@ -1,14 +1,15 @@
-import { sendOtp, verifyOtp } from "@/server/actions/auth";
+import Link from "next/link";
+import { signIn, signUp } from "@/server/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ step?: string; email?: string; error?: string }>;
+  searchParams: Promise<{ mode?: string; error?: string; checkEmail?: string }>;
 }) {
-  const { step, email, error } = await searchParams;
-  const onCodeStep = step === "code";
+  const { mode, error, checkEmail } = await searchParams;
+  const isSignup = mode === "signup";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
@@ -22,58 +23,66 @@ export default async function LoginPage({
           </p>
         </div>
 
+        {checkEmail && (
+          <p className="mb-4 rounded-md border border-hairline bg-surface px-4 py-3 text-sm text-ink-muted">
+            Check your email to confirm your account, then sign in below.
+          </p>
+        )}
         {error && (
           <p className="mb-4 rounded-md border border-hairline-strong bg-surface px-4 py-3 text-sm text-ink">
             {error}
           </p>
         )}
 
-        {onCodeStep ? (
-          <form action={verifyOtp} className="space-y-4">
-            <input type="hidden" name="email" value={email ?? ""} />
-            <div>
-              <Label htmlFor="token">Enter the 6-digit code</Label>
-              <Input
-                id="token"
-                name="token"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                placeholder="123456"
-                autoFocus
-              />
-              <p className="mt-1.5 text-xs text-ink-subtle">
-                Sent to {email}. Check your inbox.
-              </p>
-            </div>
-            <Button type="submit" className="w-full">
-              Sign in
-            </Button>
-            <a
-              href="/login"
-              className="block text-center text-xs text-ink-muted hover:text-ink"
-            >
-              Use a different email
-            </a>
-          </form>
-        ) : (
-          <form action={sendOtp} className="space-y-4">
-            <div>
-              <Label htmlFor="email">Work email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                required
-                placeholder="you@airwrightmidland.co.uk"
-                autoComplete="email"
-              />
-            </div>
-            <Button type="submit" className="w-full">
-              Send sign-in code
-            </Button>
-          </form>
-        )}
+        <form action={isSignup ? signUp : signIn} className="space-y-4">
+          <div>
+            <Label htmlFor="email">Work email</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              required
+              placeholder="you@airwrightmidland.co.uk"
+              autoComplete="email"
+            />
+          </div>
+          <div>
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              required
+              minLength={6}
+              placeholder={isSignup ? "At least 6 characters" : "••••••••"}
+              autoComplete={isSignup ? "new-password" : "current-password"}
+            />
+          </div>
+          <Button type="submit" className="w-full">
+            {isSignup ? "Create account" : "Sign in"}
+          </Button>
+        </form>
+
+        <p className="mt-6 text-center text-xs text-ink-muted">
+          {isSignup ? (
+            <>
+              Already have an account?{" "}
+              <Link href="/login" className="font-medium text-ink hover:underline">
+                Sign in
+              </Link>
+            </>
+          ) : (
+            <>
+              Need an account?{" "}
+              <Link
+                href="/login?mode=signup"
+                className="font-medium text-ink hover:underline"
+              >
+                Create one
+              </Link>
+            </>
+          )}
+        </p>
       </div>
     </div>
   );
