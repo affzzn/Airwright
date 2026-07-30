@@ -13,11 +13,16 @@ export async function GET(request: NextRequest) {
     const user = data.user;
     if (user?.email) {
       // Mirror the Supabase auth user into our User table on first login.
-      await prisma.user.upsert({
-        where: { id: user.id },
-        create: { id: user.id, email: user.email },
-        update: { email: user.email },
-      });
+      // Never let a DB hiccup break sign-in — log and continue.
+      try {
+        await prisma.user.upsert({
+          where: { id: user.id },
+          create: { id: user.id, email: user.email },
+          update: { email: user.email },
+        });
+      } catch (err) {
+        console.error("[auth/callback] user upsert failed:", err);
+      }
     }
   }
 
