@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Airwright design tokens — strictly monochrome, light mode.
+  One near-black ink, a three-step neutral surface ladder, hairline borders.
+  No colour anywhere. Depth comes from surface + hairline, never shadow.
+*/
+:root {
+  --canvas: #ffffff;
+  --surface: #fafafa;
+  --surface-2: #f4f4f5;
+  --ink: #18181b;
+  --ink-muted: #6b6b70;
+  --ink-subtle: #9b9ba1;
+  --hairline: #e7e7e9;
+  --hairline-strong: #d6d6d9;
+}
+
+@layer base {
+  * {
+    border-color: var(--hairline);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    background: var(--ink);
+    color: var(--canvas);
+  }
+}
+
+@layer utilities {
+  /* Uppercase micro-label used for section eyebrows and table headers. */
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-subtle);
+  }
+}

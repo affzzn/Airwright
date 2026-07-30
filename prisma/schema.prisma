@@ -1,0 +1,495 @@
+// ============================================================
+// Airwright — Build 1 (Quote & Take-off Engine) — Prisma schema
+// Operation-level staged take-off, dimension-traceable measurements, two modes.
+//
+// Pipeline this models:
+//   Extraction → Measurements + WallSegments (traceable, per-field confidence)
+//   → [Colin confirms] → ScaffoldOperations (typed, staged, priced)
+//   → per Plot + config + RateCard → QuoteLineItems (immutable snapshot)
+//
+// Prisma owns schema/migrations. Supabase = Postgres, Auth, Storage only.
+// See docs/04-data-model.md for the full explanation.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (PgBouncer) for the app
+  directUrl = env("DIRECT_URL")   // direct (5432) for migrations + pg-boss
+}
+
+// ---------- Enums ----------
+enum Role {
+  ESTIMATOR
+  ADMIN
+  VIEWER
+}
+
+enum EstimatingMode {
+  HOUSE_BUILD
+  CONSTRUCTION
+}
+
+enum RateBand {
+  SUPER_COMPETITIVE
+  COMPETITIVE
+  MEDIUM
+  HIGH
+  CUSTOM
+}
+
+enum BuildType {
+  TRADITIONAL
+  TIMBER_FRAME
+}
+
+enum Configuration {
+  DETACHED
+  SEMI_DETACHED
+  END_TERRACE
+  MID_TERRACE
+}
+
+enum AccessType {
+  HAKI_STAIR
+  LADDER_TOWER
+}
+
+enum GarageType {
+  SINGLE
+  TWIN
+}
+
+enum DocumentKind {
+  ELEVATION
+  FLOOR_PLAN
+  PLOT_LAYOUT
+  SPEC
+  PRICING_TEMPLATE
+  OTHER
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReviewStatus {
+  DRAFT
+  IN_REVIEW
+  CONFIRMED
+}
+
+enum QuoteType {
+  HOUSEBUILDING
+  CONSTRUCTION
+}
+
+enum QuoteStatus {
+  DRAFT
+  SUBMITTED
+  WON
+  LOST
+}
+
+enum FieldSource {
+  AI_EXTRACTED
+  MANUAL
+  EDITED
+  DERIVED
+}
+
+enum Unit {
+  LM
+  M2
+  EACH
+  LIFT
+  WEEK
+}
+
+// What the AI reads off the elevations (review / provenance layer)
+enum MeasurementKey {
+  HEIGHT_TO_SOFFIT
+  ROOF_PITCH
+  STOREYS
+  LIFTS
+  GABLE_QTY
+  RENDER_LENGTH
+  BIRDCAGE_GF_M2
+  BIRDCAGE_FF_M2
+  LOW_LEVEL_QTY
+  FOOT_SCAFFOLD_QTY
+  CORNER_COUNT
+  OTHER
+}
+
+enum WallPosition {
+  FRONT
+  REAR
+  GABLE_LEFT
+  GABLE_RIGHT
+  OTHER
+}
+
+// The priced components in the staged take-off (engine layer)
+enum ScaffoldComponent {
+  LIFT
+  GABLE
+  GABLE_RAILS
+  RENDER_ADAPTION
+  BIRDCAGE_GF
+  BIRDCAGE_FF
+  LOADING_BAY
+  HAKI
+  LADDER_TOWER
+  RUBBISH_CHUTE
+  TABLE_LIFT
+  JOIST_SUPPORT
+  FOOT_SCAFFOLD
+  LOW_LEVEL
+  PARTY_WALL
+  CONSTRUCTION_LINE
+  OTHER
+}
+
+enum OperationAction {
+  ERECT
+  DISMANTLE
+}
+
+enum OperationGroup {
+  MAIN
+  GARAGE
+}
+
+// ---------- Users (mirrors Supabase auth.users) ----------
+model User {
+  id        String     @id @db.Uuid
+  email     String     @unique
+  name      String?
+  role      Role       @default(ESTIMATOR)
+  createdAt DateTime   @default(now())
+  auditLogs AuditLog[]
+}
+
+// ---------- Org ----------
+model Client {
+  id          String      @id @default(cuid())
+  name        String
+  defaultBand RateBand    @default(MEDIUM)
+  createdAt   DateTime    @default(now())
+  projects    Project[]
+  houseTypes  HouseType[]
+}
+
+model Project {
+  id             String             @id @default(cuid())
+  clientId       String
+  client         Client             @relation(fields: [clientId], references: [id])
+  name           String
+  reference      String?
+  estimatingMode EstimatingMode     @default(HOUSE_BUILD)
+  status         String             @default("TENDER")
+  createdAt      DateTime           @default(now())
+  packs          TenderPack[]
+  houseTypes     HouseType[]
+  plots          Plot[]
+  quotes         Quote[]
+  construction   ConstructionScope?
+  @@index([clientId])
+}
+
+// ---------- Documents & extraction ----------
+model TenderPack {
+  id         String     @id @default(cuid())
+  projectId  String
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version    Int        @default(1)
+  receivedAt DateTime   @default(now())
+  documents  Document[]
+  @@index([projectId])
+}
+
+model Document {
+  id            String       @id @default(cuid())
+  packId        String
+  pack          TenderPack   @relation(fields: [packId], references: [id], onDelete: Cascade)
+  kind          DocumentKind @default(OTHER)
+  fileName      String
+  storageBucket String       @default("tender-packs")
+  storagePath   String
+  mimeType      String
+  pageCount     Int?
+  sizeBytes     Int?
+  isReadable    Boolean      @default(true)
+  isRasterOnly  Boolean      @default(false)
+  uploadedAt    DateTime     @default(now())
+  extractions   Extraction[]
+  @@index([packId])
+  @@index([kind])
+}
+
+model Extraction {
+  id            String           @id @default(cuid())
+  documentId    String
+  document      Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  houseTypeId   String?
+  houseType     HouseType?       @relation(fields: [houseTypeId], references: [id], onDelete: SetNull)
+  pageRange     String?
+  model         String
+  promptVersion String
+  schemaVersion String?
+  status        ExtractionStatus @default(PENDING)
+  rawOutput     Json?
+  errorMessage  String?
+  latencyMs     Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  costUsd       Decimal?         @db.Decimal(10, 4)
+  createdAt     DateTime         @default(now())
+  seededTakeoff Takeoff?         @relation("TakeoffSeed")
+  @@index([documentId])
+  @@index([houseTypeId])
+  @@index([status])
+}
+
+// ---------- House type (first-class identity: builder + code) ----------
+model HouseType {
+  id          String       @id @default(cuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clientId    String
+  client      Client       @relation(fields: [clientId], references: [id])
+  name        String
+  code        String?
+  buildType   BuildType?
+  createdAt   DateTime     @default(now())
+  extractions Extraction[]
+  takeoff     Takeoff?
+  plots       Plot[]
+  @@unique([projectId, code])
+  @@index([projectId])
+  @@index([clientId, code])
+}
+
+// ---------- Take-off ----------
+model Takeoff {
+  id               String               @id @default(cuid())
+  houseTypeId      String               @unique
+  houseType        HouseType            @relation(fields: [houseTypeId], references: [id], onDelete: Cascade)
+  seedExtractionId String?              @unique
+  seedExtraction   Extraction?          @relation("TakeoffSeed", fields: [seedExtractionId], references: [id], onDelete: SetNull)
+  status           ReviewStatus         @default(DRAFT)
+  warnings         Json?
+  confirmedById    String?              @db.Uuid
+  confirmedAt      DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  measurements     TakeoffMeasurement[]
+  wallSegments     WallSegment[]
+  operations       ScaffoldOperation[]
+  @@index([houseTypeId])
+}
+
+model TakeoffMeasurement {
+  id              String         @id @default(cuid())
+  takeoffId       String
+  takeoff         Takeoff        @relation(fields: [takeoffId], references: [id], onDelete: Cascade)
+  key             MeasurementKey
+  label           String?
+  valueNumber     Decimal?       @db.Decimal(10, 3)
+  valueText       String?
+  unit            Unit?
+  aiValue         String?
+  confidence      Float?
+  source          FieldSource    @default(AI_EXTRACTED)
+  sourceSheet     String?
+  sourceDimension String?
+  ambiguous       Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  @@unique([takeoffId, key])
+  @@index([takeoffId])
+}
+
+model WallSegment {
+  id              String       @id @default(cuid())
+  takeoffId       String
+  takeoff         Takeoff      @relation(fields: [takeoffId], references: [id], onDelete: Cascade)
+  position        WallPosition @default(OTHER)
+  label           String?
+  lengthM         Decimal      @db.Decimal(7, 3)
+  aiLengthM       Decimal?     @db.Decimal(7, 3)
+  shareable       Boolean      @default(false)
+  confidence      Float?
+  source          FieldSource  @default(AI_EXTRACTED)
+  sourceSheet     String?
+  sourceDimension String?
+  ambiguous       Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  @@index([takeoffId])
+}
+
+model ScaffoldOperation {
+  id         String            @id @default(cuid())
+  takeoffId  String
+  takeoff    Takeoff           @relation(fields: [takeoffId], references: [id], onDelete: Cascade)
+  group      OperationGroup    @default(MAIN)
+  garageType GarageType?
+  component  ScaffoldComponent
+  action     OperationAction
+  liftLevel  Int?
+  quantity   Decimal           @db.Decimal(10, 2)
+  aiQuantity Decimal?          @db.Decimal(10, 2)
+  unit       Unit
+  derived    Boolean           @default(false)
+  confidence Float?
+  source     FieldSource       @default(AI_EXTRACTED)
+  note       String?
+  createdAt  DateTime          @default(now())
+  @@index([takeoffId])
+  @@index([component, action])
+}
+
+// ---------- Plots ----------
+model Plot {
+  id            String          @id @default(cuid())
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  houseTypeId   String
+  houseType     HouseType       @relation(fields: [houseTypeId], references: [id], onDelete: Restrict)
+  plotNumber    String
+  configuration Configuration   @default(DETACHED)
+  blockGroup    String?
+  isRendered    Boolean         @default(false)
+  accessType    AccessType?
+  hasGarage     Boolean         @default(false)
+  garageType    GarageType?
+  specNotes     String?
+  createdAt     DateTime        @default(now())
+  quoteLines    QuoteLineItem[]
+  @@unique([projectId, plotNumber])
+  @@index([projectId])
+  @@index([houseTypeId])
+}
+
+// ---------- Rates (versioned) ----------
+model RateCard {
+  id            String         @id @default(cuid())
+  name          String
+  mode          EstimatingMode @default(HOUSE_BUILD)
+  effectiveFrom DateTime
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  items         RateItem[]
+  stageSplits   StageSplit[]
+  quotes        Quote[]
+}
+
+model RateItem {
+  id         String            @id @default(cuid())
+  rateCardId String
+  rateCard   RateCard          @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+  component  ScaffoldComponent
+  action     OperationAction   @default(ERECT)
+  band       RateBand
+  unit       Unit
+  rate       Decimal           @db.Decimal(10, 2)
+  payPercent Decimal?          @db.Decimal(5, 2)
+  @@unique([rateCardId, component, action, band])
+  @@index([rateCardId])
+}
+
+model StageSplit {
+  id         String   @id @default(cuid())
+  rateCardId String
+  rateCard   RateCard @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+  name       String
+  percent    Decimal  @db.Decimal(5, 2)
+  sortOrder  Int      @default(0)
+  @@index([rateCardId])
+}
+
+model ConstructionRateItem {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  name      String
+  category  String?
+  unit      Unit
+  band      RateBand?
+  rate      Decimal   @db.Decimal(10, 2)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+}
+
+model ConstructionScope {
+  id               String   @id @default(cuid())
+  projectId        String   @unique
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  hireWeeks        Int?
+  permits          String?
+  access           String?
+  groundConditions String?
+  notes            String?
+  createdAt        DateTime @default(now())
+}
+
+// ---------- Quote / output (immutable snapshot) ----------
+model Quote {
+  id          String          @id @default(cuid())
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rateCardId  String?
+  rateCard    RateCard?       @relation(fields: [rateCardId], references: [id], onDelete: SetNull)
+  type        QuoteType       @default(HOUSEBUILDING)
+  band        RateBand        @default(MEDIUM)
+  version     Int             @default(1)
+  status      QuoteStatus     @default(DRAFT)
+  total       Decimal         @default(0) @db.Decimal(12, 2)
+  createdById String?         @db.Uuid
+  createdAt   DateTime        @default(now())
+  lineItems   QuoteLineItem[]
+  @@index([projectId])
+  @@index([status])
+}
+
+model QuoteLineItem {
+  id          String             @id @default(cuid())
+  quoteId     String
+  quote       Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  plotId      String?
+  plot        Plot?              @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  description String
+  component   ScaffoldComponent?
+  action      OperationAction?
+  liftLevel   Int?
+  group       OperationGroup     @default(MAIN)
+  stage       String?
+  quantity    Decimal            @db.Decimal(10, 2)
+  unit        Unit
+  rate        Decimal            @db.Decimal(10, 2)
+  amount      Decimal            @db.Decimal(12, 2)
+  hireWeeks   Int?
+  createdAt   DateTime           @default(now())
+  @@index([quoteId])
+  @@index([plotId])
+}
+
+// ---------- Audit ----------
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  entity    String
+  entityId  String
+  action    String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+  @@index([entity, entityId])
+  @@index([userId])
+}

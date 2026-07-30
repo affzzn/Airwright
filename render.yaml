@@ -1,0 +1,30 @@
+# Render blueprint — two services in the same region as Supabase (EU/Frankfurt).
+# Set the secret env vars (DATABASE_URL, DIRECT_URL, SUPABASE_*, ANTHROPIC_API_KEY)
+# in the Render dashboard or an env group; they are intentionally not committed.
+services:
+  # Next.js web app
+  - type: web
+    name: airwright-web
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - fromGroup: airwright-secrets
+
+  # pg-boss extraction worker (separate process, connects on DIRECT_URL)
+  - type: worker
+    name: airwright-worker
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci && npm run db:generate
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - fromGroup: airwright-secrets
