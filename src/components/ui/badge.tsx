@@ -29,13 +29,32 @@ export function Badge({
   );
 }
 
-/** Confidence rendered without colour: fill weight encodes certainty. */
-export function ConfidenceBadge({ value }: { value: number | null }) {
-  if (value === null || value === 0)
-    return <Badge variant="dashed">unknown</Badge>;
-  if (value >= 0.85) return <Badge variant="solid">high</Badge>;
-  if (value >= 0.6) return <Badge variant="muted">medium</Badge>;
-  return <Badge variant="outline">low</Badge>;
+function confidenceLabel(value: number | null): string {
+  if (value === null || value === 0) return "unknown";
+  if (value >= 0.85) return "high";
+  if (value >= 0.6) return "medium";
+  return "low";
+}
+
+/**
+ * Subtle monochrome confidence indicator: a small dot whose fill encodes
+ * certainty. Hover shows the level via a native tooltip — no visible label.
+ */
+export function ConfidenceDot({ value }: { value: number | null }) {
+  const label = confidenceLabel(value);
+  const styles: Record<string, string> = {
+    high: "bg-ink",
+    medium: "bg-ink-subtle",
+    low: "border border-hairline-strong",
+    unknown: "border border-dashed border-hairline-strong",
+  };
+  return (
+    <span
+      title={`Confidence: ${label}`}
+      aria-label={`Confidence: ${label}`}
+      className={cn("inline-block h-1.5 w-1.5 rounded-full", styles[label])}
+    />
+  );
 }
 
 const STATUS_LABEL: Record<string, string> = {

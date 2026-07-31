@@ -67,7 +67,9 @@ export const extractionResultSchema = z.object({
     .describe("Individual external wall lengths that make up the perimeter."),
   notes: z
     .string()
-    .describe("Any ambiguity you resolved, e.g. wall line vs overhang, or pages skipped."),
+    .describe(
+      "Short, useful notes only (max 2-3 sentences): assumptions made, ambiguities resolved, an orientation caveat, or fields you couldn't read. No obvious restatements, no reasoning steps, no lists of skipped sheets. Empty if nothing useful.",
+    ),
 });
 
 export type ExtractionResult = z.infer<typeof extractionResultSchema>;

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { createSignedUrl } from "@/lib/supabase/storage";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { Badge, ConfidenceBadge } from "@/components/ui/badge";
+import { Badge, ConfidenceDot } from "@/components/ui/badge";
 import { PdfViewerClient } from "@/components/pdf-viewer-client";
 
 export const dynamic = "force-dynamic";
@@ -136,11 +136,11 @@ export default async function ReviewPage({
                     <dt className="text-sm text-ink-muted">
                       {MEASUREMENT_LABEL[m.key] ?? m.key}
                     </dt>
-                    <dd className="flex items-center gap-3">
+                    <dd className="flex items-center gap-2.5">
                       <span className="text-sm font-medium tabular-nums text-ink">
                         {m.valueNumber !== null ? String(m.valueNumber) : "—"}
                       </span>
-                      <ConfidenceBadge value={m.confidence} />
+                      <ConfidenceDot value={m.confidence} />
                     </dd>
                   </div>
                 ))}
@@ -175,11 +175,11 @@ export default async function ReviewPage({
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5">
                       <span className="text-sm font-medium tabular-nums text-ink">
                         {String(w.lengthM)} m
                       </span>
-                      <ConfidenceBadge value={w.confidence} />
+                      <ConfidenceDot value={w.confidence} />
                     </div>
                   </li>
                 ))}
