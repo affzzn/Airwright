@@ -8,7 +8,9 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    buildCommand: npm ci && npm run build
+    # --include=dev: Render sets NODE_ENV=production, which would otherwise make
+    # npm skip devDeps (tailwind, typescript, prisma) needed to build.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start
     healthCheckPath: /login
     envVars:
@@ -22,7 +24,9 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    buildCommand: npm ci && npm run db:generate
+    # tsx (used to run the worker) is a devDep — include dev deps at build so it
+    # is present at runtime too (build and runtime share the filesystem).
+    buildCommand: npm ci --include=dev && npm run db:generate
     startCommand: npm run worker
     envVars:
       - key: NODE_VERSION
