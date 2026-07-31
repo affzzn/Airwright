@@ -83,8 +83,9 @@ export default async function ReviewPage({
             {extraction.houseType?.name ?? "Extraction"}
           </h1>
           <p className="mt-1 text-sm text-ink-subtle">
-            {extraction.document.fileName} · pages{" "}
-            {extraction.pageRange ?? "all"}
+            {extraction.document.fileName} · AI read pages{" "}
+            {extraction.pageRange ?? "all"} of {extraction.document.pageCount}{" "}
+            (elevations, floor plans, section)
           </p>
         </div>
         <Badge variant="muted">

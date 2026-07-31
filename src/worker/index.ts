@@ -20,7 +20,12 @@ import {
 } from "@/lib/queue/jobs";
 import { prisma } from "@/lib/db";
 import { downloadFromStorage } from "@/lib/supabase/storage";
-import { slicePdf, parsePageRange } from "@/lib/pdf";
+import {
+  slicePages,
+  buildRangeString,
+  MAX_PAGES_PER_EXTRACTION,
+} from "@/lib/pdf";
+import { classifyPdf, selectRelevantPages } from "@/lib/extract/classify";
 import { extractDrawing } from "@/lib/extract/extractDrawing";
 import { persistExtraction } from "@/lib/extract/persist";
 
@@ -43,12 +48,31 @@ async function handleJob(raw: ExtractDrawingJob) {
 
   try {
     const doc = extraction.document;
-    let pdf = await downloadFromStorage(doc.storagePath);
+    const fullPdf = await downloadFromStorage(doc.storagePath);
+    const totalPages = doc.pageCount ?? 0;
 
-    if (pageRange) {
-      const { start, end } = parsePageRange(pageRange);
-      pdf = await slicePdf(pdf, start, end);
+    // Classify pages from the text layer (free) and keep only the relevant
+    // sheets — elevations, floor plans, section — before sending to Claude.
+    let chosenPages: number[];
+    const { pages, hasText } = await classifyPdf(fullPdf).catch(() => ({
+      pages: [],
+      hasText: false,
+    }));
+    const relevant = selectRelevantPages(pages);
+
+    if (hasText && relevant.length > 0) {
+      chosenPages = relevant.slice(0, MAX_PAGES_PER_EXTRACTION);
+    } else {
+      // Scanned/raster PDF or nothing matched — fall back to the first pages.
+      const n = Math.min(totalPages || 1, MAX_PAGES_PER_EXTRACTION);
+      chosenPages = Array.from({ length: n }, (_, i) => i + 1);
     }
+
+    const usedRange = pageRange ?? buildRangeString(chosenPages);
+    const pdf = await slicePages(fullPdf, chosenPages);
+    console.log(
+      `[worker] ${doc.fileName}: sending ${chosenPages.length}/${totalPages} pages (${usedRange}) to Claude`,
+    );
 
     const { data, meta } = await extractDrawing(pdf);
 
@@ -56,6 +80,7 @@ async function handleJob(raw: ExtractDrawingJob) {
       where: { id: extractionId },
       data: {
         status: "COMPLETED",
+        pageRange: usedRange,
         rawOutput: meta.raw as object,
         model: meta.model,
         promptVersion: meta.promptVersion,

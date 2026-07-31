@@ -51,3 +51,39 @@ export function parsePageRange(range: string): { start: number; end: number } {
   const [a, b] = range.split("-").map((n) => parseInt(n, 10));
   return { start: a, end: b ?? a };
 }
+
+/** Copy an arbitrary (non-contiguous) set of 1-indexed pages into a new PDF. */
+export async function slicePages(
+  buffer: Buffer,
+  pages: number[],
+): Promise<Buffer> {
+  const src = await PDFDocument.load(buffer, { updateMetadata: false });
+  const out = await PDFDocument.create();
+  const total = src.getPageCount();
+  const indices = pages
+    .filter((p) => p >= 1 && p <= total)
+    .map((p) => p - 1);
+  const copied = await out.copyPages(src, indices);
+  copied.forEach((p) => out.addPage(p));
+  const bytes = await out.save();
+  return Buffer.from(bytes);
+}
+
+/** Compress a list of page numbers into a compact string, e.g. [1,2,3,10,11,13] → "1-3,10-11,13". */
+export function buildRangeString(pages: number[]): string {
+  if (pages.length === 0) return "";
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) {
+      prev = sorted[i];
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+    start = prev = sorted[i];
+  }
+  parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return parts.join(",");
+}

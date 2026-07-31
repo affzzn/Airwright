@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { uploadToStorage } from "@/lib/supabase/storage";
 import { getBoss } from "@/lib/queue/boss";
 import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
-import { getPdfPageCount, planPageRanges } from "@/lib/pdf";
+import { getPdfPageCount } from "@/lib/pdf";
 import { env } from "@/lib/env";
 
 /**
@@ -50,24 +50,22 @@ export async function uploadDocuments(packId: string, formData: FormData) {
     // Unreadable PDFs skip extraction and wait for manual handling.
     if (pageCount === null) continue;
 
-    const ranges = planPageRanges(pageCount);
-    for (const pageRange of ranges) {
-      const extraction = await prisma.extraction.create({
-        data: {
-          documentId: document.id,
-          pageRange,
-          model: env.extractionModel,
-          promptVersion: "pending",
-          status: "PENDING",
-        },
-      });
-
-      await boss.send(EXTRACT_DRAWING_QUEUE, {
+    // One extraction per document. The worker classifies the pages (free, from
+    // the text layer) and sends ONLY the relevant sheets to Claude.
+    const extraction = await prisma.extraction.create({
+      data: {
         documentId: document.id,
-        extractionId: extraction.id,
-        pageRange,
-      });
-    }
+        model: env.extractionModel,
+        promptVersion: "pending",
+        status: "PENDING",
+      },
+    });
+
+    await boss.send(EXTRACT_DRAWING_QUEUE, {
+      documentId: document.id,
+      extractionId: extraction.id,
+      pageRange: null,
+    });
   }
 
   const pack = await prisma.tenderPack.findUnique({ where: { id: packId } });
