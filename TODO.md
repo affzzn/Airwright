@@ -16,11 +16,13 @@ Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-
 - [x] Persist per-page classification (`DocumentPage`, +PLOT_LAYOUT/SPEC); segment a
       pack into house types by builder+code (one Extraction per house type).
 - [x] Detect embedded-raster PDFs (no text layer) and flag for a human (`needsReview`).
-- [ ] Plot-list ingestion: read the PLOT_LAYOUT sheet → map each plot → house-type code
-      + configuration (detached / semi / end-terrace / mid-terrace) → create Plot rows.
-- [ ] Pack browse / detail view: list all house types + plots + statuses in one place.
-- [ ] Broaden classifier + house-type-code parsing beyond the Miller-style title block.
-- [ ] Verify end-to-end on a REAL multi-house-type pack (only have single-type Chesterwood).
+- [x] Plot-list ingestion: read the PLOT_LAYOUT sheet → map each plot → house-type code
+      + configuration → create Plot rows (`extractPlotList` + `persistPlots`).
+- [x] Pack browse view: house types + plots table (plot/type/config/render) on project page.
+- [ ] Broaden classifier + house-type-code + plot-list parsing beyond Miller-style packs.
+- [ ] Verify end-to-end on a REAL multi-house-type pack + a real plot list / site plan
+      (only have single-type Chesterwood; plot ingestion is unit-tested but AI part unproven).
+- [ ] Plot configuration often can't be read from a site plan — add a human review/edit step.
 
 ## Week 3 — Drawings + plot list → staged take-off
 

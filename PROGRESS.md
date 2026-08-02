@@ -28,8 +28,17 @@ Last updated: 2026-08-02
 - **Assumption (no real multi-type pack yet)**: each house type's pages live within
   one document; house-type code comes from the Miller-style portfolio line. Covered
   by unit tests with a synthetic 2-type fixture (`segment.test.ts`).
-- **NOT yet**: plot-list ingestion (plot → type + config), pack browse/detail view.
-  These are Week 2 steps 5-6.
+- **Plot-list ingestion (step 5)**: `extract-plot-list` job reads PLOT_LAYOUT pages
+  with Claude → plot → house-type code/name → configuration; `persistPlots` matches
+  each plot to its house type (code, then name; stub if the drawing wasn't in the pack)
+  and upserts Plot rows. Shared `claude.ts` tool-call helper now backs both extractors.
+- **Pack browse view (step 6)**: project page shows a Plots table (plot / house type /
+  config / render, natural-sorted) + plot counts per house type.
+- **Still assumption-based / unproven**: plot config often can't be read reliably from a
+  site-plan drawing (needs a human edit step, Week 4); AI plot extraction unverified
+  without a real plot list. Matching logic is unit-tested.
+- **Week 2 remaining**: broaden classifier/parsers beyond Miller-style packs; verify on a
+  real multi-type pack + real plot list.
 
 ### Done (working end to end, locally)
 
