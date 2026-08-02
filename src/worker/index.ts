@@ -8,16 +8,21 @@ import { getBoss } from "@/lib/queue/boss";
 import {
   PROCESS_PACK_QUEUE,
   EXTRACT_DRAWING_QUEUE,
+  EXTRACT_PLOT_LIST_QUEUE,
   processPackJobSchema,
   extractDrawingJobSchema,
+  extractPlotListJobSchema,
   type ProcessPackJob,
   type ExtractDrawingJob,
+  type ExtractPlotListJob,
 } from "@/lib/queue/jobs";
 import { prisma } from "@/lib/db";
 import { downloadFromStorage } from "@/lib/supabase/storage";
 import { slicePages, parseRangeString } from "@/lib/pdf";
 import { extractDrawing } from "@/lib/extract/extractDrawing";
+import { extractPlotList } from "@/lib/extract/extractPlotList";
 import { persistExtraction } from "@/lib/extract/persist";
+import { persistPlots } from "@/lib/extract/persistPlots";
 import { processPack } from "./processPack";
 
 // --- process-pack: ingest + classify + segment + fan out ---------------------
@@ -91,6 +96,35 @@ async function handleExtract(raw: ExtractDrawingJob) {
   }
 }
 
+// --- extract-plot-list: read the plot → house-type → config map --------------
+
+async function handlePlotList(raw: ExtractPlotListJob) {
+  const { documentId, pageRange } = extractPlotListJobSchema.parse(raw);
+
+  const doc = await prisma.document.findUnique({
+    where: { id: documentId },
+    include: { pack: { include: { project: true } } },
+  });
+  if (!doc) throw new Error(`Document ${documentId} not found`);
+
+  const fullPdf = await downloadFromStorage(doc.storagePath);
+  const pageNumbers =
+    pageRange && pageRange.length > 0
+      ? parseRangeString(pageRange)
+      : Array.from({ length: doc.pageCount ?? 1 }, (_, i) => i + 1);
+  const pdf = await slicePages(fullPdf, pageNumbers);
+
+  const { data, meta } = await extractPlotList(pdf);
+  const { created } = await persistPlots(
+    doc.pack.project.id,
+    doc.pack.project.clientId,
+    data,
+  );
+  console.log(
+    `[worker] plot list ${documentId}: ${created} plots in ${meta.latencyMs}ms ($${meta.costUsd.toFixed(4)})`,
+  );
+}
+
 async function main() {
   const boss = await getBoss();
 
@@ -108,8 +142,15 @@ async function main() {
     },
   );
 
+  await boss.work<ExtractPlotListJob>(
+    EXTRACT_PLOT_LIST_QUEUE,
+    async (jobs: PgBoss.Job<ExtractPlotListJob>[]) => {
+      for (const job of jobs) await handlePlotList(job.data);
+    },
+  );
+
   console.log(
-    `[worker] listening on "${PROCESS_PACK_QUEUE}" and "${EXTRACT_DRAWING_QUEUE}"`,
+    `[worker] listening on "${PROCESS_PACK_QUEUE}", "${EXTRACT_DRAWING_QUEUE}", "${EXTRACT_PLOT_LIST_QUEUE}"`,
   );
 }
 
