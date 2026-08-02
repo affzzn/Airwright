@@ -4,9 +4,19 @@ Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-
 
 ## Now / small
 
-- [ ] Unit-test the page classifier (`src/lib/extract/classify.ts`) with sample title strings.
-- [ ] Broaden the classifier across builders (not just Miller-style title blocks).
-- [ ] Deploy to Render (web + worker) — steps in `docs/06-setup.md`. Then set
+- [ ] **Decide the Render deploy path** (Background Workers have NO free tier — $7/mo
+      minimum; Web Services do). Options: (a) pay $7/mo Starter for a proper always-on
+      worker — `render.yaml` already has this two-service setup, just deploy it; or
+      (b) combine web+worker into one free Web Service (`concurrently`) + an external
+      uptime pinger (e.g. UptimeRobot) to fight the 15-min sleep. (a) is cleaner/more
+      reliable; (b) is $0 but extractions stall while asleep. **User to choose.**
+- [x] Unit-test the plot/segmentation logic (`segment.test.ts`, `persistPlots.test.ts`).
+      `classify.ts`'s title-parsing itself still has no direct unit tests (only tested
+      indirectly via `segment.test.ts`'s `extractHouseTypeRef` cases) — could add more.
+- [ ] Broaden the classifier + house-type-code + plot-list parsing across builders (not
+      just Miller-style title blocks) — needs real packs from other builders first.
+- [ ] Deploy to Render — steps in `docs/06-setup.md` (written for the two-service path;
+      update if going with the combined free-tier path instead). Then set
       `NEXT_PUBLIC_SITE_URL` + Supabase redirect URLs.
 - [ ] Wire Sentry SDK (currently env-var only).
 

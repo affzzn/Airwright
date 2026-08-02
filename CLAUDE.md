@@ -23,9 +23,13 @@ is ever auto-priced — a person confirms every output.
 
 ## Two processes (important)
 
-1. **Web** — `npm run dev` (the Next.js app; enqueues extraction jobs).
-2. **Worker** — `npm run worker:dev` (consumes the queue, calls Claude). Extraction
-   only happens when the worker is running.
+1. **Web** — `npm run dev` (the Next.js app; uploads go browser→Storage directly via a
+   signed URL, then the app enqueues a `process-pack` job).
+2. **Worker** — `npm run worker:dev` (runs 3 pg-boss job handlers: `process-pack`
+   ingests/classifies/segments a pack, `extract-drawing` and `extract-plot-list` call
+   Claude). Nothing gets read/extracted unless the worker is running.
+
+See `ARCHITECTURE.md` for the full pipeline.
 
 ## Commands
 
@@ -51,6 +55,9 @@ npm run setup:bucket   # create the private Storage bucket
   LISTEN/NOTIFY + advisory locks, which PgBouncer breaks. Prisma uses pooled `DATABASE_URL`.
 - **`src/lib/extract/classify.ts` is worker-only** (imports `pdfjs-dist`). Never import it
   into the Next.js app bundle.
+- **Render Background Workers have NO free tier** (confirmed on render.com/pricing —
+  $7/mo Starter minimum; Web Services do have a free tier but sleep after 15 min idle).
+  This is an open decision before deploying — see `TODO.md`.
 - **Auth**: email + password. For local dev, "Confirm email" is turned OFF in Supabase
   (its built-in email is rate-limited and links get consumed by scanners). Don't reintroduce
   magic-link / OTP.
