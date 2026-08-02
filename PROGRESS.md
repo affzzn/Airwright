@@ -5,9 +5,31 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 ---
 
-## Status: Week 1 of Build 1 — DONE and verified on a real tender pack
+## Status: Week 1 DONE (verified). Week 2 steps 1-2 DONE (unit-tested; needs a real multi-type pack to verify end-to-end).
 
 Last updated: 2026-08-02
+
+### Week 2 progress (steps 1-2 + upload overhaul)
+
+- **Direct-to-Storage uploads** via signed URLs — browser uploads PDFs/ZIPs
+  straight to Supabase, no server body limit (handles large packs). Bucket
+  per-file limit is 50MB (Supabase free-tier cap; raise plan / add resumable
+  uploads for bigger). `src/components/upload-form.tsx`, `actions/upload.ts`.
+- **ZIP support** — a ZIP is unzipped in the worker (fflate) into Document rows.
+- **process-pack job** (`src/worker/processPack.ts`): ingest uploads → classify
+  every page (free) → persist `DocumentPage` rows → segment by house-type code →
+  create one HouseType + one Extraction per code → fan out extraction jobs.
+- **Per-page classification persisted**; added `PLOT_LAYOUT` + `SPEC` page kinds;
+  house-type **code + name** pulled from the title-block portfolio line.
+- **Raster/unreadable PDFs flagged** (`Document.needsReview`), not extracted.
+- **Extraction** now sends the pages segmentation chose (non-contiguous ranges).
+- **Schema**: `PageKind`, `DocumentPage`, `PackUpload`, `Document.needsReview/classifiedAt`.
+  Migration `20260802151150_pack_pages_and_uploads`.
+- **Assumption (no real multi-type pack yet)**: each house type's pages live within
+  one document; house-type code comes from the Miller-style portfolio line. Covered
+  by unit tests with a synthetic 2-type fixture (`segment.test.ts`).
+- **NOT yet**: plot-list ingestion (plot → type + config), pack browse/detail view.
+  These are Week 2 steps 5-6.
 
 ### Done (working end to end, locally)
 
