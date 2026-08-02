@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { env } from "@/lib/env";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatusBadge, Badge } from "@/components/ui/badge";
@@ -21,14 +22,20 @@ export default async function ProjectPage({
     where: { id },
     include: {
       client: true,
+      houseTypes: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          takeoff: { select: { status: true } },
+          extractions: { orderBy: { createdAt: "asc" } },
+        },
+      },
       packs: {
         orderBy: { version: "asc" },
         include: {
+          uploads: true,
           documents: {
             orderBy: { uploadedAt: "desc" },
-            include: {
-              extractions: { orderBy: { createdAt: "asc" } },
-            },
+            include: { pages: { select: { relevant: true } } },
           },
         },
       },
@@ -38,15 +45,21 @@ export default async function ProjectPage({
   if (!project) notFound();
 
   const pack = project.packs[0];
-  const hasInProgress = pack.documents.some((d) =>
-    d.extractions.some(
+  const uploadsPending = pack.uploads.some((u) => u.status === "PENDING");
+  const unclassified = pack.documents.some(
+    (d) => d.classifiedAt === null && d.isReadable,
+  );
+  const extractionsRunning = project.houseTypes.some((ht) =>
+    ht.extractions.some(
       (e) => e.status === "PENDING" || e.status === "PROCESSING",
     ),
   );
+  const processing = uploadsPending || unclassified || extractionsRunning;
 
   return (
     <AppShell>
-      {hasInProgress && <AutoRefresh />}
+      {processing && <AutoRefresh />}
+
       <Link href="/" className="text-sm text-ink-muted hover:text-ink">
         ← Projects
       </Link>
@@ -61,75 +74,113 @@ export default async function ProjectPage({
             ? "Construction"
             : "House build"}{" "}
           · Pack v{pack?.version ?? 1}
+          {processing && " · processing…"}
         </p>
       </div>
 
       <div className="mb-8">
-        <UploadForm packId={pack.id} />
+        <UploadForm packId={pack.id} bucket={env.storageBucket} />
       </div>
 
+      {/* House types */}
+      <Card className="mb-6">
+        <CardHeader className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-ink">House types</h2>
+          <span className="text-xs text-ink-subtle">
+            {project.houseTypes.length}
+          </span>
+        </CardHeader>
+        <CardBody className="p-0">
+          {project.houseTypes.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-ink-subtle">
+              {processing
+                ? "Reading the pack — house types will appear here."
+                : "No house types yet. Upload a tender pack above."}
+            </p>
+          ) : (
+            <ul className="divide-y divide-hairline">
+              {project.houseTypes.map((ht) => {
+                const ex = ht.extractions[ht.extractions.length - 1];
+                return (
+                  <li
+                    key={ht.id}
+                    className="flex items-center justify-between px-5 py-4"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-ink">
+                        {ht.name}
+                        {ht.code && (
+                          <span className="ml-2 text-xs text-ink-subtle">
+                            {ht.code}
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-subtle">
+                        {ex ? `pages ${ex.pageRange ?? "all"}` : "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {ex && <StatusBadge status={ex.status} />}
+                      {ex?.status === "COMPLETED" && (
+                        <Link
+                          href={`/extractions/${ex.id}`}
+                          className="text-xs font-medium text-ink hover:underline"
+                        >
+                          Review →
+                        </Link>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Documents */}
       <Card>
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Documents</h2>
           <span className="text-xs text-ink-subtle">
-            {pack.documents.length} file
-            {pack.documents.length === 1 ? "" : "s"}
+            {pack.documents.length} file{pack.documents.length === 1 ? "" : "s"}
           </span>
         </CardHeader>
         <CardBody className="p-0">
           {pack.documents.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-ink-subtle">
-              No documents uploaded yet.
+              {uploadsPending
+                ? "Unpacking upload…"
+                : "No documents yet."}
             </p>
           ) : (
             <ul className="divide-y divide-hairline">
-              {pack.documents.map((doc) => (
-                <li key={doc.id} className="px-5 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
+              {pack.documents.map((doc) => {
+                const relevant = doc.pages.filter((p) => p.relevant).length;
+                return (
+                  <li key={doc.id} className="px-5 py-4">
+                    <div className="flex items-center justify-between">
                       <p className="truncate text-sm font-medium text-ink">
                         {doc.fileName}
                       </p>
-                      <p className="mt-0.5 text-xs text-ink-subtle">
-                        {doc.pageCount ?? "?"} pages ·{" "}
-                        {doc.sizeBytes ? formatBytes(doc.sizeBytes) : "—"}
-                        {!doc.isReadable && (
-                          <>
-                            {" · "}
-                            <Badge variant="dashed">unreadable — manual</Badge>
-                          </>
-                        )}
-                      </p>
+                      <span className="ml-3 shrink-0 text-xs text-ink-subtle">
+                        {doc.kind.replace("_", " ").toLowerCase()}
+                      </span>
                     </div>
-                  </div>
-
-                  {doc.extractions.length > 0 && (
-                    <ul className="mt-3 space-y-1.5">
-                      {doc.extractions.map((ex) => (
-                        <li
-                          key={ex.id}
-                          className="flex items-center justify-between rounded-md border border-hairline bg-surface px-3 py-2"
-                        >
-                          <span className="text-xs text-ink-muted">
-                            Pages {ex.pageRange ?? "all"}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <StatusBadge status={ex.status} />
-                            {ex.status === "COMPLETED" && (
-                              <Link
-                                href={`/extractions/${ex.id}`}
-                                className="text-xs font-medium text-ink hover:underline"
-                              >
-                                Review →
-                              </Link>
-                            )}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
+                    <p className="mt-0.5 text-xs text-ink-subtle">
+                      {doc.pageCount ?? "?"} pages
+                      {doc.pages.length > 0 && ` · ${relevant} relevant`}
+                      {doc.sizeBytes ? ` · ${formatBytes(doc.sizeBytes)}` : ""}
+                      {doc.needsReview && (
+                        <>
+                          {" · "}
+                          <Badge variant="dashed">needs review</Badge>
+                        </>
+                      )}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardBody>

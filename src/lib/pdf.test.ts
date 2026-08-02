@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { planPageRanges, parsePageRange } from "./pdf";
+import {
+  planPageRanges,
+  parsePageRange,
+  parseRangeString,
+  buildRangeString,
+} from "./pdf";
 
 describe("planPageRanges", () => {
   it("keeps a small pack as one range", () => {
@@ -20,5 +25,18 @@ describe("parsePageRange", () => {
   });
   it("parses a single page", () => {
     expect(parsePageRange("5")).toEqual({ start: 5, end: 5 });
+  });
+});
+
+describe("buildRangeString / parseRangeString", () => {
+  it("compacts page numbers into a range string", () => {
+    expect(buildRangeString([1, 2, 3, 4, 10, 11, 13])).toBe("1-4,10-11,13");
+  });
+  it("expands a range string back into page numbers", () => {
+    expect(parseRangeString("1-4,10-11,13")).toEqual([1, 2, 3, 4, 10, 11, 13]);
+  });
+  it("round-trips", () => {
+    const pages = [2, 3, 7, 8, 9, 20];
+    expect(parseRangeString(buildRangeString(pages))).toEqual(pages);
   });
 });

@@ -52,6 +52,19 @@ export function parsePageRange(range: string): { start: number; end: number } {
   return { start: a, end: b ?? a };
 }
 
+/** Expand a compact range string ("1-4,10-11,13") into page numbers [1,2,3,4,10,11,13]. */
+export function parseRangeString(range: string): number[] {
+  const out: number[] = [];
+  for (const part of range.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const [a, b] = trimmed.split("-").map((n) => parseInt(n, 10));
+    const end = b === undefined || Number.isNaN(b) ? a : b;
+    for (let p = a; p <= end; p++) out.push(p);
+  }
+  return out;
+}
+
 /** Copy an arbitrary (non-contiguous) set of 1-indexed pages into a new PDF. */
 export async function slicePages(
   buffer: Buffer,

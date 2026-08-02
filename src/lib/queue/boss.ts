@@ -1,6 +1,6 @@
 import PgBoss from "pg-boss";
 import { env } from "@/lib/env";
-import { EXTRACT_DRAWING_QUEUE } from "./jobs";
+import { EXTRACT_DRAWING_QUEUE, PROCESS_PACK_QUEUE } from "./jobs";
 
 /**
  * pg-boss singleton. IMPORTANT: pg-boss uses LISTEN/NOTIFY + advisory locks,
@@ -16,6 +16,7 @@ export function getBoss(): Promise<PgBoss> {
       boss.on("error", (err) => console.error("[pg-boss]", err));
       await boss.start();
       // Queues must exist before send/work in pg-boss v10 (idempotent).
+      await boss.createQueue(PROCESS_PACK_QUEUE);
       await boss.createQueue(EXTRACT_DRAWING_QUEUE);
       return boss;
     })();

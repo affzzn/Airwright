@@ -25,6 +25,21 @@ export async function uploadToStorage(
   return path;
 }
 
+/**
+ * Create a signed URL the browser can upload directly to (bypassing the Next
+ * server, so large files upload fast and never hit a body-size limit).
+ */
+export async function createSignedUploadUrl(
+  path: string,
+): Promise<{ token: string; path: string }> {
+  const supabase = serviceClient();
+  const { data, error } = await supabase.storage
+    .from(env.storageBucket)
+    .createSignedUploadUrl(path);
+  if (error) throw new Error(`Signed upload URL failed: ${error.message}`);
+  return { token: data.token, path: data.path };
+}
+
 /** Create a short-lived signed URL for reading a stored object. */
 export async function createSignedUrl(
   path: string,

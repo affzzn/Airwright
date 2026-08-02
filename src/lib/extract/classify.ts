@@ -5,22 +5,34 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
  *
  * House-builder tender packs are mostly irrelevant to a scaffold take-off
  * (electrical, wet-area layouts, schedules, foundations). Every sheet has a
- * title block naming the drawing, so we read the text layer and keep only the
- * elevations, floor plans and section — then send ONLY those pages to Claude.
- * This typically cuts pages sent to the model by ~70%+.
+ * title block naming the drawing and (for house-type drawings) a portfolio
+ * line carrying the house-type code + name — so we read the text layer to:
+ *   1. keep only the sheets a take-off needs (elevations / floor plans / section),
+ *   2. tag plot-layout and spec sheets for their own downstream handling,
+ *   3. attach the house-type code/name so a pack can be segmented by house type.
  *
  * Worker-only (imports pdfjs) — never import into the Next.js app bundle.
  */
 
-export type PageKind = "ELEVATION" | "FLOOR_PLAN" | "SECTION" | "OTHER";
+// Mirrors the Prisma PageKind enum.
+export type PageKind =
+  | "ELEVATION"
+  | "FLOOR_PLAN"
+  | "SECTION"
+  | "PLOT_LAYOUT"
+  | "SPEC"
+  | "OTHER";
 
 export interface PageClass {
   page: number;
   kind: PageKind;
-  relevant: boolean;
+  relevant: boolean; // relevant to a scaffold take-off (elevation/floor plan/section)
+  houseTypeCode: string | null;
+  houseTypeName: string | null;
+  title: string; // human-readable drawing title, for display
 }
 
-const RELEVANT_KINDS: PageKind[] = ["ELEVATION", "FLOOR_PLAN", "SECTION"];
+const TAKEOFF_KINDS: PageKind[] = ["ELEVATION", "FLOOR_PLAN", "SECTION"];
 
 /** Strip everything but A-Z0-9 and uppercase — for robust keyword matching. */
 function compact(s: string): string {
@@ -28,19 +40,18 @@ function compact(s: string): string {
 }
 
 /**
- * The drawing title sits in the title block: after the "drawn" date
- * (dd.mm.yy) and before the portfolio code ("L464 - 4B ..."). We take the
- * LAST such match, which is the title block near the end of the page. This is
- * far more reliable than scanning the whole page (body text like "FOUNDATIONS
- * ARE INDICATIVE" on a section sheet would otherwise cause false matches).
+ * The drawing title sits in the title block: after the "drawn" date (dd.mm.yy)
+ * and before the portfolio code ("L464 - 4B ..."). We take the LAST such match
+ * (the title block near the end), so body text doesn't cause false matches.
+ * Returns the raw (spaced) title for display.
  */
-function drawingTitle(raw: string): string {
+function drawingTitleRaw(raw: string): string {
   const up = raw.toUpperCase().replace(/\s+/g, " ");
   const re = /\d{2}\.\d{2}\.\d{2}\s+(.+?)\s+L\d+\s*-\s*\d/g;
   let match: RegExpExecArray | null;
   let last = "";
   while ((match = re.exec(up)) !== null) last = match[1];
-  return compact(last);
+  return last.trim();
 }
 
 /** Fallback for sheets without the standard title block: letter-spaced label. */
@@ -49,19 +60,45 @@ function labelText(raw: string): string {
   return compact(matches.join(" "));
 }
 
-function classify(raw: string): PageKind {
-  const title = drawingTitle(raw) || labelText(raw);
+/**
+ * House-type code + name from the portfolio line, e.g.
+ * "L464 - 4B / 8P / 1337 - CHESTERWOOD 2024 NATIONAL PORTFOLIO" → {1337, CHESTERWOOD}.
+ */
+export function extractHouseTypeRef(raw: string): {
+  code: string | null;
+  name: string | null;
+} {
+  const up = raw.toUpperCase().replace(/\s+/g, " ");
+  const m = up.match(
+    /(\d{3,4})\s*-\s*([A-Z][A-Z'\- ]+?)\s+(?:\d{4}\s+)?NATIONAL PORTFOLIO/,
+  );
+  if (m) return { code: m[1], name: m[2].trim().replace(/\s+/g, " ") };
+  return { code: null, name: null };
+}
 
-  // Exclusions first — the sheets a scaffold take-off does NOT need.
+function classifyTitle(title: string): PageKind {
+  // Exclusions first — sheets a take-off does NOT need.
   if (title.includes("CUSTOMEROPTION")) return "OTHER";
   if (title.includes("SWIFTBRICK")) return "OTHER";
   if (title.includes("ELECTRICAL")) return "OTHER";
   if (title.includes("FOUNDATION")) return "OTHER";
   if (title.includes("JOIST")) return "OTHER";
-  if (title.includes("LAYOUT")) return "OTHER"; // WC / bathroom / kitchen etc.
-  if (title.includes("SCHEDULE")) return "OTHER"; // window / door / lintel
+  if (title.includes("LAYOUT") && !title.includes("SITE") && !title.includes("PLOT"))
+    return "OTHER"; // WC / bathroom / kitchen layouts
+  if (title.includes("SCHEDULE")) return "OTHER";
 
-  // Inclusions — the sheets it does need.
+  // Non-take-off but useful sheets (tagged for later handling).
+  if (
+    title.includes("SITELAYOUT") ||
+    title.includes("SITEPLAN") ||
+    title.includes("PLOTLAYOUT") ||
+    title.includes("PLANNINGLAYOUT") ||
+    title.includes("PLOTSCHEDULE")
+  )
+    return "PLOT_LAYOUT";
+  if (title.includes("SPECIFICATION")) return "SPEC";
+
+  // Take-off sheets.
   if (title.includes("ELEVATION")) return "ELEVATION";
   if (title.includes("SECTION")) return "SECTION";
   if (title.includes("FLOORPLAN")) return "FLOOR_PLAN";
@@ -92,14 +129,28 @@ export async function classifyPdf(
       )
       .join(" ");
     textChars += raw.replace(/\s/g, "").length;
-    const kind = classify(raw);
-    pages.push({ page: i, kind, relevant: RELEVANT_KINDS.includes(kind) });
+
+    const titleRaw = drawingTitleRaw(raw);
+    const titleKey = compact(titleRaw) || labelText(raw);
+    const kind = classifyTitle(titleKey);
+    const ref = extractHouseTypeRef(raw);
+
+    pages.push({
+      page: i,
+      kind,
+      relevant: TAKEOFF_KINDS.includes(kind),
+      houseTypeCode: ref.code,
+      houseTypeName: ref.name,
+      title: titleRaw || null2str(kind),
+    });
   }
 
-  // If there's almost no text, this is a scanned/raster PDF — classification
-  // isn't reliable and the caller should fall back.
   const hasText = textChars > doc.numPages * 15;
   return { pages, hasText };
+}
+
+function null2str(kind: PageKind): string {
+  return kind === "OTHER" ? "" : kind;
 }
 
 export function selectRelevantPages(pages: PageClass[]): number[] {

@@ -8,52 +8,65 @@ function confToNumber(c: "high" | "medium" | "low" | "unknown"): number {
 }
 
 /**
- * Turn a validated extraction into DB rows: ensure a HouseType + Takeoff exist,
- * then write the measurements and wall segments as the review/provenance layer.
- * Runs inside a transaction so a partial write never leaves an orphan Takeoff.
+ * Write a validated extraction into the take-off for its house type. The house
+ * type is normally created up front by pack segmentation and linked on the
+ * Extraction; if not (single-PDF fallback), we create it from the AI output.
+ * Runs in a transaction so a partial write never leaves an orphan take-off.
  */
 export async function persistExtraction(
   extractionId: string,
-  projectId: string,
-  clientId: string,
   result: ExtractionResult,
 ): Promise<{ houseTypeId: string; takeoffId: string }> {
   return prisma.$transaction(async (tx) => {
-    // 1. Find or create the house type (identity: builder + code, else name).
-    const name = result.houseType.name ?? `Unnamed (${extractionId.slice(0, 6)})`;
-    const code = result.houseType.code ?? null;
-
-    let houseType = await tx.houseType.findFirst({
-      where: code
-        ? { projectId, code }
-        : { projectId, name },
+    const extraction = await tx.extraction.findUniqueOrThrow({
+      where: { id: extractionId },
+      include: {
+        document: { include: { pack: { include: { project: true } } } },
+      },
     });
-    if (!houseType) {
-      houseType = await tx.houseType.create({
-        data: {
-          projectId,
-          clientId,
-          name,
-          code,
-          buildType: result.buildType.value ?? undefined,
-        },
+
+    let houseTypeId = extraction.houseTypeId;
+
+    // Fallback path (single PDF with no pre-segmented house type).
+    if (!houseTypeId) {
+      const project = extraction.document.pack.project;
+      const name = result.houseType.name ?? `Unnamed (${extractionId.slice(0, 6)})`;
+      const code = result.houseType.code ?? null;
+      const existing = await tx.houseType.findFirst({
+        where: code ? { projectId: project.id, code } : { projectId: project.id, name },
+      });
+      const houseType =
+        existing ??
+        (await tx.houseType.create({
+          data: {
+            projectId: project.id,
+            clientId: project.clientId,
+            name,
+            code,
+            buildType: result.buildType.value ?? undefined,
+          },
+        }));
+      houseTypeId = houseType.id;
+      await tx.extraction.update({
+        where: { id: extractionId },
+        data: { houseTypeId },
+      });
+    } else if (result.buildType.value) {
+      // Fill in build type if segmentation didn't know it.
+      await tx.houseType.update({
+        where: { id: houseTypeId },
+        data: { buildType: result.buildType.value },
       });
     }
 
-    // 2. Link this extraction to the house type.
-    await tx.extraction.update({
-      where: { id: extractionId },
-      data: { houseTypeId: houseType.id },
-    });
-
-    // 3. Ensure a Takeoff exists, seeded by this extraction.
+    // Ensure a Takeoff exists; seed it from this extraction if not already seeded.
     const takeoff = await tx.takeoff.upsert({
-      where: { houseTypeId: houseType.id },
-      create: { houseTypeId: houseType.id, seedExtractionId: extractionId },
+      where: { houseTypeId },
+      create: { houseTypeId, seedExtractionId: extractionId },
       update: {},
     });
 
-    // 4. Replace measurements for a clean re-run.
+    // Replace measurements/walls for a clean (re-)run.
     await tx.takeoffMeasurement.deleteMany({ where: { takeoffId: takeoff.id } });
     await tx.wallSegment.deleteMany({ where: { takeoffId: takeoff.id } });
 
@@ -102,7 +115,6 @@ export async function persistExtraction(
       });
     }
 
-    // 5. Store AI notes as review warnings.
     if (result.notes) {
       await tx.takeoff.update({
         where: { id: takeoff.id },
@@ -110,6 +122,6 @@ export async function persistExtraction(
       });
     }
 
-    return { houseTypeId: houseType.id, takeoffId: takeoff.id };
+    return { houseTypeId, takeoffId: takeoff.id };
   });
 }

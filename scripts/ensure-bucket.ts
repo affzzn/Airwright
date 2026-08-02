@@ -18,17 +18,26 @@ if (!url || !key) {
 const supabase = createClient(url, key, { auth: { persistSession: false } });
 
 async function main() {
+  // Supabase free tier caps per-file uploads at 50MB globally; a bucket limit
+// cannot exceed the project limit. Raise the project limit (or use resumable
+// uploads) if you need larger ZIP packs.
+const FILE_SIZE_LIMIT = "50MB";
   const { data: existing } = await supabase.storage.getBucket(bucket);
   if (existing) {
-    console.log(`Bucket "${bucket}" already exists.`);
+    const { error } = await supabase.storage.updateBucket(bucket, {
+      public: false,
+      fileSizeLimit: FILE_SIZE_LIMIT,
+    });
+    if (error) throw new Error(`Failed to update bucket: ${error.message}`);
+    console.log(`Bucket "${bucket}" exists — raised size limit to ${FILE_SIZE_LIMIT}.`);
     return;
   }
   const { error } = await supabase.storage.createBucket(bucket, {
     public: false,
-    fileSizeLimit: "30MB",
+    fileSizeLimit: FILE_SIZE_LIMIT,
   });
   if (error) throw new Error(`Failed to create bucket: ${error.message}`);
-  console.log(`Created private bucket "${bucket}".`);
+  console.log(`Created private bucket "${bucket}" (limit ${FILE_SIZE_LIMIT}).`);
 }
 
 main().catch((err) => {
