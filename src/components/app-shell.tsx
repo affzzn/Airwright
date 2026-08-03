@@ -14,12 +14,25 @@ export function AppShell({
     <div className="min-h-screen bg-canvas">
       <header className="sticky top-0 z-10 border-b border-hairline bg-canvas/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-content items-center justify-between px-6">
-          <Link href="/" className="flex items-baseline gap-2">
-            <span className="text-sm font-700 font-semibold tracking-tight text-ink">
+          <div className="flex items-center gap-8">
+            <Link href="/" className="text-sm font-semibold tracking-tight text-ink">
               Airwright
-            </span>
-            <span className="text-sm text-ink-subtle">Quote &amp; Take-off</span>
-          </Link>
+            </Link>
+            <nav className="flex items-center gap-6">
+              <Link
+                href="/"
+                className="text-sm font-medium text-ink"
+              >
+                Quote &amp; Take-off
+              </Link>
+              <span className="cursor-default text-sm text-ink-subtle">
+                Gang Pay &amp; Viability
+              </span>
+              <span className="cursor-default text-sm text-ink-subtle">
+                House-Type Bank
+              </span>
+            </nav>
+          </div>
           {showSignOut && (
             <form action={signOut}>
               <Button variant="ghost" size="sm" type="submit">

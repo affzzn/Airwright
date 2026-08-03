@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { createSignedUrl } from "@/lib/supabase/storage";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { Badge, ConfidenceDot } from "@/components/ui/badge";
+import { ConfidenceDot } from "@/components/ui/badge";
 import { PdfViewerClient } from "@/components/pdf-viewer-client";
 
 export const dynamic = "force-dynamic";
@@ -76,21 +76,15 @@ export default async function ReviewPage({
         ← Back to project
       </Link>
 
-      <div className="mt-4 mb-8 flex items-end justify-between">
-        <div>
-          <p className="eyebrow mb-2">Review · read-only</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            {extraction.houseType?.name ?? "Extraction"}
-          </h1>
-          <p className="mt-1 text-sm text-ink-subtle">
-            {extraction.document.fileName} · AI read pages{" "}
-            {extraction.pageRange ?? "all"} of {extraction.document.pageCount}{" "}
-            (elevations, floor plans, section)
-          </p>
-        </div>
-        <Badge variant="muted">
-          {extraction.model} · {extraction.latencyMs ?? "—"}ms
-        </Badge>
+      <div className="mt-4 mb-8">
+        <p className="eyebrow mb-2">Review</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">
+          {extraction.houseType?.name ?? "Extraction"}
+        </h1>
+        <p className="mt-1 text-sm text-ink-subtle">
+          {extraction.document.fileName} · pages{" "}
+          {extraction.pageRange ?? "all"} of {extraction.document.pageCount}
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -200,11 +194,6 @@ export default async function ReviewPage({
                 </p>
               </div>
             )}
-
-            <p className="border-t border-hairline pt-4 text-xs text-ink-subtle">
-              Read-only in Week 1. Editing, confirm &amp; quote generation land in
-              Week 4.
-            </p>
           </CardBody>
         </Card>
       </div>
