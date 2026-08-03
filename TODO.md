@@ -23,19 +23,18 @@ Real packs have many files from many consultants; most are irrelevant (bar sched
 levels, drainage, landscape, structural). We already filter pages within a file; this
 does the same one level up, across files.
 
-- [ ] **Generalise title extraction** across title-block formats: Miller portfolio line
-      (`… L464 - 4B`), the `TITLE … STATUS` consultant anchor (Travis Baker etc.), and the
-      letter-spaced label fallback. Also fixes plot-list detection: a real "SITE LAYOUT
-      SHOWING STRIP-TRENCH FOUNDATIONS" sheet must classify as PLOT_LAYOUT, not be missed.
-      (Site-layout must win over the FOUNDATION exclusion.)
-- [ ] **Categorise + relevance-tag each file**: House drawings / Site layout / Spec /
-      Not relevant / Unreadable. Store on Document (`category`, `categoryDetail`,
-      `included`). Only relevant files get extracted; the rest are set aside.
-- [ ] **UI**: "Using N of M files" + per-file category label + a manual Use/Exclude
-      override (human-in-the-loop). Hide excluded files' house types.
-- [ ] **Filename pre-filter** for large packs: skip opening clearly-junk files
-      (bar schedule, drainage, levels…) by filename, conservatively (never skip anything
-      whose name mentions site/plot/elevation/floor/section).
+- [x] **Generalise title extraction** across title-block formats (consultant
+      `TITLE … STATUS` anchor + Miller portfolio line + letter-spaced fallback). Site-layout
+      now wins over the FOUNDATION exclusion, fixing plot-list detection on real sheets.
+- [x] **Categorise + relevance-tag each file** (`category`/`categoryDetail`/`included` on
+      Document via `categorise.ts`). Only relevant files get extracted.
+- [x] **UI**: "Using N of M files" + per-file category label + Use/Exclude override; excluded
+      files' house types are hidden; force-using a set-aside file extracts it.
+- [x] **Filename pre-filter** for large packs (`filenamePrefilter`) — conservative skip.
+- [ ] Verify on a REAL full pack (many consultant files) end-to-end. Unit-tested against the
+      Travis Baker sample sheets; live AI run on a big pack still unproven.
+- [ ] Force-use fallback treats a whole file as ONE house type (no segmentation) — fine for
+      an override, but revisit if a mislabelled file actually holds several types.
 - [ ] Deploy to Render — steps in `docs/06-setup.md` (written for the two-service path;
       update if going with the combined free-tier path instead). Then set
       `NEXT_PUBLIC_SITE_URL` + Supabase redirect URLs.
