@@ -177,6 +177,7 @@ async function classifyAndSegment(packId: string): Promise<void> {
       hasText,
     });
     const included = isRelevantCategory(category);
+    const relevantPages = pages.filter((p) => p.relevant).length;
 
     await prisma.document.update({
       where: { id: doc.id },
@@ -185,8 +186,10 @@ async function classifyAndSegment(packId: string): Promise<void> {
         category,
         categoryDetail: detail,
         included,
+        relevantPages,
         isRasterOnly: !hasText,
-        needsReview: !hasText,
+        // Flag for a human: unreadable, or a drawing we couldn't identify from text.
+        needsReview: !hasText || category === "UNCERTAIN",
         classifiedAt: new Date(),
       },
     });

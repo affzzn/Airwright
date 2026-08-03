@@ -45,28 +45,41 @@ function compact(s: string): string {
  * (the title block near the end), so body text doesn't cause false matches.
  * Returns the raw (spaced) title for display.
  */
+// Title-block *labels* that are not the actual drawing title (they precede the
+// value in the title block, so a naive anchor would grab them).
+function isLabelNoise(s: string): boolean {
+  const c = s.toUpperCase().replace(/[^A-Z]/g, "");
+  return (
+    c.length < 3 ||
+    ["DRAWNBY", "CHECKEDBY", "DRAWN", "CHECKED", "SCALE", "DATE", "REVISION", "REV", "STATUS", "TITLE", "DRAWING", "PROJECT", "CLIENT", "NOTES"].includes(c)
+  );
+}
+
 export function drawingTitle(raw: string): string {
   const up = raw.toUpperCase().replace(/\s+/g, " ");
 
-  // 1. "TITLE <...> <terminator>" — the most explicit, format-agnostic anchor
-  //    (Travis Baker and most consultants). Bounded so it can't run away.
-  const anchor = up.match(
-    /\bTITLE\b[:\s-]*(.+?)\s+(?:STATUS|SCALE|DRAWN|CHECKED|DRAWING\s*N|DRG\s*N|DWG\s*N|REV\b|DATE\b|PROJECT\b|CLIENT\b|COPYRIGHT\b)/,
-  );
-  if (anchor && anchor[1] && anchor[1].trim().length <= 80) {
-    return anchor[1].trim();
-  }
-
-  // 2. Miller portfolio line: <date> <title> L464 - 4B … (last match = title block).
-  const re = /\d{2}\.\d{2}\.\d{2}\s+(.+?)\s+L\d+\s*-\s*\d/g;
+  // 1. Miller portfolio line: <date> <title> L464 - 4B … (very specific and
+  //    reliable). Take the last match (the title block near the end).
+  const reMiller = /\d{2}\.\d{2}\.\d{2}\s+(.+?)\s+L\d+\s*-\s*\d/g;
   let match: RegExpExecArray | null;
   let last = "";
-  while ((match = re.exec(up)) !== null) last = match[1];
-  if (last) return last.trim();
+  while ((match = reMiller.exec(up)) !== null) last = match[1];
+  if (last && !isLabelNoise(last)) return last.trim();
+
+  // 2. "TITLE <...> <terminator>" anchor for consultant title blocks (Travis
+  //    Baker etc.). NB: "DRAWN" is NOT a terminator — Miller title blocks put
+  //    "TITLE … DRAWN BY" and that grabbed the wrong text.
+  const anchor = up.match(
+    /\bTITLE\b[:\s-]*([A-Z0-9][A-Z0-9 ,'&/().-]{2,70}?)\s+(?:STATUS|SCALE|CHECKED|DRAWING\s*N|DRG\s*N|DWG\s*N|REVISION|DATE\b|PROJECT\b|CLIENT\b|COPYRIGHT\b)/,
+  );
+  if (anchor && anchor[1] && !isLabelNoise(anchor[1])) return anchor[1].trim();
 
   // 3. Letter-spaced big label fallback (G R O U N D  F L O O R  P L A N).
   const labels = up.match(/(?:[A-Z0-9]\s){3,}[A-Z0-9]/g) ?? [];
-  return labels.length ? labels.join(" ").replace(/\s+/g, " ").trim() : "";
+  const label = labels.length
+    ? labels.join(" ").replace(/\s+/g, " ").trim()
+    : "";
+  return isLabelNoise(label) ? "" : label;
 }
 
 /**
@@ -112,6 +125,8 @@ export function classifyTitle(titleRaw: string): PageKind {
   if (title.includes("LANDSCAP")) return "OTHER";
   if (title.includes("PLANTING")) return "OTHER";
   if (title.includes("TREESURVEY")) return "OTHER";
+  if (title.includes("LONGSECTION")) return "OTHER"; // civils road long-sections
+  if (title.includes("SIGNINGANDLINING")) return "OTHER"; // highways
   if (title.includes("LAYOUT")) return "OTHER"; // WC / bathroom / kitchen layouts
 
   // Inclusions — the sheets it does need.

@@ -173,6 +173,7 @@ enum DocumentCategory {
   SITE_LAYOUT
   SPEC
   NOT_RELEVANT
+  UNCERTAIN
   UNREADABLE
 }
 
@@ -272,6 +273,7 @@ model Document {
   category       DocumentCategory @default(PENDING) // file-level relevance
   categoryDetail String? // e.g. "Bar schedule", "Levels"
   included       Boolean          @default(true) // manual override: use this file?
+  relevantPages  Int              @default(0) // denormalised (avoids heavy per-page queries)
   classifiedAt   DateTime?
   uploadedAt     DateTime         @default(now())
   extractions    Extraction[]

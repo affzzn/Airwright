@@ -36,9 +36,22 @@ describe("classifyTitle — site layout wins over foundations", () => {
   it("classifies a bar schedule as OTHER", () => {
     expect(classifyTitle("BAR SCHEDULE")).toBe("OTHER");
   });
+  it("classifies civils long-sections as OTHER (not a house SECTION)", () => {
+    expect(classifyTitle("LONG SECTIONS, SHEET 3")).toBe("OTHER");
+  });
   it("still classifies house drawings", () => {
     expect(classifyTitle("FRONT ELEVATION")).toBe("ELEVATION");
     expect(classifyTitle("ASHP GROUND FLOOR PLAN")).toBe("FLOOR_PLAN");
+    expect(classifyTitle("SECTION A-A")).toBe("SECTION");
+  });
+});
+
+describe("drawingTitle regression — Miller title block", () => {
+  it("does not grab the 'DRAWN BY' label on a Miller sheet", () => {
+    const raw =
+      "... TITLE DRAWN BY G.T. CHECKED BY MJE 03.01.24 ASHP GROUND FLOOR PLAN L464 - 4B / 8P / 1337 - CHESTERWOOD";
+    // Miller portfolio line wins; we get the real title, not "DRAWN BY".
+    expect(drawingTitle(raw)).toBe("ASHP GROUND FLOOR PLAN");
   });
 });
 
@@ -74,6 +87,21 @@ describe("categoriseDocument", () => {
     expect(
       categoriseDocument({ fileName: "x.pdf", pages: [page("ELEVATION")], hasText: true }).category,
     ).toBe("HOUSE_TYPE_DRAWINGS");
+  });
+  it("a lone SECTION file is NOT a house type", () => {
+    expect(
+      categoriseDocument({ fileName: "Long Sections.pdf", pages: [page("SECTION")], hasText: true }).category,
+    ).not.toBe("HOUSE_TYPE_DRAWINGS");
+  });
+  it("UNCERTAIN when there's text but nothing recognisable and no junk name", () => {
+    // e.g. an image-only 'NB - Delamont (AL21)' drawing with no text titles.
+    expect(
+      categoriseDocument({
+        fileName: "NB - Delamont (AL21) - Rev A.pdf",
+        pages: [page("OTHER")],
+        hasText: true,
+      }).category,
+    ).toBe("UNCERTAIN");
   });
   it("site layout when there are plot-layout pages", () => {
     expect(

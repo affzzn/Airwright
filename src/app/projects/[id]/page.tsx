@@ -18,6 +18,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   SITE_LAYOUT: "Site layout",
   SPEC: "Spec",
   NOT_RELEVANT: "Not used",
+  UNCERTAIN: "Uncertain — check",
   UNREADABLE: "Unreadable",
   PENDING: "…",
 };
@@ -53,10 +54,7 @@ export default async function ProjectPage({
         orderBy: { version: "asc" },
         include: {
           uploads: true,
-          documents: {
-            orderBy: { uploadedAt: "desc" },
-            include: { pages: { select: { relevant: true } } },
-          },
+          documents: { orderBy: { uploadedAt: "desc" } },
         },
       },
     },
@@ -270,7 +268,6 @@ export default async function ProjectPage({
           ) : (
             <ul className="divide-y divide-hairline">
               {pack.documents.map((doc) => {
-                const relevant = doc.pages.filter((p) => p.relevant).length;
                 return (
                   <li
                     key={doc.id}
@@ -290,7 +287,7 @@ export default async function ProjectPage({
                       </div>
                       <p className="mt-0.5 text-xs text-ink-subtle">
                         {doc.pageCount ?? "?"} pages
-                        {doc.pages.length > 0 && ` · ${relevant} relevant`}
+                        {doc.classifiedAt && ` · ${doc.relevantPages} relevant`}
                         {doc.categoryDetail ? ` · ${doc.categoryDetail}` : ""}
                         {doc.sizeBytes ? ` · ${formatBytes(doc.sizeBytes)}` : ""}
                         {doc.needsReview && " · needs review"}

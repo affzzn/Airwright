@@ -128,8 +128,13 @@ async function handlePlotList(raw: ExtractPlotListJob) {
 async function main() {
   const boss = await getBoss();
 
+  // batchSize: 1 → process one job at a time per queue, so we never fan out
+  // dozens of concurrent Claude calls + DB transactions and exhaust the pool.
+  const one = { batchSize: 1 } as const;
+
   await boss.work<ProcessPackJob>(
     PROCESS_PACK_QUEUE,
+    one,
     async (jobs: PgBoss.Job<ProcessPackJob>[]) => {
       for (const job of jobs) await handleProcessPack(job.data);
     },
@@ -137,6 +142,7 @@ async function main() {
 
   await boss.work<ExtractDrawingJob>(
     EXTRACT_DRAWING_QUEUE,
+    one,
     async (jobs: PgBoss.Job<ExtractDrawingJob>[]) => {
       for (const job of jobs) await handleExtract(job.data);
     },
@@ -144,6 +150,7 @@ async function main() {
 
   await boss.work<ExtractPlotListJob>(
     EXTRACT_PLOT_LIST_QUEUE,
+    one,
     async (jobs: PgBoss.Job<ExtractPlotListJob>[]) => {
       for (const job of jobs) await handlePlotList(job.data);
     },

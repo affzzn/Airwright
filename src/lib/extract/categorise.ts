@@ -6,9 +6,10 @@ export type DocumentCategory =
   | "SITE_LAYOUT"
   | "SPEC"
   | "NOT_RELEVANT"
+  | "UNCERTAIN"
   | "UNREADABLE";
 
-/** Which categories are actually used in a take-off. */
+/** Which categories are auto-included in a take-off. */
 export function isRelevantCategory(c: DocumentCategory): boolean {
   return (
     c === "HOUSE_TYPE_DRAWINGS" || c === "SITE_LAYOUT" || c === "SPEC"
@@ -21,10 +22,15 @@ const JUNK_FILENAME: [RegExp, string][] = [
   [/bar\s*schedule|reinforc|rebar/i, "Reinforcement schedule"],
   [/drainage|\bsuds?\b|soakaway|attenuation/i, "Drainage"],
   [/proposed\s*levels|\blevels\b/i, "Levels"],
+  [/long\s*section/i, "Long sections (civils)"],
+  [/signing\s*and\s*lining/i, "Highways"],
   [/landscap|planting|tree\s*survey|arboricultur|ecolog/i, "Landscape"],
   [/structural\s*(calc|detail)|steel(work|\s*frame)/i, "Structural"],
+  [/\bmaterials?\b/i, "Materials"],
+  [/issue\s*sheet|and\s*register/i, "Issue register"],
+  [/standard\s*details?/i, "Standard details"],
   [/\bs278\b|\bs38\b|\bs104\b|highway|\bkerb\b|gully|manhole/i, "Highways / roads"],
-  [/window\s*schedule|door\s*schedule|lintel\s*schedule/i, "Schedule"],
+  [/\bschedule\b/i, "Schedule"],
 ];
 
 // Filename signals that a file IS a drawing / site plan — protects it from the
@@ -62,9 +68,18 @@ export function categoriseDocument(input: {
 }): { category: DocumentCategory; detail?: string } {
   if (!input.hasText) return { category: "UNREADABLE" };
   const kinds = new Set(input.pages.map((p) => p.kind));
-  if (kinds.has("ELEVATION") || kinds.has("FLOOR_PLAN") || kinds.has("SECTION"))
+  // A house type must have an elevation or floor plan — a lone "sections" sheet
+  // (e.g. civils long-sections) is NOT a house type.
+  if (kinds.has("ELEVATION") || kinds.has("FLOOR_PLAN"))
     return { category: "HOUSE_TYPE_DRAWINGS" };
   if (kinds.has("PLOT_LAYOUT")) return { category: "SITE_LAYOUT" };
-  if (kinds.has("SPEC")) return { category: "SPEC" };
-  return { category: "NOT_RELEVANT", detail: detailFromFilename(input.fileName) };
+  if (kinds.has("SPEC") || /specification/i.test(input.fileName))
+    return { category: "SPEC" };
+
+  // Nothing recognisable. If the filename clearly says junk, it's not relevant;
+  // otherwise we genuinely can't tell (e.g. an image-only drawing with no text
+  // title) → flag it for a human rather than silently discarding it.
+  const detail = detailFromFilename(input.fileName);
+  if (detail) return { category: "NOT_RELEVANT", detail };
+  return { category: "UNCERTAIN" };
 }
