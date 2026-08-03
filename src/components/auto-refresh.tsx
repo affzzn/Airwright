@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
  * Rendered only while an extraction is PENDING/PROCESSING, so the status
  * updates live from Queued → Reading → Ready without a manual refresh.
  */
-export function AutoRefresh({ intervalMs = 3000 }: { intervalMs?: number }) {
+export function AutoRefresh({ intervalMs = 2000 }: { intervalMs?: number }) {
   const router = useRouter();
   useEffect(() => {
     const id = setInterval(() => router.refresh(), intervalMs);

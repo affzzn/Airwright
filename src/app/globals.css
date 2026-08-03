@@ -51,4 +51,21 @@
     text-transform: uppercase;
     color: var(--ink-subtle);
   }
+
+  /* Radar pulse on the active pipeline step — marks the genuinely-running stage. */
+  .step-active {
+    animation: ring-pulse 1.8s ease-out infinite;
+  }
+}
+
+@keyframes ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(24, 24, 27, 0.22);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(24, 24, 27, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(24, 24, 27, 0);
+  }
 }

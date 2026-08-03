@@ -34,7 +34,9 @@ export default function PdfViewer({ url }: { url: string }) {
       <Document
         file={url}
         onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-        loading={<ViewerMessage>Loading drawing…</ViewerMessage>}
+        loading={
+          <div className="animate-pulse rounded-md bg-surface-2" style={{ height: 420 }} />
+        }
         error={<ViewerMessage>Could not render this PDF.</ViewerMessage>}
       >
         <Page

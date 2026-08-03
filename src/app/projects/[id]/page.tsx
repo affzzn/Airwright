@@ -7,6 +7,9 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { UploadForm } from "@/components/upload-form";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { PackProgress } from "@/components/pack-progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { computePackProgress } from "@/lib/pack-progress";
 import { formatBytes } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +63,12 @@ export default async function ProjectPage({
   );
   const processing = uploadsPending || unclassified || extractionsRunning;
 
+  const { steps: progressSteps } = computePackProgress({
+    uploads: pack.uploads,
+    documents: pack.documents,
+    extractions: project.houseTypes.flatMap((ht) => ht.extractions),
+  });
+
   // Natural sort plots (so "2" comes before "10").
   const plots = [...project.plots].sort((a, b) => {
     const na = parseInt(a.plotNumber, 10);
@@ -93,9 +102,14 @@ export default async function ProjectPage({
             ? "Construction"
             : "House build"}{" "}
           · Pack v{pack?.version ?? 1}
-          {processing && " · processing…"}
         </p>
       </div>
+
+      {processing && (
+        <div className="mb-8">
+          <PackProgress steps={progressSteps} />
+        </div>
+      )}
 
       <div className="mb-8">
         <UploadForm packId={pack.id} bucket={env.storageBucket} />
@@ -111,11 +125,26 @@ export default async function ProjectPage({
         </CardHeader>
         <CardBody className="p-0">
           {project.houseTypes.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-ink-subtle">
-              {processing
-                ? "Reading the pack — house types will appear here."
-                : "No house types yet. Upload a tender pack above."}
-            </p>
+            processing ? (
+              <ul className="divide-y divide-hairline">
+                {[0, 1].map((i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between px-5 py-4"
+                  >
+                    <div className="space-y-2">
+                      <Skeleton className="h-3.5 w-32" />
+                      <Skeleton className="h-2.5 w-20" />
+                    </div>
+                    <Skeleton className="h-5 w-16" />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-10 text-center text-sm text-ink-subtle">
+                No house types yet. Upload a tender pack above.
+              </p>
+            )
           ) : (
             <ul className="divide-y divide-hairline">
               {project.houseTypes.map((ht) => {
