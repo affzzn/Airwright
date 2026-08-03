@@ -13,8 +13,29 @@ Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-
 - [x] Unit-test the plot/segmentation logic (`segment.test.ts`, `persistPlots.test.ts`).
       `classify.ts`'s title-parsing itself still has no direct unit tests (only tested
       indirectly via `segment.test.ts`'s `extractHouseTypeRef` cases) — could add more.
+- [~] File-level relevance (in progress — see "File relevance" below).
 - [ ] Broaden the classifier + house-type-code + plot-list parsing across builders (not
       just Miller-style title blocks) — needs real packs from other builders first.
+
+## File relevance (which FILES in a pack matter, not just which pages)
+
+Real packs have many files from many consultants; most are irrelevant (bar schedules,
+levels, drainage, landscape, structural). We already filter pages within a file; this
+does the same one level up, across files.
+
+- [ ] **Generalise title extraction** across title-block formats: Miller portfolio line
+      (`… L464 - 4B`), the `TITLE … STATUS` consultant anchor (Travis Baker etc.), and the
+      letter-spaced label fallback. Also fixes plot-list detection: a real "SITE LAYOUT
+      SHOWING STRIP-TRENCH FOUNDATIONS" sheet must classify as PLOT_LAYOUT, not be missed.
+      (Site-layout must win over the FOUNDATION exclusion.)
+- [ ] **Categorise + relevance-tag each file**: House drawings / Site layout / Spec /
+      Not relevant / Unreadable. Store on Document (`category`, `categoryDetail`,
+      `included`). Only relevant files get extracted; the rest are set aside.
+- [ ] **UI**: "Using N of M files" + per-file category label + a manual Use/Exclude
+      override (human-in-the-loop). Hide excluded files' house types.
+- [ ] **Filename pre-filter** for large packs: skip opening clearly-junk files
+      (bar schedule, drainage, levels…) by filename, conservatively (never skip anything
+      whose name mentions site/plot/elevation/floor/section).
 - [ ] Deploy to Render — steps in `docs/06-setup.md` (written for the two-service path;
       update if going with the combined free-tier path instead). Then set
       `NEXT_PUBLIC_SITE_URL` + Supabase redirect URLs.

@@ -166,6 +166,16 @@ enum PageKind {
   OTHER
 }
 
+// File-level purpose (which FILES in a pack matter, not just which pages).
+enum DocumentCategory {
+  PENDING
+  HOUSE_TYPE_DRAWINGS
+  SITE_LAYOUT
+  SPEC
+  NOT_RELEVANT
+  UNREADABLE
+}
+
 enum OperationAction {
   ERECT
   DISMANTLE
@@ -246,23 +256,26 @@ model PackUpload {
 }
 
 model Document {
-  id            String         @id @default(cuid())
-  packId        String
-  pack          TenderPack     @relation(fields: [packId], references: [id], onDelete: Cascade)
-  kind          DocumentKind   @default(OTHER)
-  fileName      String
-  storageBucket String         @default("tender-packs")
-  storagePath   String
-  mimeType      String
-  pageCount     Int?
-  sizeBytes     Int?
-  isReadable    Boolean        @default(true)
-  isRasterOnly  Boolean        @default(false)
-  needsReview   Boolean        @default(false) // flagged for a human (e.g. unreadable raster)
-  classifiedAt  DateTime?
-  uploadedAt    DateTime       @default(now())
-  extractions   Extraction[]
-  pages         DocumentPage[]
+  id             String           @id @default(cuid())
+  packId         String
+  pack           TenderPack       @relation(fields: [packId], references: [id], onDelete: Cascade)
+  kind           DocumentKind     @default(OTHER)
+  fileName       String
+  storageBucket  String           @default("tender-packs")
+  storagePath    String
+  mimeType       String
+  pageCount      Int?
+  sizeBytes      Int?
+  isReadable     Boolean          @default(true)
+  isRasterOnly   Boolean          @default(false)
+  needsReview    Boolean          @default(false) // flagged for a human (e.g. unreadable raster)
+  category       DocumentCategory @default(PENDING) // file-level relevance
+  categoryDetail String? // e.g. "Bar schedule", "Levels"
+  included       Boolean          @default(true) // manual override: use this file?
+  classifiedAt   DateTime?
+  uploadedAt     DateTime         @default(now())
+  extractions    Extraction[]
+  pages          DocumentPage[]
 
   @@index([packId])
   @@index([kind])

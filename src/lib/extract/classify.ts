@@ -45,19 +45,28 @@ function compact(s: string): string {
  * (the title block near the end), so body text doesn't cause false matches.
  * Returns the raw (spaced) title for display.
  */
-function drawingTitleRaw(raw: string): string {
+export function drawingTitle(raw: string): string {
   const up = raw.toUpperCase().replace(/\s+/g, " ");
+
+  // 1. "TITLE <...> <terminator>" — the most explicit, format-agnostic anchor
+  //    (Travis Baker and most consultants). Bounded so it can't run away.
+  const anchor = up.match(
+    /\bTITLE\b[:\s-]*(.+?)\s+(?:STATUS|SCALE|DRAWN|CHECKED|DRAWING\s*N|DRG\s*N|DWG\s*N|REV\b|DATE\b|PROJECT\b|CLIENT\b|COPYRIGHT\b)/,
+  );
+  if (anchor && anchor[1] && anchor[1].trim().length <= 80) {
+    return anchor[1].trim();
+  }
+
+  // 2. Miller portfolio line: <date> <title> L464 - 4B … (last match = title block).
   const re = /\d{2}\.\d{2}\.\d{2}\s+(.+?)\s+L\d+\s*-\s*\d/g;
   let match: RegExpExecArray | null;
   let last = "";
   while ((match = re.exec(up)) !== null) last = match[1];
-  return last.trim();
-}
+  if (last) return last.trim();
 
-/** Fallback for sheets without the standard title block: letter-spaced label. */
-function labelText(raw: string): string {
-  const matches = raw.toUpperCase().match(/(?:[A-Z0-9]\s){3,}[A-Z0-9]/g) ?? [];
-  return compact(matches.join(" "));
+  // 3. Letter-spaced big label fallback (G R O U N D  F L O O R  P L A N).
+  const labels = up.match(/(?:[A-Z0-9]\s){3,}[A-Z0-9]/g) ?? [];
+  return labels.length ? labels.join(" ").replace(/\s+/g, " ").trim() : "";
 }
 
 /**
@@ -76,32 +85,40 @@ export function extractHouseTypeRef(raw: string): {
   return { code: null, name: null };
 }
 
-function classifyTitle(title: string): PageKind {
-  // Exclusions first — sheets a take-off does NOT need.
-  if (title.includes("CUSTOMEROPTION")) return "OTHER";
-  if (title.includes("SWIFTBRICK")) return "OTHER";
-  if (title.includes("ELECTRICAL")) return "OTHER";
-  if (title.includes("FOUNDATION")) return "OTHER";
-  if (title.includes("JOIST")) return "OTHER";
-  if (title.includes("LAYOUT") && !title.includes("SITE") && !title.includes("PLOT"))
-    return "OTHER"; // WC / bathroom / kitchen layouts
-  if (title.includes("SCHEDULE")) return "OTHER";
+/** Classify a sheet from its drawing title. Compacts internally — pass raw or key. */
+export function classifyTitle(titleRaw: string): PageKind {
+  const title = compact(titleRaw);
 
-  // Non-take-off but useful sheets (tagged for later handling).
+  // Site plans win FIRST — a site layout often also says "foundations", which
+  // would otherwise be excluded below and lose us the plot list.
   if (
     title.includes("SITELAYOUT") ||
     title.includes("SITEPLAN") ||
     title.includes("PLOTLAYOUT") ||
-    title.includes("PLANNINGLAYOUT") ||
-    title.includes("PLOTSCHEDULE")
+    title.includes("PLOTSCHEDULE") ||
+    title.includes("PLANNINGLAYOUT")
   )
     return "PLOT_LAYOUT";
-  if (title.includes("SPECIFICATION")) return "SPEC";
 
-  // Take-off sheets.
+  // Exclusions — sheets a take-off does NOT need.
+  if (title.includes("CUSTOMEROPTION")) return "OTHER";
+  if (title.includes("SWIFTBRICK")) return "OTHER";
+  if (title.includes("ELECTRICAL")) return "OTHER";
+  if (title.includes("JOIST")) return "OTHER";
+  if (title.includes("SCHEDULE")) return "OTHER"; // bar / window / door / lintel
+  if (title.includes("FOUNDATION")) return "OTHER";
+  if (title.includes("DRAINAGE")) return "OTHER";
+  if (title.includes("LEVELS")) return "OTHER";
+  if (title.includes("LANDSCAP")) return "OTHER";
+  if (title.includes("PLANTING")) return "OTHER";
+  if (title.includes("TREESURVEY")) return "OTHER";
+  if (title.includes("LAYOUT")) return "OTHER"; // WC / bathroom / kitchen layouts
+
+  // Inclusions — the sheets it does need.
   if (title.includes("ELEVATION")) return "ELEVATION";
   if (title.includes("SECTION")) return "SECTION";
   if (title.includes("FLOORPLAN")) return "FLOOR_PLAN";
+  if (title.includes("SPECIFICATION")) return "SPEC";
 
   return "OTHER";
 }
@@ -130,9 +147,8 @@ export async function classifyPdf(
       .join(" ");
     textChars += raw.replace(/\s/g, "").length;
 
-    const titleRaw = drawingTitleRaw(raw);
-    const titleKey = compact(titleRaw) || labelText(raw);
-    const kind = classifyTitle(titleKey);
+    const titleRaw = drawingTitle(raw);
+    const kind = classifyTitle(titleRaw);
     const ref = extractHouseTypeRef(raw);
 
     pages.push({

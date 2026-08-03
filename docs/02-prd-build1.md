@@ -35,7 +35,11 @@ house types.
 - **W2 — Full tender packs + sheet classification.** Multi-file upload; classify
   sheets (elevation / floor plan / plot layout / spec / other), surface
   elevations; segment into house types; plot-list ingestion (plot → type +
-  config); flag unreadable rasters.
+  config); flag unreadable rasters. **File-level relevance**: categorise each
+  FILE (house drawings / site layout / spec / not relevant) from a generalised
+  title-block reader (handles multiple consultant formats), show "using N of M
+  files" with a manual override, and skip clearly-junk files by filename for
+  speed on large packs. Only relevant files are sent to the AI.
 - **W3 — Drawings + plot list → staged take-off.** Perimeter from individual
   wall lengths (traceable); lifts from height (**Colin's rule**); build the
   staged operation list; detached/semi/terraced splits; shared-scaffold split.

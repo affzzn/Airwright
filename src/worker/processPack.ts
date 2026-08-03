@@ -9,6 +9,11 @@ import {
 } from "@/lib/supabase/storage";
 import { getPdfPageCount } from "@/lib/pdf";
 import { classifyPdf, type PageClass } from "@/lib/extract/classify";
+import {
+  categoriseDocument,
+  filenamePrefilter,
+  isRelevantCategory,
+} from "@/lib/extract/categorise";
 import { segmentByHouseType } from "@/lib/extract/segment";
 import { buildRangeString } from "@/lib/pdf";
 import { getBoss } from "@/lib/queue/boss";
@@ -113,8 +118,29 @@ async function classifyAndSegment(packId: string): Promise<void> {
     if (!doc.isReadable) {
       await prisma.document.update({
         where: { id: doc.id },
-        data: { classifiedAt: new Date(), needsReview: true },
+        data: {
+          classifiedAt: new Date(),
+          needsReview: true,
+          category: "UNREADABLE",
+          included: false,
+        },
       });
+      continue;
+    }
+
+    // Filename pre-filter: skip opening clearly-junk files entirely (large packs).
+    const skip = filenamePrefilter(doc.fileName);
+    if (skip) {
+      await prisma.document.update({
+        where: { id: doc.id },
+        data: {
+          classifiedAt: new Date(),
+          category: skip.category,
+          categoryDetail: skip.detail,
+          included: false,
+        },
+      });
+      console.log(`[process-pack] ${doc.fileName}: skipped by filename (${skip.detail})`);
       continue;
     }
 
@@ -145,10 +171,20 @@ async function classifyAndSegment(packId: string): Promise<void> {
       });
     }
 
+    const { category, detail } = categoriseDocument({
+      fileName: doc.fileName,
+      pages,
+      hasText,
+    });
+    const included = isRelevantCategory(category);
+
     await prisma.document.update({
       where: { id: doc.id },
       data: {
         kind: documentKind(pages),
+        category,
+        categoryDetail: detail,
+        included,
         isRasterOnly: !hasText,
         needsReview: !hasText,
         classifiedAt: new Date(),
@@ -158,6 +194,12 @@ async function classifyAndSegment(packId: string): Promise<void> {
     // No readable text → flag for a human, don't extract.
     if (!hasText) {
       console.log(`[process-pack] ${doc.fileName}: no text layer → flagged for review`);
+      continue;
+    }
+
+    // Not a relevant file (schedule, levels, drainage…) → set aside, don't extract.
+    if (!included) {
+      console.log(`[process-pack] ${doc.fileName}: not relevant (${category}) → set aside`);
       continue;
     }
 

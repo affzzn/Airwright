@@ -8,9 +8,19 @@ import { StatusBadge, Badge } from "@/components/ui/badge";
 import { UploadForm } from "@/components/upload-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { PackProgress } from "@/components/pack-progress";
+import { DocumentToggle } from "@/components/document-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  HOUSE_TYPE_DRAWINGS: "House drawings",
+  SITE_LAYOUT: "Site layout",
+  SPEC: "Spec",
+  NOT_RELEVANT: "Not used",
+  UNREADABLE: "Unreadable",
+  PENDING: "…",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +39,10 @@ export default async function ProjectPage({
         orderBy: { createdAt: "asc" },
         include: {
           takeoff: { select: { status: true } },
-          extractions: { orderBy: { createdAt: "asc" } },
+          extractions: {
+            orderBy: { createdAt: "asc" },
+            include: { document: { select: { included: true } } },
+          },
           _count: { select: { plots: true } },
         },
       },
@@ -67,6 +80,15 @@ export default async function ProjectPage({
     uploads: pack.uploads,
     documents: pack.documents,
     extractions: project.houseTypes.flatMap((ht) => ht.extractions),
+  });
+
+  const usedFiles = pack.documents.filter((d) => d.included).length;
+
+  // Only show house types whose file is still included (excluding a file hides
+  // its house types).
+  const houseTypes = project.houseTypes.filter((ht) => {
+    const ex = ht.extractions[ht.extractions.length - 1];
+    return !ex || ex.document.included;
   });
 
   // Natural sort plots (so "2" comes before "10").
@@ -119,12 +141,10 @@ export default async function ProjectPage({
       <Card className="mb-6">
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">House types</h2>
-          <span className="text-xs text-ink-subtle">
-            {project.houseTypes.length}
-          </span>
+          <span className="text-xs text-ink-subtle">{houseTypes.length}</span>
         </CardHeader>
         <CardBody className="p-0">
-          {project.houseTypes.length === 0 ? (
+          {houseTypes.length === 0 ? (
             processing ? (
               <ul className="divide-y divide-hairline">
                 {[0, 1].map((i) => (
@@ -147,7 +167,7 @@ export default async function ProjectPage({
             )
           ) : (
             <ul className="divide-y divide-hairline">
-              {project.houseTypes.map((ht) => {
+              {houseTypes.map((ht) => {
                 const ex = ht.extractions[ht.extractions.length - 1];
                 return (
                   <li
@@ -236,7 +256,8 @@ export default async function ProjectPage({
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Documents</h2>
           <span className="text-xs text-ink-subtle">
-            {pack.documents.length} file{pack.documents.length === 1 ? "" : "s"}
+            Using {usedFiles} of {pack.documents.length} file
+            {pack.documents.length === 1 ? "" : "s"}
           </span>
         </CardHeader>
         <CardBody className="p-0">
@@ -251,26 +272,36 @@ export default async function ProjectPage({
               {pack.documents.map((doc) => {
                 const relevant = doc.pages.filter((p) => p.relevant).length;
                 return (
-                  <li key={doc.id} className="px-5 py-4">
-                    <div className="flex items-center justify-between">
-                      <p className="truncate text-sm font-medium text-ink">
-                        {doc.fileName}
+                  <li
+                    key={doc.id}
+                    className={cn(
+                      "flex items-center justify-between px-5 py-4",
+                      !doc.included && "opacity-55",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-ink">
+                          {doc.fileName}
+                        </p>
+                        <Badge variant={doc.included ? "muted" : "outline"}>
+                          {CATEGORY_LABEL[doc.category] ?? doc.category}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-xs text-ink-subtle">
+                        {doc.pageCount ?? "?"} pages
+                        {doc.pages.length > 0 && ` · ${relevant} relevant`}
+                        {doc.categoryDetail ? ` · ${doc.categoryDetail}` : ""}
+                        {doc.sizeBytes ? ` · ${formatBytes(doc.sizeBytes)}` : ""}
+                        {doc.needsReview && " · needs review"}
                       </p>
-                      <span className="ml-3 shrink-0 text-xs text-ink-subtle">
-                        {doc.kind.replace("_", " ").toLowerCase()}
-                      </span>
                     </div>
-                    <p className="mt-0.5 text-xs text-ink-subtle">
-                      {doc.pageCount ?? "?"} pages
-                      {doc.pages.length > 0 && ` · ${relevant} relevant`}
-                      {doc.sizeBytes ? ` · ${formatBytes(doc.sizeBytes)}` : ""}
-                      {doc.needsReview && (
-                        <>
-                          {" · "}
-                          <Badge variant="dashed">needs review</Badge>
-                        </>
-                      )}
-                    </p>
+                    <div className="ml-3 shrink-0">
+                      <DocumentToggle
+                        documentId={doc.id}
+                        included={doc.included}
+                      />
+                    </div>
                   </li>
                 );
               })}
