@@ -10,12 +10,14 @@ Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-
       (b) combine web+worker into one free Web Service (`concurrently`) + an external
       uptime pinger (e.g. UptimeRobot) to fight the 15-min sleep. (a) is cleaner/more
       reliable; (b) is $0 but extractions stall while asleep. **User to choose.**
-- [x] Unit-test the plot/segmentation logic (`segment.test.ts`, `persistPlots.test.ts`).
-      `classify.ts`'s title-parsing itself still has no direct unit tests (only tested
-      indirectly via `segment.test.ts`'s `extractHouseTypeRef` cases) — could add more.
-- [~] File-level relevance (in progress — see "File relevance" below).
-- [ ] Broaden the classifier + house-type-code + plot-list parsing across builders (not
-      just Miller-style title blocks) — needs real packs from other builders first.
+- [x] Unit tests for classifier/segmentation/categorisation (`segment.test.ts`,
+      `persistPlots.test.ts`, `categorise.test.ts`, `pack-progress.test.ts` — 38 total),
+      using the real Travis Baker sample sheets.
+- [x] File-level relevance (done — see "File relevance"). Validated on the real 48-file pack.
+- [~] Broaden classifier further for OTHER builders' formats — Miller + Travis Baker handled;
+      image-only drawings (no text titles) fall to UNCERTAIN + manual "Use file" for now.
+      True fix for text-less drawings would be vision-based page classification (costs AI).
+- [ ] Add a "Delete project" button (to clear stale test data) — offered, not built.
 
 ## File relevance (which FILES in a pack matter, not just which pages)
 
@@ -31,8 +33,8 @@ does the same one level up, across files.
 - [x] **UI**: "Using N of M files" + per-file category label + Use/Exclude override; excluded
       files' house types are hidden; force-using a set-aside file extracts it.
 - [x] **Filename pre-filter** for large packs (`filenamePrefilter`) — conservative skip.
-- [ ] Verify on a REAL full pack (many consultant files) end-to-end. Unit-tested against the
-      Travis Baker sample sheets; live AI run on a big pack still unproven.
+- [x] Classification verified on the REAL 48-file pack (per-file categorise correct). Full
+      live AI extraction run on the whole pack still worth watching end-to-end once.
 - [ ] Force-use fallback treats a whole file as ONE house type (no segmentation) — fine for
       an override, but revisit if a mislabelled file actually holds several types.
 - [ ] Deploy to Render — steps in `docs/06-setup.md` (written for the two-service path;

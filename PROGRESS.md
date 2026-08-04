@@ -5,8 +5,57 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 ---
 
-## Status: Week 1 DONE (verified on a real pack). Week 2 DONE (built + unit-tested;
-## two items unverified for lack of real test data — see below).
+## Status: Week 1 DONE. Week 2 DONE (incl. file-level relevance, validated on a REAL
+## 48-file pack). Pipeline classifies real multi-consultant packs correctly.
+
+Last updated: 2026-08-04
+
+### 2026-08-04 session — real-pack hardening + fixes + UI
+
+Tested on the actual 48-file Whitford Road pack (Miller + Travis Baker consultants).
+Found and fixed real bugs; verified classification against the true files.
+
+- **File-level relevance shipped**: generalised title extraction (Miller portfolio line
+  FIRST, then consultant `TITLE … STATUS` anchor, then letter-spaced fallback; rejects
+  label noise like "DRAWN BY"). Each FILE is categorised — House drawings / Site layout /
+  Spec / Not used / **Uncertain** / Unreadable — and only relevant files are sent to the
+  AI. Filename pre-filter skips clear junk (bar schedules, levels, drainage, materials,
+  standard details, long-sections…). UI shows "Using N of M files", per-file category
+  chips, and a **Use/Exclude** manual override (`categorise.ts`, `documents.ts` action).
+- **Fixed a regression I introduced**: the TITLE-anchor was grabbing "DRAWN BY" on Miller
+  sheets → Chesterwood + all Combined Working Drawings showed 0 relevant. Reordered so
+  the Miller portfolio line wins. Verified: Chesterwood 7/27, Hampton 8/23, Cherrywood
+  13/28, Allamont 12/24 → all HOUSE_TYPE_DRAWINGS.
+- **Fixed false positive**: "Long Sections" (civils) matched SECTION → became a house
+  type. Now a house type requires an ELEVATION or FLOOR PLAN (not a lone section); civils
+  long-sections / signing-and-lining excluded.
+- **Image-only drawings** with no text titles (e.g. "NB - Delamont (AL21)") → **UNCERTAIN**
+  (flagged for review + "Use file"), not silently hidden.
+- **Fixed the connection-pool crash**: denormalised `Document.relevantPages` (kills the
+  heavy per-page query the project page ran every 2s), added connection_limit/pool_timeout
+  to the pooled URL (`db.ts`), and the worker now runs jobs **one at a time** (batchSize 1)
+  so it can't fan out dozens of concurrent Claude calls + DB txns.
+- **Live pipeline progress stepper** (Uploaded → Unpacking → Classifying → Reading → Done),
+  driven by real DB state (`pack-progress.ts`), + skeleton loading states.
+- **UI**: nav tabs for the three features (Quote & Take-off active; Gang Pay & Viability
+  and House-Type Bank as non-clickable placeholders). Removed dev metadata (model/latency
+  badge) and week/phase wording from the review screen. Monochrome throughout.
+- **Migrations**: `document_file_relevance`, `uncertain_and_relevant_pages`. 38 tests pass.
+- **Running-cost estimate** (for the contract): ~$10/pack LLM on Opus (~5× less on Sonnet),
+  hosting ~$40/mo (Render web+worker + Supabase Pro). ~£250/mo safe ceiling at 20 packs/mo.
+  We log real `costUsd` per extraction, so confirm from real runs.
+
+### Known issues / next
+
+- **Stale data**: earlier test projects hold pre-fix classifications; for a clean demo,
+  create a NEW project and upload the LOOSE files (not the 152MB zip — Supabase free tier
+  caps uploads at 50MB per file; individual PDFs are fine).
+- No "Delete project" button yet (offered; user hasn't taken it).
+- Deploy to Render still pending (two-service $7/mo path in `render.yaml`).
+
+---
+
+## (Earlier) Status: Week 1 DONE (verified on a real pack). Week 2 DONE.
 
 Last updated: 2026-08-02
 
