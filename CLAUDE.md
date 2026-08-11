@@ -82,6 +82,10 @@ npm run setup:bucket   # create the private Storage bucket
 
 ## ⚠ Correctness rules that must come from Colin, never inferred
 
-1. The rule that maps **wall height → number of lifts**.
-2. The exact **percentage splits** for erect / birdcage / dismantle.
-Do NOT harden the pricing engine (Week 4) until these are confirmed with Colin.
+1. The rule that maps **wall height → number of lifts** (partly known — storey-based
+   templates in Colin's matrix; confirm the height cut-off, esp. 2.5-storey).
+2. The exact **percentage splits** for erect / birdcage / dismantle — **now known** from
+   Colin's pricing matrix: 50/25/25 (bungalow 65/10/25, no-birdcage 75/…). Confirm current.
+
+Colin has sent real drawings + 3 priced matrices (a golden set). Decoded in
+`docs/08-colin-data.md` — read it before starting Week 3 (the staged take-off).

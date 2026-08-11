@@ -58,13 +58,26 @@ does the same one level up, across files.
 
 ## Week 3 — Drawings + plot list → staged take-off
 
+**Colin has now sent real data → see `docs/08-colin-data.md`.** Percentage splits are
+CONFIRMED (50/25/25, bungalow 65/10/25, no-bcage 75/…); storey→lifts templates are known;
+3 pricing matrices = a golden validation set (~140 priced plots).
+
 - [ ] Read elevations into quantities: perimeter (from wall lengths, each traceable),
-      height to soffit, roof pitch, storeys, gables, render length, birdcage m², foot/low-level.
-- [ ] Derive number of lifts from height — **Colin's exact rule (get it, don't infer)**.
+      height to soffit (`U/S Wallplate`), roof pitch, storeys, gables, render length,
+      birdcage m², foot/low-level. Deepen the `extractDrawing` Zod contract + prompt.
+- [ ] Derive number of lifts — templates are STOREY-based (builder-specific: 2-storey =
+      3 Barratt / 4 Standard); confirm the **height→lifts cut-off** (esp. 2.5-storey) with Colin.
 - [ ] Build the staged operation list per house type (component × erect/dismantle × lift);
-      garages as their own staged set.
-- [ ] Detached/semi/terraced wall-scaffold splits; split shared scaffold across a terrace run.
-- [ ] **Book the Colin session** to confirm the lift rule + the percentage splits.
+      garages as their own staged set. Column→operation map is in `docs/08-colin-data.md`.
+- [ ] Make the rules CONFIGURABLE (StageSplit % + lift bands + config→walls), not hardcoded.
+- [ ] Detached/semi/terraced/maisonette wall-scaffold splits; split shared scaffold across a run.
+- [ ] Validate the engine against Colin's matrices (start with Miller Whitford Road — we have
+      its drawings too). Reconciliation must match his plot totals.
+- [ ] **Group separate per-face elevation files** (Front/Rear/Side/Gable) back into one house
+      type — this builder splits them (unlike Miller's combined PDF).
+- [ ] **Classifier fix**: exclude internal "Kitchen Elevation" / "Cloak Plan Elevation" (they
+      contain "Elevation" but aren't scaffolding — same bug class as "Long Sections").
+- [ ] **Get from Colin**: his raw take-off sheet (LM/m² per plot) + rate sheet (£/component/band).
 
 ## Week 4 — Pricing (both modes), review screen, exports
 

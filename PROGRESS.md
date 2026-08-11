@@ -5,10 +5,36 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 ---
 
-## Status: Week 1 DONE. Week 2 DONE (incl. file-level relevance, validated on a REAL
-## 48-file pack). Pipeline classifies real multi-consultant packs correctly.
+## Status: Weeks 1 & 2 DONE (reading/organising engine works on real packs). Demoed to
+## client. Colin has sent real data → Week 3 (the staged take-off) is ready to start.
 
-Last updated: 2026-08-04
+Last updated: 2026-08-11
+
+### 2026-08-11 — client demo + Colin's data arrived (Week 3 unblocked)
+
+- **Client progress-demo prepared** (talking points, slide outline, click-by-click demo
+  flow). App health-checked green (typecheck/lint/38 tests/build/boot). Demo tips: run the
+  worker, use a FRESH project, upload LOOSE files (not the 152MB zip — 50MB/file cap).
+- **Running-cost estimate for the contract**: ~$10/pack LLM on Opus (~5× less on Sonnet),
+  hosting ~$40/mo (Render web+worker + Supabase Pro) → **~£250/mo safe ceiling at 20 packs/mo**.
+  We log real `costUsd` per extraction, so confirm from real runs.
+- **Colin sent real data** (in `~/Downloads`, not committed): ~31 elevation PDFs + 3 pricing
+  matrices. Fully decoded — see **`docs/08-colin-data.md`**. Highlights:
+  - **Percentage splits CONFIRMED** (from the matrix header, reconciles to a real plot):
+    Plot Erect **50%** / Birdcage **25%** / Dismantle **25%**; bungalow 65/10/25; no-bcage 75/…
+    → one of the two "must-not-guess" rules is now in hand.
+  - **Storey→lifts templates**: 1→2, 2→3 (Barratt) or 4 (Standard), 2.5/3→5/6, 4→8 (+ render/
+    hipped/no-birdcage variants). Builder-specific.
+  - Matrices are a **golden set** (~140 priced plots; one is Miller Whitford Road = same site
+    as a pack we already have drawings for → matched input↔answer pair).
+  - **New structural insight**: this builder splits elevations into **separate files per face**
+    (Front/Rear/Side/Gable) per house type — NOT one combined PDF. Tool must group them by type.
+  - **Classifier gap found**: "Kitchen Elevation" / "Cloak Plan Elevation" (internal) get treated
+    as scaffolding elevations — needs an exclusion (same class of bug as "Long Sections").
+- **Still needed from Colin**: his raw **take-off sheet** (LM/m² quantities per plot) and his
+  **rate sheet** (£/m per component per band); confirm the exact **height→lifts** cut-off.
+
+### (prior) Status
 
 ### 2026-08-04 session — real-pack hardening + fixes + UI
 

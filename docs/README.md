@@ -13,6 +13,7 @@ Read these in order before making changes.
 | 05 | [Week 1 scope](./05-week1-scope.md) | What this codebase delivers right now |
 | 06 | [Setup guide](./06-setup.md) | Supabase, Render, env vars, deploy |
 | 07 | [Design system](./07-design-system.md) | Monochrome UI rules |
+| 08 | [Colin's data](./08-colin-data.md) | Real drawings + pricing matrices decoded (Week 3 input) |
 
 ## Where we are
 
