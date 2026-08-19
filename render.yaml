@@ -18,7 +18,7 @@ services:
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - fromGroup: airwright-secrets
 
   # pg-boss extraction worker (separate process, connects on DIRECT_URL)
@@ -33,5 +33,5 @@ services:
     startCommand: npm run worker
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - fromGroup: airwright-secrets
