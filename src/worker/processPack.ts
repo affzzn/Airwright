@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { unzipSync } from "fflate";
 import type { Prisma } from "@prisma/client";
+import { collectZipPdfEntries } from "@/lib/zip";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
@@ -45,22 +44,45 @@ async function ingestUploads(packId: string): Promise<void> {
     try {
       if (upload.isArchive) {
         const zip = await downloadFromStorage(upload.storagePath);
-        const entries = unzipSync(new Uint8Array(zip));
-        for (const [name, bytes] of Object.entries(entries)) {
-          if (!name.toLowerCase().endsWith(".pdf")) continue;
-          if (name.startsWith("__MACOSX") || name.split("/").pop()!.startsWith("."))
-            continue;
-          if (bytes.length === 0) continue;
-          const base = name.split("/").pop() ?? name;
-          const buffer = Buffer.from(bytes);
-          const path = `${packId}/${randomUUID()}-${base}`;
-          await uploadToStorage(path, buffer, "application/pdf");
+        // Recursive: real packs arrive as zips-of-zips (e.g. a OneDrive export
+        // zip inside the pack zip) — nested PDFs must not vanish silently.
+        const { pdfs, skipped } = collectZipPdfEntries(new Uint8Array(zip));
+        for (let i = 0; i < pdfs.length; i++) {
+          const entry = pdfs[i];
+          const base = entry.name.split("/").pop() ?? entry.name;
+          const buffer = Buffer.from(entry.bytes);
+          // Deterministic path (upload id + entry index) so a retried job
+          // OVERWRITES rather than duplicating documents.
+          const path = `${packId}/${upload.id}/${i}-${sanitizeKey(base)}`;
+          const exists = await prisma.document.findFirst({
+            where: { packId, storagePath: path },
+            select: { id: true },
+          });
+          if (exists) continue; // retry after a mid-zip crash — already ingested
+          await uploadToStorage(path, buffer, "application/pdf", { upsert: true });
           await createDocument(packId, base, path, buffer);
         }
+        if (skipped.length) {
+          console.warn(
+            `[process-pack] ${upload.fileName}: ${skipped.length} non-PDF entr${skipped.length === 1 ? "y" : "ies"} set aside: ${skipped.slice(0, 10).join(", ")}${skipped.length > 10 ? ", …" : ""}`,
+          );
+        }
+        if (pdfs.length === 0) {
+          throw new Error(
+            `No PDFs found in the archive${skipped.length ? ` (contains: ${skipped.slice(0, 5).join(", ")})` : ""}`,
+          );
+        }
       } else {
-        // A PDF already sitting in storage — just register it as a Document.
-        const buffer = await downloadFromStorage(upload.storagePath);
-        await createDocument(packId, upload.fileName, upload.storagePath, buffer);
+        // A PDF already sitting in storage — just register it as a Document
+        // (skip if a retry already registered it).
+        const exists = await prisma.document.findFirst({
+          where: { packId, storagePath: upload.storagePath },
+          select: { id: true },
+        });
+        if (!exists) {
+          const buffer = await downloadFromStorage(upload.storagePath);
+          await createDocument(packId, upload.fileName, upload.storagePath, buffer);
+        }
       }
       await prisma.packUpload.update({
         where: { id: upload.id },
@@ -75,6 +97,11 @@ async function ingestUploads(packId: string): Promise<void> {
       console.error(`[process-pack] upload ${upload.fileName} failed:`, message);
     }
   }
+}
+
+/** Make a zip entry name safe as a Storage object key. */
+function sanitizeKey(name: string): string {
+  return name.replace(/[^A-Za-z0-9._ ()-]/g, "_").slice(0, 180);
 }
 
 async function createDocument(

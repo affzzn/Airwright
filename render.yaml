@@ -11,6 +11,9 @@ services:
     # --include=dev: Render sets NODE_ENV=production, which would otherwise make
     # npm skip devDeps (tailwind, typescript, prisma) needed to build.
     buildCommand: npm ci --include=dev && npm run build
+    # Apply any pending Prisma migrations to the production DB before the new
+    # version goes live (idempotent — only unapplied migrations run).
+    preDeployCommand: npm run db:deploy
     startCommand: npm run start
     healthCheckPath: /login
     envVars:

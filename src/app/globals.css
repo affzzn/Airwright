@@ -23,6 +23,10 @@
     border-color: var(--hairline);
   }
   html {
+    /* Nudge the whole type scale up a touch — everything is rem-based, so this
+       lifts all text (and spacing) proportionally. Respects the user's own
+       browser base size for accessibility. */
+    font-size: 106.25%;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }

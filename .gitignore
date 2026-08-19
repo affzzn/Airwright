@@ -36,3 +36,8 @@ yarn-error.log*
 
 # testing
 /coverage
+
+# client data — real tender packs, Colin's take-off sheets, priced quotes (PII,
+# commercially sensitive). Never commit.
+/data/
+/colin-data/

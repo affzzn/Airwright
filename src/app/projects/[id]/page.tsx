@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatusBadge, Badge } from "@/components/ui/badge";
@@ -9,8 +8,11 @@ import { UploadForm } from "@/components/upload-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { PackProgress } from "@/components/pack-progress";
 import { DocumentToggle } from "@/components/document-toggle";
+import { RetryExtraction } from "@/components/retry-extraction";
+import { ExtractionProgress } from "@/components/extraction-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
+import { estimateExpectedMs } from "@/lib/extraction-eta";
 import { cn, formatBytes } from "@/lib/utils";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -34,6 +36,7 @@ export default async function ProjectPage({
 
   const project = await prisma.project.findUnique({
     where: { id },
+    relationLoadStrategy: "join", // one SQL query instead of ~13 round-trips
     include: {
       client: true,
       houseTypes: {
@@ -82,6 +85,15 @@ export default async function ProjectPage({
 
   const usedFiles = pack.documents.filter((d) => d.included).length;
 
+  // Expected read duration for the live per-file progress bars, calibrated from
+  // this project's own completed extractions (fallback to a sensible default).
+  const expectedMs = estimateExpectedMs(
+    project.houseTypes
+      .flatMap((ht) => ht.extractions)
+      .filter((e) => e.status === "COMPLETED" && e.latencyMs != null)
+      .map((e) => e.latencyMs as number),
+  );
+
   // Only show house types whose file is still included (excluding a file hides
   // its house types).
   const houseTypes = project.houseTypes.filter((ht) => {
@@ -106,7 +118,8 @@ export default async function ProjectPage({
 
   return (
     <AppShell>
-      {processing && <AutoRefresh />}
+      <AutoRefresh projectId={project.id} />
+      {/* `processing` still gates the stepper below; the poller self-manages. */}
 
       <Link href="/" className="text-sm text-ink-muted hover:text-ink">
         ← Projects
@@ -132,7 +145,7 @@ export default async function ProjectPage({
       )}
 
       <div className="mb-8">
-        <UploadForm packId={pack.id} bucket={env.storageBucket} />
+        <UploadForm packId={pack.id} />
       </div>
 
       {/* House types */}
@@ -167,37 +180,57 @@ export default async function ProjectPage({
             <ul className="divide-y divide-hairline">
               {houseTypes.map((ht) => {
                 const ex = ht.extractions[ht.extractions.length - 1];
+                const reading =
+                  ex?.status === "PENDING" || ex?.status === "PROCESSING";
                 return (
-                  <li
-                    key={ht.id}
-                    className="flex items-center justify-between px-5 py-4"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-ink">
-                        {ht.name}
-                        {ht.code && (
-                          <span className="ml-2 text-xs text-ink-subtle">
-                            {ht.code}
-                          </span>
+                  <li key={ht.id} className="px-5 py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-ink">
+                          {ht.name}
+                          {ht.code && (
+                            <span className="ml-2 text-xs text-ink-subtle">
+                              {ht.code}
+                            </span>
+                          )}
+                        </p>
+                        <p className="mt-0.5 text-xs text-ink-subtle">
+                          {ex ? `pages ${ex.pageRange ?? "all"}` : "—"}
+                          {ht._count.plots > 0 &&
+                            ` · ${ht._count.plots} plot${ht._count.plots === 1 ? "" : "s"}`}
+                        </p>
+                        {ex?.status === "FAILED" && ex.errorMessage && (
+                          <p className="mt-1 max-w-md text-xs text-ink-muted">
+                            {ex.errorMessage}
+                          </p>
                         )}
-                      </p>
-                      <p className="mt-0.5 text-xs text-ink-subtle">
-                        {ex ? `pages ${ex.pageRange ?? "all"}` : "—"}
-                        {ht._count.plots > 0 &&
-                          ` · ${ht._count.plots} plot${ht._count.plots === 1 ? "" : "s"}`}
-                      </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {ex && <StatusBadge status={ex.status} />}
+                        {ex?.status === "FAILED" && (
+                          <RetryExtraction extractionId={ex.id} />
+                        )}
+                        {ex?.status === "COMPLETED" && (
+                          <Link
+                            href={`/extractions/${ex.id}`}
+                            className="text-xs font-medium text-ink hover:underline"
+                          >
+                            Review →
+                          </Link>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {ex && <StatusBadge status={ex.status} />}
-                      {ex?.status === "COMPLETED" && (
-                        <Link
-                          href={`/extractions/${ex.id}`}
-                          className="text-xs font-medium text-ink hover:underline"
-                        >
-                          Review →
-                        </Link>
-                      )}
-                    </div>
+                    {ex && reading && (
+                      <ExtractionProgress
+                        status={ex.status}
+                        startedAt={
+                          ex.processingStartedAt
+                            ? ex.processingStartedAt.getTime()
+                            : null
+                        }
+                        expectedMs={expectedMs}
+                      />
+                    )}
                   </li>
                 );
               })}

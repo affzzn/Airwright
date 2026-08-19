@@ -12,6 +12,14 @@ const PdfViewer = dynamic(() => import("./pdf-viewer"), {
   ),
 });
 
-export function PdfViewerClient({ url }: { url: string }) {
-  return <PdfViewer url={url} />;
+export function PdfViewerClient({
+  url,
+  pages,
+  goTo,
+}: {
+  url: string;
+  pages?: number[];
+  goTo?: { page: number; nonce: number } | null;
+}) {
+  return <PdfViewer url={url} pages={pages} goTo={goTo} />;
 }

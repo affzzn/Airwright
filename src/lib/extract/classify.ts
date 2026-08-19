@@ -138,6 +138,54 @@ export function classifyTitle(titleRaw: string): PageKind {
   return "OTHER";
 }
 
+/**
+ * Fallback classifier for builders whose title block we don't parse (e.g. Bloor
+ * / NSS sheets have no Miller portfolio line or "TITLE … SCALE" anchor). Scans
+ * the page text for strong, standalone drawing-type labels — "FRONT ELEVATION",
+ * "GROUND FLOOR PLAN", "SITE LAYOUT" — with the internal-elevation and civils
+ * exclusions Colin's rules require. Only used when the title-based classifier
+ * returns OTHER, so it can only ADD recall, never change a confident result.
+ */
+export function classifyByText(raw: string): { kind: PageKind; label: string } {
+  const up = raw.toUpperCase().replace(/\s+/g, " ");
+  const none = { kind: "OTHER" as PageKind, label: "" };
+
+  if (/\bLONG\s*SECTIONS?\b/.test(up)) return none; // civils, not a house section
+
+  // Drawing types win over a plot reference: these dense combined sheets mention
+  // "plot"/"site plan" incidentally, so an ELEVATION or FLOOR PLAN page must not
+  // be stolen by PLOT_LAYOUT (which is not take-off-relevant). We favour recall —
+  // an extra page costs nothing, a missed elevation loses the take-off.
+  const internalOnly =
+    /\bELEVATIONS?\b/.test(up) &&
+    !/\b(FRONT|REAR|SIDE|GABLE|PROPOSED|EXTERNAL)\b[A-Z0-9 ,'&/().-]{0,24}\bELEVATIONS?\b/.test(up) &&
+    /\b(KITCHEN|CLOAK|BATHROOM|EN[\s-]?SUITE|UTILITY|W\.?C\.?|WARDROBE|INTERNAL)\b[A-Z0-9 ,'&/().-]{0,24}\bELEVATIONS?\b/.test(
+      up,
+    );
+  const elev = up.match(
+    /\b((?:FRONT|REAR|SIDE|GABLE|PROPOSED|EXTERNAL)[A-Z0-9 ,'&/().-]{0,24}?)?\bELEVATIONS?\b/,
+  );
+  if (!internalOnly && elev)
+    return { kind: "ELEVATION", label: (elev[0] || "ELEVATION").trim().slice(0, 40) };
+
+  const floor = up.match(
+    /\b((?:GROUND|FIRST|SECOND|THIRD|ROOF|GF|FF|SF)[A-Z0-9 ,'&/().-]{0,12}?)?\bFLOOR\s*PLANS?\b/,
+  );
+  if (floor) return { kind: "FLOOR_PLAN", label: (floor[0] || "FLOOR PLAN").trim().slice(0, 40) };
+
+  // House sections (not civils long-sections, excluded above) are take-off-relevant.
+  if (/\bSECTION\s+[A-Z]{1,2}\s*[-–]\s*[A-Z]{1,2}\b|\bCROSS[\s-]?SECTION\b/.test(up))
+    return { kind: "SECTION", label: "SECTION" };
+
+  // Only a page with no elevation/floor-plan label is treated as a plot layout.
+  if (/\b(SITE\s*(LAYOUT|PLAN)|PLOT\s*(LAYOUT|SCHEDULE)|PLANNING\s*LAYOUT)\b/.test(up)) {
+    const m = up.match(/\b(SITE|PLOT|PLANNING)\s*(LAYOUT|PLAN|SCHEDULE)\b/);
+    return { kind: "PLOT_LAYOUT", label: m ? m[0] : "SITE LAYOUT" };
+  }
+
+  return none;
+}
+
 export async function classifyPdf(
   buffer: Buffer,
 ): Promise<{ pages: PageClass[]; hasText: boolean }> {
@@ -163,7 +211,18 @@ export async function classifyPdf(
     textChars += raw.replace(/\s/g, "").length;
 
     const titleRaw = drawingTitle(raw);
-    const kind = classifyTitle(titleRaw);
+    let kind = classifyTitle(titleRaw);
+    let title = titleRaw;
+    // If the title block wasn't parseable (unfamiliar builder), fall back to a
+    // direct text scan for drawing-type labels — and prefer its clean label over
+    // any letter-spaced gibberish the title fallback produced.
+    if (kind === "OTHER") {
+      const fb = classifyByText(raw);
+      if (fb.kind !== "OTHER") {
+        kind = fb.kind;
+        title = fb.label;
+      }
+    }
     const ref = extractHouseTypeRef(raw);
 
     pages.push({
@@ -172,7 +231,7 @@ export async function classifyPdf(
       relevant: TAKEOFF_KINDS.includes(kind),
       houseTypeCode: ref.code,
       houseTypeName: ref.name,
-      title: titleRaw || null2str(kind),
+      title: title || null2str(kind),
     });
   }
 

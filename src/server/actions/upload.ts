@@ -10,6 +10,7 @@ import { PROCESS_PACK_QUEUE } from "@/lib/queue/jobs";
 export interface UploadTarget {
   path: string;
   token: string;
+  signedUrl: string;
   name: string;
   type: string;
   size: number;
@@ -32,8 +33,16 @@ export async function createSignedUploads(
     if (!isArchive && !isPdf) continue;
 
     const path = `${packId}/raw/${randomUUID()}-${f.name}`;
-    const { token } = await createSignedUploadUrl(path);
-    targets.push({ path, token, name: f.name, type: f.type, size: f.size, isArchive });
+    const { token, signedUrl } = await createSignedUploadUrl(path);
+    targets.push({
+      path,
+      token,
+      signedUrl,
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      isArchive,
+    });
   }
   return targets;
 }

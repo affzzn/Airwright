@@ -1,8 +1,21 @@
 # TODO.md
 
-Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-build1.md`.
+Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-build1.md`;
+the Week-3 rules + open questions live in **`docs/11-takeoff-engine-spec.md`** (canonical).
 
 ## Now / small
+
+- [ ] **Commit the 2026-08-12→19 session work** (extractor v2, take-off engine,
+      classifier fallback, polling/perf/ZIP/retry fixes) — all still uncommitted on
+      `main`. Branch first. `data/` + `colin-data/` are gitignored (client PII).
+- [ ] **Colin follow-up call** — the 16 open questions in `docs/11 §8` (corner quantum,
+      height datum, birdcage cavity + apartment basis, render table, rate sheet…).
+      Do NOT encode any of them as assumptions.
+- [ ] Clean out test users/projects (tester@airwright.test, "Live test —…",
+      "Nested zip test", "ZIP upload test", "Bug Test"…). A Delete-project button
+      would make this self-serve (still not built).
+- [ ] Resumable (TUS) uploads for 150MB+ zips — current single PUT works (bucket now
+      250MB) but is slow/fragile on weak connections.
 
 - [ ] **Decide the Render deploy path** (Background Workers have NO free tier — $7/mo
       minimum; Web Services do). Options: (a) pay $7/mo Starter for a proper always-on
@@ -14,9 +27,10 @@ Task list / next steps. Keep it current. Depth for each week is in `docs/02-prd-
       `persistPlots.test.ts`, `categorise.test.ts`, `pack-progress.test.ts` — 38 total),
       using the real Travis Baker sample sheets.
 - [x] File-level relevance (done — see "File relevance"). Validated on the real 48-file pack.
-- [~] Broaden classifier further for OTHER builders' formats — Miller + Travis Baker handled;
-      image-only drawings (no text titles) fall to UNCERTAIN + manual "Use file" for now.
-      True fix for text-less drawings would be vision-based page classification (costs AI).
+- [x] Broaden classifier for other builders — **Bloor/NSS handled** via `classifyByText`
+      text-scan fallback (drawing-type labels; internal-elevation + civils exclusions).
+      Miller, Travis Baker, Bloor-NSS, Bloor-Oadby all verified. Image-only drawings
+      (no text) still fall to UNCERTAIN + manual "Use file" (vision classification later).
 - [ ] Add a "Delete project" button (to clear stale test data) — offered, not built.
 
 ## File relevance (which FILES in a pack matter, not just which pages)
@@ -58,26 +72,35 @@ does the same one level up, across files.
 
 ## Week 3 — Drawings + plot list → staged take-off
 
-**Colin has now sent real data → see `docs/08-colin-data.md`.** Percentage splits are
-CONFIRMED (50/25/25, bungalow 65/10/25, no-bcage 75/…); storey→lifts templates are known;
-3 pricing matrices = a golden validation set (~140 priced plots).
+**Canonical spec + rules + validation results: `docs/11-takeoff-engine-spec.md`.**
+Colin's handwritten take-off sheets + 4 matched drawings are in `colin-data/` (gitignored).
 
-- [ ] Read elevations into quantities: perimeter (from wall lengths, each traceable),
-      height to soffit (`U/S Wallplate`), roof pitch, storeys, gables, render length,
-      birdcage m², foot/low-level. Deepen the `extractDrawing` Zod contract + prompt.
-- [ ] Derive number of lifts — templates are STOREY-based (builder-specific: 2-storey =
-      3 Barratt / 4 Standard); confirm the **height→lifts cut-off** (esp. 2.5-storey) with Colin.
-- [ ] Build the staged operation list per house type (component × erect/dismantle × lift);
-      garages as their own staged set. Column→operation map is in `docs/08-colin-data.md`.
-- [ ] Make the rules CONFIGURABLE (StageSplit % + lift bands + config→walls), not hardcoded.
-- [ ] Detached/semi/terraced/maisonette wall-scaffold splits; split shared scaffold across a run.
-- [ ] Validate the engine against Colin's matrices (start with Miller Whitford Road — we have
-      its drawings too). Reconciliation must match his plot totals.
-- [ ] **Group separate per-face elevation files** (Front/Rear/Side/Gable) back into one house
-      type — this builder splits them (unlike Miller's combined PDF).
-- [ ] **Classifier fix**: exclude internal "Kitchen Elevation" / "Cloak Plan Elevation" (they
-      contain "Elevation" but aren't scaffolding — same bug class as "Long Sections").
-- [ ] **Get from Colin**: his raw take-off sheet (LM/m² per plot) + rate sheet (£/component/band).
+- [x] Read elevations into quantities — extractor v2 live (`prompt.ts` v2026-08-19.2):
+      wall segments, height, storeys/room-in-roof, per-elevation apex + render, internal
+      floorAreas (GIA-first), corners, chimney, structure, dwellingsWide.
+- [x] Derive lifts — engine: ceil(height/1.5)+roomInRoof, storey template as cross-check
+      with deterministic precedence (whole storeys → template; 2.5 → height) + flag.
+      ⚠ height DATUM (soffit/eaves/wallplate) still to confirm with Colin.
+- [x] Config→walls splits (det 4 / semi-end 3 / mid 2) + config-aware apex + party walls;
+      semi-PAIR drawings split correctly (model reports printed frontage + dwellingsWide,
+      engine divides). Apartment blocks = whole-building mode.
+- [x] Rules configurable (`EngineParams`: lift height, corner allowance) — open values
+      flagged, never guessed.
+- [x] Validated against Colin's sheets: Dekker 20.56/10.66 (his 20.5/10.6), Rosewood
+      48.5 exact, Tyard 27.5 (28.5). Runner: `scripts/offline-extract.mts`.
+- [x] Classifier: internal "Kitchen/Cloak Elevation" excluded (in `classifyByText`).
+- [ ] **Build the staged ScaffoldOperation rows** (component × erect/dismantle × lift)
+      from the engine's take-off line — the engine emits the line but doesn't write
+      `ScaffoldOperation` records yet. Garages as their own staged set.
+- [ ] **Shared-item apportionment across a block** (loading bay / chute / access):
+      needs a Block object grouping plots + the 4-plot rule from Laura (docs/11 §8).
+- [ ] **Group separate per-face elevation files** (2522-style Front/Rear/Gable-per-file)
+      into ONE house type — still each becomes its own house type today.
+- [ ] Validate against Colin's PRICING matrices (Whitford Road golden set) once rates land.
+- [ ] Add "Setting Out Plan" pages to the relevant set (they carry the true GIA, e.g.
+      Dekker 35.60, and the "Run of Exterior Wall" figure).
+- [ ] **Get from Colin**: rate sheet (£/component/band) + the docs/11 §8 answers
+      (corner quantum, cavity, render table, apartment birdcage basis, Tyard/Whitgrove).
 
 ## Week 4 — Pricing (both modes), review screen, exports
 
@@ -95,6 +118,17 @@ CONFIRMED (50/25/25, bungalow 65/10/25, no-bcage 75/…); storey→lifts templat
 - [ ] W5: accuracy testing vs all real packs (golden set, correction-rate metric).
 - [ ] W6: edge cases, hardening, security.
 - [ ] W7: refine, polish, sign-off.
+
+## Feature ideas (suggested 2026-08-19, not built — pick with the client)
+
+Ranked for Colin-value: (1) editable review + Confirm-locks-takeoff (Week 4 anyway),
+(2) take-off summary export in Colin's handwritten-sheet format + Strike totals,
+(3) manual take-off fallback when extraction fails, (4) plot-schedule editor with
+block grouping + auto-apportionment, (5) builder-profile screen (~20 builders:
+Keepmoat=Haki, Bloor=beam-overs/smart-roofs…), (6) flag inbox (all low-confidence /
+mismatch warnings in one queue), (7) house-type bank + duplicate-and-amend with
+LM drift check, (8) golden-set comparison view (tool vs Colin, agreement %),
+(9) per-pack AI-cost chip, (10) revision watch (re-check known type on new rev).
 
 ## Later phases (NOT Build 1)
 

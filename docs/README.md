@@ -14,16 +14,23 @@ Read these in order before making changes.
 | 06 | [Setup guide](./06-setup.md) | Supabase, Render, env vars, deploy |
 | 07 | [Design system](./07-design-system.md) | Monochrome UI rules |
 | 08 | [Colin's data](./08-colin-data.md) | Real drawings + pricing matrices decoded (Week 3 input) |
+| 11 | [Take-off engine spec](./11-takeoff-engine-spec.md) | **Canonical build spec** — post-Colin rules, extractor field set, validation set, open questions. (Old drafts 09/10 deleted — superseded by this + the live code) |
 
 ## Where we are
 
-**Phase 1 → Build 1 (Quote & Take-off Engine, ~7 weeks) → Week 1 complete.**
-The pipeline runs end to end: upload a tender PDF → background extraction via
-Claude → review the drawing beside the extracted fields.
+**Phase 1 → Build 1 → Weeks 1–2 complete; Week 3 core built and validated
+(2026-08-19).** The pipeline runs end to end on real multi-builder packs (Miller,
+Bloor-NSS, Bloor-Oadby): upload PDF/ZIP → classify → extract observables (Opus,
+prompt v2026-08-19.2) → the deterministic take-off engine emits Colin's take-off
+line per configuration — matching his handwritten sheets (Dekker 20.56/10.66 vs
+his 20.5/10.6; Rosewood 48.5 exact). Next: the Colin follow-up on the open
+questions, then ScaffoldOperation rows + pricing (Week 4).
 
 ## The golden rule
 
-**Two correctness rules must come from Colin (Airwright's estimator) directly,
-never inferred:** (1) how wall height maps to number of lifts, and (2) the exact
-percentage splits for erect / birdcage / dismantle. Do not harden the pricing
-engine (Week 4) until these are confirmed. See [PRD](./02-prd-build1.md).
+**Nothing uncertain is guessed.** Doc 11 §8 lists the 16 open rule questions
+(corner allowance quantum, height datum, birdcage cavity, render table, rate
+sheet…) with owners — each is a configurable hook + review flag until Colin
+answers it. Stage splits (50/25/25; bungalow 65/10/25) are confirmed from his
+matrices. Do not harden pricing (Week 4) until the rate sheet lands. See
+[doc 11](./11-takeoff-engine-spec.md).

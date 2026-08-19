@@ -50,4 +50,7 @@ Upload → Supabase Storage + `Document` row → pg-boss job → worker runs
 
 ## Status
 
-**Week 1 complete.** See [`docs/05-week1-scope.md`](./docs/05-week1-scope.md).
+**Weeks 1–2 complete · Week 3 core built & validated** — the extractor + deterministic
+take-off engine reproduce Colin's handwritten take-offs on real drawings. See
+[`PROGRESS.md`](./PROGRESS.md) and the canonical spec
+[`docs/11-takeoff-engine-spec.md`](./docs/11-takeoff-engine-spec.md).

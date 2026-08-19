@@ -34,7 +34,7 @@ export async function extractDrawing(pdf: Buffer): Promise<ExtractDrawingResult>
     toolName: TOOL_NAME,
     toolDescription: "Record the extracted scaffold take-off measurements.",
     inputSchema: toolInputSchema,
-    maxTokens: 4096,
+    maxTokens: 16384, // richer field set; large blocks (3-storey, many elevations/floors) can be verbose
   });
 
   const data = extractionResultSchema.parse(res.input);

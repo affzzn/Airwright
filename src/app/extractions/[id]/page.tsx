@@ -2,26 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { createSignedUrl } from "@/lib/supabase/storage";
+import { parseRangeString } from "@/lib/pdf";
+import { extractionResultSchema } from "@/lib/extract/schema";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { ConfidenceDot } from "@/components/ui/badge";
-import { PdfViewerClient } from "@/components/pdf-viewer-client";
+import { ReviewWorkspace } from "@/components/review-workspace";
+import type { EditorCategoricals } from "@/components/takeoff-editor";
 
 export const dynamic = "force-dynamic";
-
-const MEASUREMENT_LABEL: Record<string, string> = {
-  STOREYS: "Storeys",
-  HEIGHT_TO_SOFFIT: "Height to soffit",
-  GABLE_QTY: "Gables / apex",
-  ROOF_PITCH: "Roof pitch",
-  LIFTS: "Number of lifts",
-  RENDER_LENGTH: "Render length",
-  BIRDCAGE_GF_M2: "Birdcage (GF)",
-  BIRDCAGE_FF_M2: "Birdcage (FF)",
-  LOW_LEVEL_QTY: "Low-level",
-  FOOT_SCAFFOLD_QTY: "Foot scaffold",
-  CORNER_COUNT: "Corners",
-};
 
 export default async function ReviewPage({
   params,
@@ -32,8 +20,14 @@ export default async function ReviewPage({
 
   const extraction = await prisma.extraction.findUnique({
     where: { id },
+    relationLoadStrategy: "join",
     include: {
-      document: { include: { pack: true } },
+      document: {
+        include: {
+          pack: true,
+          pages: { select: { pageNumber: true, sheetTitle: true } },
+        },
+      },
       houseType: {
         include: {
           takeoff: {
@@ -50,22 +44,68 @@ export default async function ReviewPage({
   if (!extraction) notFound();
 
   const takeoff = extraction.houseType?.takeoff;
-  const measurements = takeoff?.measurements ?? [];
-  const walls = takeoff?.wallSegments ?? [];
-  const perimeter = walls.reduce((sum, w) => sum + Number(w.lengthM), 0);
-  const notes =
-    takeoff?.warnings &&
-    typeof takeoff.warnings === "object" &&
-    "notes" in takeoff.warnings
-      ? String((takeoff.warnings as { notes: unknown }).notes)
-      : null;
+  const rawWarnings =
+    takeoff?.warnings && typeof takeoff.warnings === "object" && !Array.isArray(takeoff.warnings)
+      ? (takeoff.warnings as Record<string, unknown>)
+      : {};
+  const notes = rawWarnings.notes != null ? String(rawWarnings.notes) : null;
+
+  // Serialise the take-off for the editable client component (Prisma Decimals →
+  // plain numbers). The deterministic take-off line is recomputed there, live.
+  const editorMeasurements = (takeoff?.measurements ?? []).map((m) => ({
+    key: m.key as string,
+    valueNumber: m.valueNumber !== null ? Number(m.valueNumber) : null,
+    confidence: m.confidence,
+    source: m.source as string,
+  }));
+  const editorWalls = (takeoff?.wallSegments ?? []).map((w) => ({
+    id: w.id,
+    position: w.position as string,
+    lengthM: Number(w.lengthM),
+    confidence: w.confidence,
+    sourceDimension: w.sourceDimension,
+    source: w.source as string,
+  }));
+  const asEnum = <T extends string>(v: unknown, allowed: readonly T[]): T | null =>
+    typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : null;
+  const categoricals: EditorCategoricals = {
+    roofType: asEnum(rawWarnings.roofType, ["PITCHED", "HIPPED", "MIXED"] as const),
+    structure: asEnum(rawWarnings.structure, [
+      "SINGLE",
+      "PAIR_OR_TERRACE",
+      "APARTMENT_BLOCK",
+    ] as const),
+    dwellingsWide:
+      typeof rawWarnings.dwellingsWide === "number" ? rawWarnings.dwellingsWide : null,
+    roomInRoof:
+      typeof rawWarnings.roomInRoof === "boolean" ? rawWarnings.roomInRoof : null,
+    rendered: typeof rawWarnings.rendered === "boolean" ? rawWarnings.rendered : null,
+    chimney: typeof rawWarnings.chimney === "boolean" ? rawWarnings.chimney : null,
+  };
 
   let pdfUrl: string | null = null;
   try {
-    pdfUrl = await createSignedUrl(extraction.document.storagePath);
+    // 4 hours, not the 10-minute default — Colin keeps a review open while he
+    // cross-checks, and the zoom lightbox re-fetches this URL when opened.
+    pdfUrl = await createSignedUrl(extraction.document.storagePath, 60 * 60 * 4);
   } catch {
     pdfUrl = null;
   }
+
+  // Only show the pages that were actually relevant for this house type — the
+  // exact range sent to the model — not the whole document.
+  const relevantPages = extraction.pageRange
+    ? parseRangeString(extraction.pageRange)
+    : undefined;
+
+  // The verbatim model output (for provenance) + the per-page sheet titles
+  // (for resolving a cited sheet to a page number).
+  const parsedRaw = extractionResultSchema.safeParse(extraction.rawOutput);
+  const raw = parsedRaw.success ? parsedRaw.data : null;
+  const documentPages = extraction.document.pages.map((p) => ({
+    pageNumber: p.pageNumber,
+    sheetTitle: p.sheetTitle,
+  }));
 
   return (
     <AppShell>
@@ -87,116 +127,43 @@ export default async function ReviewPage({
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Drawing */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">Drawing</h2>
-            {pdfUrl && (
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-ink-muted hover:text-ink"
-              >
-                Open original ↗
-              </a>
-            )}
-          </CardHeader>
-          <CardBody>
-            {pdfUrl ? (
-              <PdfViewerClient url={pdfUrl} />
-            ) : (
+      {takeoff ? (
+        <ReviewWorkspace
+          pdfUrl={pdfUrl}
+          relevantPages={relevantPages}
+          takeoffId={takeoff.id}
+          measurements={editorMeasurements}
+          walls={editorWalls}
+          warnings={rawWarnings}
+          categoricals={categoricals}
+          notes={notes}
+          raw={raw}
+          documentPages={documentPages}
+        />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <h2 className="text-sm font-semibold text-ink">Drawing</h2>
+            </CardHeader>
+            <CardBody>
               <p className="py-10 text-center text-sm text-ink-subtle">
-                Drawing preview unavailable (Storage not configured).
+                Drawing preview unavailable.
               </p>
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Extracted fields */}
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold text-ink">Extracted take-off</h2>
-          </CardHeader>
-          <CardBody className="space-y-6">
-            <div>
-              <p className="eyebrow mb-3">Measurements</p>
-              <dl className="divide-y divide-hairline">
-                {measurements.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center justify-between py-2.5"
-                  >
-                    <dt className="text-sm text-ink-muted">
-                      {MEASUREMENT_LABEL[m.key] ?? m.key}
-                    </dt>
-                    <dd className="flex items-center gap-2.5">
-                      <span className="text-sm font-medium tabular-nums text-ink">
-                        {m.valueNumber !== null ? String(m.valueNumber) : "—"}
-                      </span>
-                      <ConfidenceDot value={m.confidence} />
-                    </dd>
-                  </div>
-                ))}
-                {measurements.length === 0 && (
-                  <p className="py-4 text-sm text-ink-subtle">
-                    No measurements extracted.
-                  </p>
-                )}
-              </dl>
-            </div>
-
-            <div>
-              <div className="mb-3 flex items-baseline justify-between">
-                <p className="eyebrow">Wall segments → perimeter</p>
-                <span className="text-sm font-medium tabular-nums text-ink">
-                  {perimeter.toFixed(3)} m
-                </span>
-              </div>
-              <ul className="divide-y divide-hairline">
-                {walls.map((w) => (
-                  <li
-                    key={w.id}
-                    className="flex items-center justify-between py-2.5"
-                  >
-                    <div>
-                      <span className="text-sm text-ink">
-                        {w.position.replace("_", " ").toLowerCase()}
-                      </span>
-                      {w.sourceDimension && (
-                        <span className="ml-2 text-xs text-ink-subtle">
-                          dim {w.sourceDimension}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-sm font-medium tabular-nums text-ink">
-                        {String(w.lengthM)} m
-                      </span>
-                      <ConfidenceDot value={w.confidence} />
-                    </div>
-                  </li>
-                ))}
-                {walls.length === 0 && (
-                  <p className="py-4 text-sm text-ink-subtle">
-                    No wall segments extracted.
-                  </p>
-                )}
-              </ul>
-            </div>
-
-            {notes && (
-              <div>
-                <p className="eyebrow mb-2">AI notes</p>
-                <p className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-sm text-ink-muted">
-                  {notes}
-                </p>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-      </div>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader>
+              <h2 className="text-sm font-semibold text-ink">Extracted take-off</h2>
+            </CardHeader>
+            <CardBody>
+              <p className="py-4 text-sm text-ink-subtle">
+                No take-off yet — the extraction hasn’t completed.
+              </p>
+            </CardBody>
+          </Card>
+        </div>
+      )}
     </AppShell>
   );
 }

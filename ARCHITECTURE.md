@@ -58,12 +58,27 @@ They share one Postgres DB (Supabase). The queue lives in that DB (pg-boss's own
    matches each plot to its house type (by code, then name; creates a stub house type if
    that drawing wasn't in the pack) and upserts `Plot` rows.
 
+## The take-off engine (Layer 2 — deterministic, post-extraction)
+
+The model only extracts **observables**; `src/lib/takeoff/engine.ts` (pure,
+unit-tested) turns them into Colin's take-off line: lifts (height rule + storey
+cross-check with flags), perimeter by configuration + corner allowance, birdcage
+per floor, render lifts, config-aware apex/table lifts, party walls, and an
+apartment whole-block mode. `fromStored.ts` maps a persisted take-off to the
+engine input; the review screen renders the computed line per configuration.
+Open rule values (corner quantum, height datum…) are `EngineParams` + flags —
+see `docs/11-takeoff-engine-spec.md` §8. Offline validation runner:
+`scripts/offline-extract.mts` (extractor + engine vs Colin's sheets).
+
 ## The review / browse UI
 
 - **Project page** (`src/app/projects/[id]`): the pack overview — House types (status +
-  Review link), a Plots table (plot / house type / configuration / render, naturally
-  sorted), and Documents (page-kind + relevant-page counts, needs-review flag).
-  `AutoRefresh` polls while uploads/classification/extraction are in progress.
+  Review link, error message + Retry on failure), a Plots table (plot / house type /
+  configuration / render, naturally sorted), and Documents (page-kind + relevant-page
+  counts, needs-review flag). **Live updates**: `AutoRefresh` polls the cheap
+  `/api/projects/[id]/pack-status` probe and calls `router.refresh()` only when the
+  state signature changes (debounced, idle backoff) — never a raw interval refresh,
+  which aborts itself on this ~700ms page.
 - **Review screen** (`src/app/extractions/[id]`): PDF.js drawing beside the extracted
   fields for one house type, confidence as a subtle dot + hover tooltip, wall segments
   summed to a perimeter, concise AI notes. **Read-only** — editing is Week 4.
@@ -98,7 +113,10 @@ They share one Postgres DB (Supabase). The queue lives in that DB (pg-boss's own
 | `src/lib/supabase/storage.ts` | Signed upload/download URLs (service role) |
 | `src/lib/queue/` | pg-boss singleton + job types (3 queues) |
 | `src/lib/pdf.ts` | Page count / slice / range-string build+parse |
-| `src/lib/extract/classify.ts` | **Free page classifier (worker-only, imports pdfjs)** |
+| `src/lib/zip.ts` | Recursive ZIP → PDF entries (zips-of-zips, skipped files reported) |
+| `src/lib/takeoff/engine.ts` | **Deterministic take-off engine (Layer 2, pure)** |
+| `src/lib/takeoff/fromStored.ts` | Persisted take-off → engine input |
+| `src/lib/extract/classify.ts` | **Free page classifier (worker-only, imports pdfjs)** — title-block parse + `classifyByText` fallback for unknown builders |
 | `src/lib/extract/segment.ts` | Group a document's pages into house types by code |
 | `src/lib/extract/claude.ts` | **Shared Claude tool-use call** (both extractors) |
 | `src/lib/extract/schema.ts` | Zod contract — drawing extraction |
@@ -107,8 +125,10 @@ They share one Postgres DB (Supabase). The queue lives in that DB (pg-boss's own
 | `src/lib/extract/plotSchema.ts` | Zod contract — plot-list extraction |
 | `src/lib/extract/extractPlotList.ts` | Plot-list extractor (uses `claude.ts`) |
 | `src/lib/extract/persistPlots.ts` | Plot-list result → matched `Plot` rows |
-| `src/server/actions/` | auth, projects, upload (signed URLs + finalize) |
-| `src/worker/processPack.ts` | Ingest ZIP/PDFs → classify → segment → fan out |
-| `src/worker/index.ts` | Worker entrypoint: 3 job handlers |
+| `src/server/actions/` | auth, projects, upload (signed URLs + finalize), extraction retry |
+| `src/worker/processPack.ts` | Ingest ZIP/PDFs (recursive, idempotent) → classify → segment → fan out |
+| `src/worker/index.ts` | Worker entrypoint: 3 job handlers; retried extractions reuse stored rawOutput (no re-bill) |
+| `src/app/api/projects/[id]/pack-status` | Cheap status probe for the live poller |
 | `src/app/` | Pages: home, projects/[id], extractions/[id], login |
+| `scripts/offline-extract.mts` | Offline extractor+engine runner vs Colin's data |
 | `src/components/` | Shell, upload form, PDF viewer, auto-refresh, ui primitives |

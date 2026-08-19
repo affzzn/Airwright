@@ -12,7 +12,10 @@
 // ============================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Collapse nested includes into a single SQL query (LATERAL joins) instead of
+  // one round-trip per relation — big win against a remote (EU) database.
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -122,6 +125,7 @@ enum MeasurementKey {
   RENDER_LENGTH
   BIRDCAGE_GF_M2
   BIRDCAGE_FF_M2
+  BIRDCAGE_SF_M2
   LOW_LEVEL_QTY
   FOOT_SCAFFOLD_QTY
   CORNER_COUNT
@@ -314,6 +318,7 @@ model Extraction {
   status        ExtractionStatus @default(PENDING)
   rawOutput     Json?
   errorMessage  String?
+  processingStartedAt DateTime? // when the worker began reading (for the live progress estimate)
   latencyMs     Int?
   inputTokens   Int?
   outputTokens  Int?

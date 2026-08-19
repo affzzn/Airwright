@@ -2,15 +2,28 @@ import { prisma } from "@/lib/db";
 import type { ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 
+type Conf = "high" | "medium" | "low" | "unknown";
+const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
+
 /** Map the AI confidence label to a 0-1 float for storage. */
-function confToNumber(c: "high" | "medium" | "low" | "unknown"): number {
+function confToNumber(c: Conf): number {
   return { high: 0.95, medium: 0.7, low: 0.4, unknown: 0 }[c];
 }
 
+/** Worst-case confidence across parts — a derived total is only as good as its weakest input. */
+function worstConf(cs: Conf[]): Conf {
+  if (cs.length === 0) return "unknown";
+  return cs.reduce((a, b) => (CONF_RANK[b] < CONF_RANK[a] ? b : a));
+}
+
 /**
- * Write a validated extraction into the take-off for its house type. The house
- * type is normally created up front by pack segmentation and linked on the
- * Extraction; if not (single-PDF fallback), we create it from the AI output.
+ * Write a validated extraction into the take-off for its house type. Measurements
+ * only (Layer 1): counts and dimensions read off the drawing, with provenance.
+ * Lifts, perimeter totals, birdcage areas beyond length×width, and pricing are
+ * NOT computed here — those are the deterministic engine (docs/11 §4).
+ *
+ * The house type is normally created up front by pack segmentation and linked on
+ * the Extraction; if not (single-PDF fallback), we create it from the AI output.
  * Runs in a transaction so a partial write never leaves an orphan take-off.
  */
 export async function persistExtraction(
@@ -71,14 +84,15 @@ export async function persistExtraction(
     await tx.wallSegment.deleteMany({ where: { takeoffId: takeoff.id } });
 
     const measurements: Prisma.TakeoffMeasurementCreateManyInput[] = [];
+    type Field = {
+      value: number | null;
+      confidence: Conf;
+      sourceSheet?: string | null;
+      sourceDimension?: string | null;
+    };
     const push = (
       key: Prisma.TakeoffMeasurementCreateManyInput["key"],
-      field: {
-        value: number | null;
-        confidence: "high" | "medium" | "low" | "unknown";
-        sourceSheet?: string | null;
-        sourceDimension?: string | null;
-      },
+      field: Field,
     ) => {
       measurements.push({
         takeoffId: takeoff.id,
@@ -91,10 +105,72 @@ export async function persistExtraction(
         ambiguous: field.confidence === "low" || field.confidence === "unknown",
       });
     };
+    // Only record optional fields when the model actually read a value, so the
+    // review panel isn't cluttered with "—" rows for things that don't apply.
+    const pushIf = (
+      key: Prisma.TakeoffMeasurementCreateManyInput["key"],
+      field: Field,
+    ) => {
+      if (field.value !== null && field.value !== undefined) push(key, field);
+    };
 
+    // --- Core, always shown ---
     push("STOREYS", result.storeys);
     push("HEIGHT_TO_SOFFIT", result.heightToSoffitM);
-    push("GABLE_QTY", result.gableCount);
+
+    // --- Apexes: total across elevations (= table-lift qty = apex-handrail qty) ---
+    const apexParts = result.elevations
+      .map((e) => e.apexCount)
+      .filter((n): n is number => n !== null);
+    const apexTotal = apexParts.length ? apexParts.reduce((a, b) => a + b, 0) : null;
+    const apexConf = worstConf(
+      result.elevations.filter((e) => e.apexCount !== null).map((e) => e.confidence),
+    );
+    // Hipped roof with no legible apex data still means zero apexes.
+    const apexValue =
+      apexTotal === null && result.roof.overallType === "HIPPED" ? 0 : apexTotal;
+    push("GABLE_QTY", { value: apexValue, confidence: apexTotal === null && apexValue === 0 ? result.roof.confidence : apexConf });
+
+    // --- Render: total LM across rendered faces ---
+    const renderedFaces = result.elevations.filter((e) => e.rendered === true);
+    const renderParts = renderedFaces
+      .map((e) => e.renderLengthM ?? null)
+      .filter((n): n is number => n !== null);
+    if (renderParts.length) {
+      pushIf("RENDER_LENGTH", {
+        value: renderParts.reduce((a, b) => a + b, 0),
+        confidence: worstConf(renderedFaces.map((e) => e.confidence)),
+      });
+    }
+
+    // --- Birdcage m² per floor = internal length × width (from the floor plans) ---
+    const BIRDCAGE_KEY: Record<string, Prisma.TakeoffMeasurementCreateManyInput["key"] | undefined> = {
+      GF: "BIRDCAGE_GF_M2",
+      FF: "BIRDCAGE_FF_M2",
+      SF: "BIRDCAGE_SF_M2",
+    };
+    for (const fa of result.floorAreas) {
+      const key = BIRDCAGE_KEY[fa.level];
+      if (!key) continue; // TF (4th floor) — extremely rare for housing; skip.
+      // Prefer a stated GIA / internal area; else internal length × width.
+      let m2: number | null = null;
+      if (fa.internalAreaM2 !== null && fa.internalAreaM2 !== undefined) {
+        m2 = Math.round(fa.internalAreaM2 * 1000) / 1000;
+      } else if (fa.internalLengthM !== null && fa.internalWidthM !== null) {
+        m2 = Math.round(fa.internalLengthM * fa.internalWidthM * 1000) / 1000;
+      }
+      if (m2 === null) continue;
+      pushIf(key, { value: m2, confidence: fa.confidence, sourceSheet: fa.sourceSheet ?? null });
+    }
+
+    // --- Low-level features (porches + bays) as a single count ---
+    const lowLevelTotal =
+      result.lowLevel.porchCount === null && result.lowLevel.bayCount === null
+        ? null
+        : (result.lowLevel.porchCount ?? 0) + (result.lowLevel.bayCount ?? 0);
+    pushIf("LOW_LEVEL_QTY", { value: lowLevelTotal, confidence: result.lowLevel.confidence });
+
+    push("CORNER_COUNT", result.cornerCount);
 
     if (measurements.length) {
       await tx.takeoffMeasurement.createMany({ data: measurements });
@@ -115,10 +191,32 @@ export async function persistExtraction(
       });
     }
 
-    if (result.notes) {
+    // Categorical facts + per-elevation provenance that don't fit a numeric
+    // measurement row live on the take-off's warnings JSON (read by review).
+    const warnings: Prisma.JsonObject = {};
+    if (result.notes) warnings.notes = result.notes;
+    if (result.dwellingsWide.value !== null && result.dwellingsWide.value >= 1)
+      warnings.dwellingsWide = result.dwellingsWide.value;
+    if (result.structure.form) warnings.structure = result.structure.form;
+    if (result.roof.overallType) warnings.roofType = result.roof.overallType;
+    if (result.roomInRoof.value !== null) warnings.roomInRoof = result.roomInRoof.value;
+    if (renderedFaces.length > 0) warnings.rendered = true;
+    else if (result.elevations.length > 0) warnings.rendered = false;
+    if (result.chimney.value !== null) warnings.chimney = result.chimney.value;
+    if (result.smartRoofPeakHeightM.value !== null)
+      warnings.smartRoofPeakM = result.smartRoofPeakHeightM.value;
+    if (result.elevations.length > 0) {
+      warnings.elevations = result.elevations.map((e) => ({
+        face: e.face,
+        apexCount: e.apexCount,
+        rendered: e.rendered,
+        renderLengthM: e.renderLengthM ?? null,
+      }));
+    }
+    if (Object.keys(warnings).length) {
       await tx.takeoff.update({
         where: { id: takeoff.id },
-        data: { warnings: { notes: result.notes } },
+        data: { warnings },
       });
     }
 

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { drawingTitle, classifyTitle, type PageClass } from "./classify";
+import {
+  drawingTitle,
+  classifyTitle,
+  classifyByText,
+  type PageClass,
+} from "./classify";
 import {
   filenamePrefilter,
   categoriseDocument,
@@ -21,6 +26,33 @@ describe("drawingTitle — multiple title-block formats", () => {
     expect(
       drawingTitle("L464211AW G.T. 03.01.24 ASHP GROUND FLOOR PLAN L464 - 4B / 8P"),
     ).toBe("ASHP GROUND FLOOR PLAN");
+  });
+});
+
+describe("classifyByText — fallback for builders whose title block we can't parse", () => {
+  it("classifies a Bloor/NSS elevation sheet by its label", () => {
+    expect(classifyByText("... FRONT ELEVATION scale 1:100 ...").kind).toBe("ELEVATION");
+    expect(classifyByText("SIDE ELEVATION").kind).toBe("ELEVATION");
+  });
+  it("classifies a floor-plan sheet", () => {
+    expect(classifyByText("GROUND FLOOR PLAN").kind).toBe("FLOOR_PLAN");
+    expect(classifyByText("FIRST FLOOR PLAN 1:50").kind).toBe("FLOOR_PLAN");
+  });
+  it("a drawing type wins over an incidental plot/site reference", () => {
+    // Elevation sheets mention which plots use them — must NOT become PLOT_LAYOUT.
+    expect(
+      classifyByText("FRONT ELEVATION PLOTS 33 SITE PLAN REF").kind,
+    ).toBe("ELEVATION");
+  });
+  it("excludes internal room elevations (Colin's rule)", () => {
+    expect(classifyByText("KITCHEN ELEVATION").kind).toBe("OTHER");
+    expect(classifyByText("CLOAK PLAN ELEVATION").kind).toBe("OTHER");
+  });
+  it("excludes civils long-sections", () => {
+    expect(classifyByText("LONG SECTIONS SHEET 3").kind).toBe("OTHER");
+  });
+  it("still catches a genuine site layout with no drawing label", () => {
+    expect(classifyByText("PROPOSED SITE LAYOUT").kind).toBe("PLOT_LAYOUT");
   });
 });
 

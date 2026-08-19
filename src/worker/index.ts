@@ -20,6 +20,7 @@ import { prisma } from "@/lib/db";
 import { downloadFromStorage } from "@/lib/supabase/storage";
 import { slicePages, parseRangeString } from "@/lib/pdf";
 import { extractDrawing } from "@/lib/extract/extractDrawing";
+import { extractionResultSchema } from "@/lib/extract/schema";
 import { extractPlotList } from "@/lib/extract/extractPlotList";
 import { persistExtraction } from "@/lib/extract/persist";
 import { persistPlots } from "@/lib/extract/persistPlots";
@@ -44,9 +45,41 @@ async function handleExtract(raw: ExtractDrawingJob) {
   });
   if (!extraction) throw new Error(`Extraction ${extractionId} not found`);
 
+  // If a previous attempt already got a valid result out of Claude but died
+  // persisting it (or is being retried), reuse the stored rawOutput instead of
+  // paying for a second model call. Old-schema outputs fail the parse and fall
+  // through to a fresh extraction.
+  if (extraction.rawOutput) {
+    const reuse = extractionResultSchema.safeParse(extraction.rawOutput);
+    if (reuse.success) {
+      await prisma.extraction.update({
+        where: { id: extractionId },
+        data: { status: "PROCESSING", errorMessage: null, processingStartedAt: new Date() },
+      });
+      try {
+        await persistExtraction(extractionId, reuse.data);
+        await prisma.extraction.update({
+          where: { id: extractionId },
+          data: { status: "COMPLETED" },
+        });
+        console.log(
+          `[worker] extraction ${extractionId}: reused stored output (no model call)`,
+        );
+        return;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await prisma.extraction.update({
+          where: { id: extractionId },
+          data: { status: "FAILED", errorMessage: message },
+        });
+        throw err;
+      }
+    }
+  }
+
   await prisma.extraction.update({
     where: { id: extractionId },
-    data: { status: "PROCESSING" },
+    data: { status: "PROCESSING", errorMessage: null, processingStartedAt: new Date() },
   });
 
   try {

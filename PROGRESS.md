@@ -5,10 +5,70 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 ---
 
-## Status: Weeks 1 & 2 DONE (reading/organising engine works on real packs). Demoed to
-## client. Colin has sent real data → Week 3 (the staged take-off) is ready to start.
+## Status: Weeks 1 & 2 DONE. Week 3 CORE BUILT: extractor v2 (Colin-grounded) + the
+## deterministic take-off engine, VALIDATED against Colin's handwritten sheets
+## (Dekker/Rosewood match to the metre). App hardened (polling, perf, ZIP, retry).
+## Next: Colin follow-up on the 16 open questions (docs/11 §8), then pricing (Week 4).
 
-Last updated: 2026-08-11
+Last updated: 2026-08-19
+
+### 2026-08-12 → 08-19 — Colin call digested, extractor v2 + engine built & validated, app hardened
+
+**Read `docs/11-takeoff-engine-spec.md` FIRST — it is the canonical build spec**
+(merges the 13 Aug Colin/Laura call, the build checklist docx, and Colin's handwritten
+take-off sheets). The pre-call drafts (docs 09/10) were deleted as superseded; the
+live prompt/contract/rules are `src/lib/extract/prompt.ts` + `schema.ts` +
+`src/lib/takeoff/engine.ts`.
+
+- **Colin call (13 Aug) + coverage checklist digested.** Key confirmations: lifts =
+  ceil(height/1.5) round-up +1 for room-in-roof; storey templates (garage/bung 2,
+  2-st 4, 2.5-st 5, 3-st 6); render = separate work type in 2m lifts; birdcage =
+  INTERNAL area per floor (2.5-st = 3 floors); apex counted per elevation, hipped = 0;
+  specs are per-HOUSEBUILDER (~20 builder profiles); +1m/corner (quantum ⚠ open).
+  **16 open questions must NOT be guessed** — full table with owners in docs/11 §8.
+- **Colin's data received** (`colin-data/`, gitignored): 3 handwritten take-off sheets
+  (~20 house-type lines, fully transcribed in chat/docs) + 4 matched drawings
+  (Rosewood, Dekker, Augusta, Tyard) = golden input↔answer pairs.
+- **Extractor v2 wired in** (`prompt.ts` v2026-08-19.2 + `schema.ts`): per-elevation
+  apex/render, internal floorAreas (prefers stated GIA), roomInRoof, structure
+  (SINGLE / PAIR_OR_TERRACE / APARTMENT_BLOCK), dwellingsWide (model reports the
+  printed pair frontage; the ENGINE halves it), chimney (drawn-only), smart-roof peak,
+  corners. Model claude-opus-4-8, ~$0.7–1.7/house type. Migration `add_birdcage_sf`.
+- **Deterministic take-off engine built** (`src/lib/takeoff/engine.ts` + `fromStored.ts`,
+  pure, unit-tested): lifts (storey template wins on whole-storey disagreement, height
+  on half-storeys, always flagged), perimeter by config (det 4 sides / semi 3 / mid 2)
+  + corner allowance param, birdcage, render lifts, config-aware apex, party walls,
+  apartment whole-block mode. Emits Colin's take-off line; shown on review screen per
+  config. **Validated on real drawings via `scripts/offline-extract.mts`:** Dekker semi
+  20.56 / mid 10.66 (Colin: 20.5 / 10.6), Rosewood 48.5 EXACT, Tyard 27.5 (28.5),
+  Augusta apartment = right structure + 6 lifts but 3 flagged Colin questions.
+- **Classifier fix (big):** Bloor/NSS-format drawings (Dekker etc.) classified as
+  UNCERTAIN and never queued — title parser only knew Miller/Travis Baker. Added
+  `classifyByText` fallback (drawing-type labels, internal-elevation + civils
+  exclusions, drawing types win over incidental plot refs). All 4 colin-data +
+  Miller Cherrywood now classify + extract correctly, live through the app.
+- **App bugs found by driving the UI, all fixed & verified live:**
+  1. *Frozen page / manual-refresh bug*: 2s `router.refresh()` poll vs ~3.2s render →
+     refreshes aborted each other. Now: cheap `/api/projects/[id]/pack-status` probe,
+     refresh only on state change, debounced, idle backoff.
+  2. *Slow renders*: 13 SQL round-trips → Prisma `relationJoins` +
+     `relationLoadStrategy: "join"` → ~700ms (floor = EU network RTT).
+  3. *ZIP >50MB always failed*: bucket limit was 50MB (separate from the project
+     global the user raised). Bucket now 250MB; >50MB verified working.
+  4. *Nested zips silently dropped*: recursive unzip (`src/lib/zip.ts`, 3 levels,
+     skipped files reported, tested). Oadby-shaped zip-of-zips now ingests fully.
+  5. *No retry for FAILED extractions*: errorMessage now shown + Retry button
+     (`actions/extractions.ts`); worker **reuses stored rawOutput** on retry (no
+     re-billing — verified $0). Ingestion idempotent (deterministic paths).
+  6. *Signed URL expiry*: review-page PDF URL now 4h (lightbox re-fetches it).
+- **Earlier in the window:** real per-file upload progress bars (XHR); PDF viewer
+  zoom/pan lightbox showing ONLY relevant pages; `data/` decoded (Oadby/Bloor golden
+  set incl. real client quote Quote-1314; Wetherspoon pub = construction mode;
+  155MB zip); docs 09/10/11 written (09/10 later deleted as superseded by 11).
+- **76 tests green, build clean.** Test user `tester@airwright.test` + several
+  "test"/"Live test" projects exist in the DB (deletable).
+- **⚠ Everything is uncommitted on `main`** — branch + commit is the first bit of
+  housekeeping for next session. `data/` + `colin-data/` are gitignored (PII).
 
 ### 2026-08-11 — client demo + Colin's data arrived (Week 3 unblocked)
 

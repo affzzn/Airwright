@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const projects = await prisma.project.findMany({
     orderBy: { createdAt: "desc" },
+    relationLoadStrategy: "join",
     include: {
       client: true,
       _count: { select: { houseTypes: true, plots: true } },
