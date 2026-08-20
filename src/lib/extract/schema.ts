@@ -20,6 +20,20 @@ export const confidence = z
   .enum(["high", "medium", "low", "unknown"])
   .describe("Confidence in this value. Use 'unknown' if you cannot read it.");
 
+/**
+ * 1-based page number WITHIN THE ATTACHED PDF where the value was read — count
+ * the pages in the document you were given, first page = 1. NOT the drawing's
+ * printed sheet number. Lets the review screen link straight to the page.
+ */
+const sourcePage = z
+  .number()
+  .int()
+  .nullable()
+  .describe(
+    "1-based page number WITHIN THIS attached PDF where you read the value (count the pages you were given, first = 1). NOT the drawing's printed sheet/drawing number. null if you cannot point to a specific page.",
+  )
+  .optional();
+
 const numberField = z.object({
   value: z.number().nullable().describe("The numeric value, or null if unreadable."),
   confidence,
@@ -33,12 +47,14 @@ const numberField = z.object({
     .nullable()
     .describe("The exact dimension string on the drawing, e.g. '9203'.")
     .optional(),
+  sourcePage,
 });
 
 const boolField = z.object({
   value: z.boolean().nullable().describe("true / false, or null if you cannot tell."),
   confidence,
   sourceSheet: z.string().nullable().optional(),
+  sourcePage,
 });
 
 const wallSegment = z.object({
@@ -54,6 +70,7 @@ const wallSegment = z.object({
     .nullable()
     .describe("The dimension string this length was read from, e.g. '9203'.")
     .optional(),
+  sourcePage,
   confidence,
 });
 
@@ -79,6 +96,7 @@ const elevation = z.object({
     .optional(),
   sourceSheet: z.string().nullable().optional(),
   sourceDimension: z.string().nullable().optional(),
+  sourcePage,
   confidence,
 });
 
@@ -109,6 +127,7 @@ const floorArea = z.object({
     )
     .optional(),
   sourceSheet: z.string().nullable().describe("Floor-plan sheet label.").optional(),
+  sourcePage,
   confidence,
 });
 
@@ -159,6 +178,7 @@ export const extractionResultSchema = z.object({
         ),
       confidence,
       sourceSheet: z.string().nullable().optional(),
+      sourcePage,
     })
     .describe("Overall roof form. Apexes are then counted per face in `elevations`."),
   elevations: z

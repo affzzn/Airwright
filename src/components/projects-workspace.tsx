@@ -63,10 +63,9 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
 
   const stats = useMemo(
     () => ({
-      active: nonArchived.length,
+      tenders: nonArchived.length,
+      inProgress: nonArchived.filter((p) => p.status === "READING").length,
       awaiting: nonArchived.filter((p) => p.status === "READY").length,
-      houseTypes: nonArchived.reduce((s, p) => s + p.houseTypes, 0),
-      plots: nonArchived.reduce((s, p) => s + p.plots, 0),
     }),
     [nonArchived],
   );
@@ -128,11 +127,10 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
       </div>
 
       {/* Stat strip */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Active" value={stats.active} />
+      <div className="mb-6 grid grid-cols-3 gap-3">
+        <StatCard label="Tenders" value={stats.tenders} />
+        <StatCard label="In progress" value={stats.inProgress} />
         <StatCard label="Awaiting review" value={stats.awaiting} />
-        <StatCard label="House types" value={stats.houseTypes} />
-        <StatCard label="Plots" value={stats.plots} />
       </div>
 
       {/* Toolbar */}

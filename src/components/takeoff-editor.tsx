@@ -162,15 +162,38 @@ export function TakeoffEditor({
   const newCounter = useRef(0);
 
   // --- Provenance ("how was this derived") from the verbatim model output ---
+  // Prefer the page the model actually cited (its 1-based page WITHIN the sliced
+  // PDF maps exactly to the Nth relevant document page); fall back to matching the
+  // sheet label against the classified page titles.
   const resolve = useMemo(
-    () => (label: string | null | undefined) =>
-      resolvePage(label, documentPages, relevantPages),
+    () => (label: string | null | undefined, sourcePage?: number | null) => {
+      if (
+        typeof sourcePage === "number" &&
+        relevantPages &&
+        sourcePage >= 1 &&
+        sourcePage <= relevantPages.length
+      ) {
+        return relevantPages[sourcePage - 1];
+      }
+      return resolvePage(label, documentPages, relevantPages);
+    },
     [documentPages, relevantPages],
   );
   const cards = useMemo<Record<string, ProvContent>>(
     () => (raw ? buildProvenanceCards(raw, resolve) : {}),
     [raw, resolve],
   );
+  // Wall length → its cited page, keyed by the dimension string (walls are edited
+  // live, so match the raw wall by its dimension string to recover the page).
+  const wallPageByDim = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const w of raw?.wallSegments ?? []) {
+      if (!w.sourceDimension) continue;
+      const page = resolve(w.sourceDimension, w.sourcePage);
+      if (page !== null) m.set(w.sourceDimension, page);
+    }
+    return m;
+  }, [raw, resolve]);
   const aiVals = useMemo<Record<string, number | null>>(
     () => (raw ? aiMeasurementValues(raw) : {}),
     [raw],
@@ -384,7 +407,11 @@ export function TakeoffEditor({
                   onChange={(v) => patchWall(w.key, { lengthM: v })}
                 />
                 <Provenance
-                  content={wallProvenance(parseNum(w.lengthM) ?? 0, w.sourceDimension)}
+                  content={wallProvenance(
+                    parseNum(w.lengthM) ?? 0,
+                    w.sourceDimension,
+                    w.sourceDimension ? (wallPageByDim.get(w.sourceDimension) ?? null) : null,
+                  )}
                   onGoToPage={onGoToPage}
                   className="text-xs text-ink-subtle"
                 >

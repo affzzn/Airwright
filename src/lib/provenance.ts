@@ -83,7 +83,10 @@ const FACE: Record<string, string> = {
 const looksMm = (dim: string | null | undefined): boolean =>
   !!dim && /^\d{3,5}$/.test(dim.trim());
 
-type Resolver = (label: string | null | undefined) => number | null;
+type Resolver = (
+  label: string | null | undefined,
+  sourcePage?: number | null,
+) => number | null;
 
 /**
  * The AI's originally-read value per measurement key — so the editor can show
@@ -128,10 +131,14 @@ export function buildProvenanceCards(
   resolve: Resolver,
 ): Record<string, ProvContent> {
   const cards: Record<string, ProvContent> = {};
-  const src = (sheet: string | null | undefined, dim: string | null | undefined): ProvSource => ({
+  const src = (
+    sheet: string | null | undefined,
+    dim: string | null | undefined,
+    sourcePage?: number | null,
+  ): ProvSource => ({
     sheet: sheet ?? null,
     dim: dim ?? null,
-    page: resolve(sheet),
+    page: resolve(sheet, sourcePage),
   });
 
   // --- Storeys ---
@@ -143,7 +150,7 @@ export function buildProvenanceCards(
       steps: [
         {
           text: `${raw.storeys.value} storeys`,
-          source: src(raw.storeys.sourceSheet, raw.storeys.sourceDimension),
+          source: src(raw.storeys.sourceSheet, raw.storeys.sourceDimension, raw.storeys.sourcePage),
         },
       ],
       footnotes: [
@@ -166,7 +173,7 @@ export function buildProvenanceCards(
       steps: [
         {
           text: `Height to soffit = ${raw.heightToSoffitM.value} m`,
-          source: src(raw.heightToSoffitM.sourceSheet, dim),
+          source: src(raw.heightToSoffitM.sourceSheet, dim, raw.heightToSoffitM.sourcePage),
         },
       ],
       footnotes: [
@@ -186,7 +193,7 @@ export function buildProvenanceCards(
       steps: [
         {
           text: `${raw.cornerCount.value} external corners / returns`,
-          source: src(raw.cornerCount.sourceSheet, raw.cornerCount.sourceDimension),
+          source: src(raw.cornerCount.sourceSheet, raw.cornerCount.sourceDimension, raw.cornerCount.sourcePage),
         },
       ],
       footnotes: [
@@ -202,7 +209,7 @@ export function buildProvenanceCards(
     const total = raw.elevations.reduce((a, e) => a + (e.apexCount ?? 0), 0);
     const steps: ProvStep[] = withApex.map((e) => ({
       text: `${FACE[e.face] ?? e.face} elevation: ${e.apexCount} apex`,
-      source: src(e.sourceSheet, e.sourceDimension),
+      source: src(e.sourceSheet, e.sourceDimension, e.sourcePage),
     }));
     if (raw.roof.overallType === "HIPPED") {
       steps.push({ text: "Hip roof — no brickwork above the scaffold, so no apex." });
@@ -229,7 +236,7 @@ export function buildProvenanceCards(
     const total = rendered.reduce((a, e) => a + (e.renderLengthM ?? 0), 0);
     const steps: ProvStep[] = rendered.map((e) => ({
       text: `${FACE[e.face] ?? e.face} elevation: rendered ${e.renderLengthM ?? "?"} m`,
-      source: src(e.sourceSheet, e.sourceDimension),
+      source: src(e.sourceSheet, e.sourceDimension, e.sourcePage),
     }));
     if (rendered.length > 1) steps.push({ text: `Render length = ${n2(total)} m` });
     cards.RENDER_LENGTH = {
@@ -252,7 +259,7 @@ export function buildProvenanceCards(
   ] as const) {
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) continue;
-    const page = resolve(fa.sourceSheet);
+    const page = resolve(fa.sourceSheet, fa.sourcePage);
     let steps: ProvStep[];
     let method: ProvContent["method"];
     let summary: string;
@@ -317,7 +324,7 @@ export function buildProvenanceCards(
       steps: [
         {
           text: `Roof: ${raw.roof.overallType.toLowerCase()}`,
-          source: src(raw.roof.sourceSheet, null),
+          source: src(raw.roof.sourceSheet, null, raw.roof.sourcePage),
         },
       ],
       footnotes: [
@@ -392,7 +399,7 @@ export function buildProvenanceCards(
       steps: [
         {
           text: raw.chimney.value ? "Chimney stack drawn" : "No chimney drawn",
-          source: src(raw.chimney.sourceSheet, null),
+          source: src(raw.chimney.sourceSheet, null, raw.chimney.sourcePage),
         },
       ],
       footnotes: [
@@ -406,7 +413,11 @@ export function buildProvenanceCards(
 }
 
 /** Provenance for one wall segment's length (dimension → metres). */
-export function wallProvenance(lengthM: number, dim: string | null): ProvContent {
+export function wallProvenance(
+  lengthM: number,
+  dim: string | null,
+  page: number | null = null,
+): ProvContent {
   const foot = looksMm(dim)
     ? [`Converted from the printed millimetres: ${dim} → ${lengthM} m.`]
     : ["Taken off the building line (brickwork line) of the ground-floor plan."];
@@ -417,7 +428,7 @@ export function wallProvenance(lengthM: number, dim: string | null): ProvContent
     steps: [
       {
         text: `${lengthM} m`,
-        source: { sheet: null, dim, page: null },
+        source: { sheet: null, dim, page },
       },
     ],
     footnotes: foot,
