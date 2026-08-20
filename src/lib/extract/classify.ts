@@ -133,6 +133,20 @@ export function classifyTitle(titleRaw: string): PageKind {
   if (title.includes("ELEVATION")) return "ELEVATION";
   if (title.includes("SECTION")) return "SECTION";
   if (title.includes("FLOORPLAN")) return "FLOOR_PLAN";
+  // Building "Setting Out Plan" (Beam & Block / Suspended Slab) carries the
+  // gross-internal footprint area + exterior-wall run — the source of Colin's
+  // birdcage number (docs/13 §3.10). Civils setting-out (drainage/foundation/
+  // levels) is already excluded above; guard the remaining civils/site terms.
+  if (
+    title.includes("SETTINGOUTPLAN") &&
+    !title.includes("ROAD") &&
+    !title.includes("KERB") &&
+    !title.includes("HIGHWAY") &&
+    !title.includes("SEWER") &&
+    !title.includes("SITE") &&
+    !title.includes("EXTERNALWORKS")
+  )
+    return "FLOOR_PLAN";
   if (title.includes("SPECIFICATION")) return "SPEC";
 
   return "OTHER";
@@ -176,6 +190,16 @@ export function classifyByText(raw: string): { kind: PageKind; label: string } {
   // House sections (not civils long-sections, excluded above) are take-off-relevant.
   if (/\bSECTION\s+[A-Z]{1,2}\s*[-–]\s*[A-Z]{1,2}\b|\bCROSS[\s-]?SECTION\b/.test(up))
     return { kind: "SECTION", label: "SECTION" };
+
+  // Building setting-out plan (footprint + gross-internal area — docs/13 §3.10).
+  // Take-off-relevant. Exclude civils setting-out (road / drainage / foundation /
+  // site / sewer), which name what they're setting out.
+  if (
+    /\bSETTING\s*OUT\s*PLAN\b/.test(up) &&
+    !/\b(ROAD|KERB|HIGHWAY|SEWER|ADOPTAB|EXTERNAL\s*WORKS)\b/.test(up) &&
+    !/\b(SITE|DRAINAGE|FOUNDATION|LEVELS?)\s+SETTING\s*OUT\b/.test(up)
+  )
+    return { kind: "FLOOR_PLAN", label: "SETTING OUT PLAN" };
 
   // Only a page with no elevation/floor-plan label is treated as a plot layout.
   if (/\b(SITE\s*(LAYOUT|PLAN)|PLOT\s*(LAYOUT|SCHEDULE)|PLANNING\s*LAYOUT)\b/.test(up)) {

@@ -54,6 +54,17 @@ describe("classifyByText — fallback for builders whose title block we can't pa
   it("still catches a genuine site layout with no drawing label", () => {
     expect(classifyByText("PROPOSED SITE LAYOUT").kind).toBe("PLOT_LAYOUT");
   });
+  it("includes a building setting-out plan (carries the gross-internal area)", () => {
+    expect(
+      classifyByText("SETTING OUT PLAN (BEAM & BLOCK) 35.60m2 RUN OF EXTERIOR WALL 26.77m").kind,
+    ).toBe("FLOOR_PLAN");
+    expect(classifyByText("SETTING OUT PLAN (SUSPENDED SLAB)").kind).toBe("FLOOR_PLAN");
+  });
+  it("excludes civils setting-out (road / drainage / site)", () => {
+    expect(classifyByText("ROAD SETTING OUT PLAN SHEET 2").kind).toBe("OTHER");
+    expect(classifyByText("DRAINAGE SETTING OUT PLAN").kind).toBe("OTHER");
+    expect(classifyByText("SITE SETTING OUT PLAN").kind).toBe("OTHER");
+  });
 });
 
 describe("classifyTitle — site layout wins over foundations", () => {
@@ -75,6 +86,15 @@ describe("classifyTitle — site layout wins over foundations", () => {
     expect(classifyTitle("FRONT ELEVATION")).toBe("ELEVATION");
     expect(classifyTitle("ASHP GROUND FLOOR PLAN")).toBe("FLOOR_PLAN");
     expect(classifyTitle("SECTION A-A")).toBe("SECTION");
+  });
+  it("includes a building setting-out plan as a floor plan", () => {
+    expect(classifyTitle("SETTING OUT PLAN (BEAM & BLOCK)")).toBe("FLOOR_PLAN");
+    expect(classifyTitle("SETTING OUT PLAN (SUSPENDED SLAB)")).toBe("FLOOR_PLAN");
+  });
+  it("excludes civils setting-out plans", () => {
+    expect(classifyTitle("ROAD SETTING OUT PLAN")).toBe("OTHER");
+    expect(classifyTitle("DRAINAGE SETTING OUT PLAN")).toBe("OTHER"); // via DRAINAGE
+    expect(classifyTitle("SITE SETTING OUT PLAN")).toBe("OTHER");
   });
 });
 

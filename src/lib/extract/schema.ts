@@ -92,16 +92,20 @@ const floorArea = z.object({
   internalLengthM: z
     .number()
     .nullable()
-    .describe("INTERNAL floor length in metres (inside the external walls), or null if unreadable."),
+    .describe(
+      "INTERNAL floor length in metres (inside the external walls). DERIVE it if not printed directly: an overall dimension MINUS the front and rear external wall thicknesses (e.g. 7904 − 302 − 302 = 7300 → 7.3 m). null if you cannot read or derive it.",
+    ),
   internalWidthM: z
     .number()
     .nullable()
-    .describe("INTERNAL floor width in metres (inside the external walls), or null if unreadable."),
+    .describe(
+      "INTERNAL floor width in metres — the clear internal span of ONE dwelling (for a pair, the full printed frontage = width + party wall + width). null if unreadable.",
+    ),
   internalAreaM2: z
     .number()
     .nullable()
     .describe(
-      "Internal floor area in m² taken DIRECTLY from the drawing if a Gross Internal Area (GIA) / floor area is stated for this level — use this for an irregular floor instead of length×width. Else null.",
+      "GROSS INTERNAL floor area in m² if the drawing states one — PREFER the setting-out plan / masonry area (e.g. '35.60m² (BEAM & BLOCK)'), NOT the NDSS 'Total Floor Area' schedule (that is the smaller usable/habitable area; use it only if no gross-internal is available, and note it). Report this IN ADDITION to internalLengthM/internalWidthM so they can be reconciled. Else null.",
     )
     .optional(),
   sourceSheet: z.string().nullable().describe("Floor-plan sheet label.").optional(),
@@ -165,7 +169,7 @@ export const extractionResultSchema = z.object({
   wallSegments: z
     .array(wallSegment)
     .describe(
-      "Each external wall length along the BUILDING LINE (brickwork line), taken off the OUTSIDE of the GROUND-FLOOR plan. Report each wall separately with its dimension string. Do NOT sum them and do NOT add any corner allowance — that is applied downstream.",
+      "Each external wall length along the BUILDING LINE (brickwork line), taken off the OUTSIDE of the GROUND-FLOOR or SETTING-OUT plan. Report each wall separately with its dimension string. Do NOT sum them and do NOT add any corner allowance — that is applied downstream.",
     ),
   cornerCount: numberField.describe(
     "Number of EXTERNAL corners / returns on the scaffolded perimeter (a plain rectangle has 4). Count external returns only.",
@@ -176,7 +180,7 @@ export const extractionResultSchema = z.object({
   floorAreas: z
     .array(floorArea)
     .describe(
-      "Internal floor dimensions per level, from the FLOOR PLANS, so birdcage m² (length × width) can be computed downstream. One entry per floor (2.5-storey has 3: GF, FF, roof room). Empty if no legible internal dimensions — never estimate an area from an elevation.",
+      "Internal floor dimensions per level, so birdcage m² can be computed. For each floor, read the stated GROSS INTERNAL area (setting-out plan / masonry) if given AND derive the internal length × width from dimensions, and report both. One entry per floor (2.5-storey has 3: GF, FF, roof room). Empty if no legible internal dimensions or area — never estimate from an elevation.",
     ),
   lowLevel: z
     .object({
