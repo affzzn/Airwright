@@ -219,6 +219,7 @@ model Project {
   reference      String?
   estimatingMode EstimatingMode     @default(HOUSE_BUILD)
   status         String             @default("TENDER")
+  archivedAt     DateTime? // set when the tender is archived (hidden from the default list)
   createdAt      DateTime           @default(now())
   packs          TenderPack[]
   houseTypes     HouseType[]

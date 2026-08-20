@@ -32,3 +32,37 @@ export async function createProject(formData: FormData) {
   revalidatePath("/");
   redirect(`/projects/${project.id}`);
 }
+
+/** Archive / unarchive a tender (hidden from the default list, never deleted). */
+export async function setProjectArchived(
+  id: string,
+  archived: boolean,
+): Promise<{ ok: boolean }> {
+  await prisma.project.update({
+    where: { id },
+    data: { archivedAt: archived ? new Date() : null },
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Permanently delete a tender and everything under it. Plots are deleted first
+ * so the Plot→HouseType RESTRICT can't block the project cascade; deleting the
+ * project then cascades packs, documents, extractions, house types, takeoffs
+ * and quotes.
+ */
+export async function deleteProject(
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await prisma.$transaction([
+      prisma.plot.deleteMany({ where: { projectId: id } }),
+      prisma.project.delete({ where: { id } }),
+    ]);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Delete failed" };
+  }
+  revalidatePath("/");
+  return { ok: true };
+}
