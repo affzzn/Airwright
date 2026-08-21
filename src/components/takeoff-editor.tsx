@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Check, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
 import { buildTakeoff, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
-import { saveTakeoffEdits, type TakeoffEditsInput } from "@/server/actions/takeoff";
+import {
+  confirmTakeoff,
+  reopenTakeoff,
+  saveTakeoffEdits,
+  type TakeoffEditsInput,
+} from "@/server/actions/takeoff";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { ConfidenceDot } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
+import { formatDate } from "@/lib/utils";
 import { Provenance } from "@/components/ui/provenance";
 import type { ExtractionResult } from "@/lib/extract/schema";
 import {
@@ -49,6 +57,10 @@ export interface EditorCategoricals {
 
 interface Props {
   takeoffId: string;
+  /** Take-off review status: DRAFT / IN_REVIEW / CONFIRMED. */
+  status: string;
+  /** ISO timestamp the take-off was confirmed, or null. */
+  confirmedAt: string | null;
   measurements: EditorMeasurement[];
   walls: EditorWall[];
   warnings: Record<string, unknown>;
@@ -118,6 +130,8 @@ const parseNum = (v: string): number | null => {
 
 export function TakeoffEditor({
   takeoffId,
+  status,
+  confirmedAt,
   measurements,
   walls,
   warnings,
@@ -128,6 +142,20 @@ export function TakeoffEditor({
   onGoToPage,
   onFlagsChange,
 }: Props) {
+  const router = useRouter();
+  const locked = status === "CONFIRMED";
+  const [confirmPending, startConfirm] = useTransition();
+  const doConfirm = () =>
+    startConfirm(async () => {
+      await confirmTakeoff(takeoffId);
+      router.refresh();
+    });
+  const doReopen = () =>
+    startConfirm(async () => {
+      await reopenTakeoff(takeoffId);
+      router.refresh();
+    });
+
   // --- Initial editable state (memoised from the immutable props) ---
   const initialMVals = useMemo(() => {
     const r: Record<string, string> = {};
@@ -280,6 +308,7 @@ export function TakeoffEditor({
   const baseline = useRef(serialise(initialMVals, initialWallRows, categoricals));
 
   useEffect(() => {
+    if (locked) return; // confirmed → read-only, nothing to save
     const snap = serialise(mVals, wallRows, cats);
     if (snap === baseline.current) {
       setSaveState((s) => (s === "saved" ? "saved" : "idle"));
@@ -328,11 +357,57 @@ export function TakeoffEditor({
 
   return (
     <Card>
-      <CardHeader className="flex items-center justify-between">
+      <CardHeader className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Extracted take-off</h2>
-        <SaveIndicator state={saveState} />
+        {locked ? (
+          <button
+            type="button"
+            onClick={doReopen}
+            disabled={confirmPending}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface hover:text-ink disabled:opacity-50"
+          >
+            {confirmPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+            ) : (
+              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+            )}
+            Re-open to edit
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
+            <SaveIndicator state={saveState} />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={doConfirm}
+              disabled={confirmPending || saveState === "saving" || saveState === "dirty"}
+              title={
+                saveState === "dirty" || saveState === "saving"
+                  ? "Saving changes first…"
+                  : undefined
+              }
+              className="gap-1.5"
+            >
+              {confirmPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+              ) : (
+                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+              )}
+              Confirm take-off
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardBody className="space-y-6">
+        {locked && (
+          <div className="flex items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-muted">
+            <Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+            <span>
+              Confirmed{confirmedAt ? ` on ${formatDate(confirmedAt)}` : ""} · locked for
+              pricing. Re-open to edit.
+            </span>
+          </div>
+        )}
         {/* Measurements */}
         <div>
           <p className="eyebrow mb-2">Measurements</p>
@@ -359,6 +434,7 @@ export function TakeoffEditor({
                     <NumField
                       value={mVals[key]}
                       unit={unit}
+                      disabled={locked}
                       onChange={(v) => setMeasurement(key, v)}
                     />
                     <span className="flex w-10 justify-end">
@@ -392,8 +468,9 @@ export function TakeoffEditor({
               <li key={w.key} className="flex items-center gap-2 py-1.5">
                 <select
                   value={w.position}
+                  disabled={locked}
                   onChange={(e) => patchWall(w.key, { position: e.target.value })}
-                  className="h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+                  className="h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60"
                 >
                   {WALL_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -404,6 +481,7 @@ export function TakeoffEditor({
                 <NumField
                   value={w.lengthM}
                   unit="m"
+                  disabled={locked}
                   onChange={(v) => patchWall(w.key, { lengthM: v })}
                 />
                 <Provenance
@@ -417,27 +495,31 @@ export function TakeoffEditor({
                 >
                   {w.sourceDimension ? `dim ${w.sourceDimension}` : "source"}
                 </Provenance>
-                <button
-                  type="button"
-                  aria-label="Remove wall"
-                  onClick={() => removeWall(w.key)}
-                  className="ml-auto rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
-                >
-                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
+                {!locked && (
+                  <button
+                    type="button"
+                    aria-label="Remove wall"
+                    onClick={() => removeWall(w.key)}
+                    className="ml-auto rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
+                )}
               </li>
             ))}
             {wallRows.length === 0 && (
               <p className="py-3 text-sm text-ink-subtle">No wall segments.</p>
             )}
           </ul>
-          <button
-            type="button"
-            onClick={addWall}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-muted transition-colors hover:text-ink"
-          >
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add wall
-          </button>
+          {!locked && (
+            <button
+              type="button"
+              onClick={addWall}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-muted transition-colors hover:text-ink"
+            >
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add wall
+            </button>
+          )}
         </div>
 
         {/* Details (categorical, editable) */}
@@ -448,6 +530,7 @@ export function TakeoffEditor({
               <MiniSelect
                 value={cats.roofType ?? ""}
                 options={ROOF_OPTIONS}
+                disabled={locked}
                 onChange={(v) =>
                   setCats((c) => ({
                     ...c,
@@ -460,6 +543,7 @@ export function TakeoffEditor({
               <MiniSelect
                 value={cats.structure ?? ""}
                 options={STRUCTURE_OPTIONS}
+                disabled={locked}
                 onChange={(v) =>
                   setCats((c) => ({
                     ...c,
@@ -472,6 +556,7 @@ export function TakeoffEditor({
               <DetailRow label="Dwellings wide">
                 <NumField
                   value={cats.dwellingsWide != null ? String(cats.dwellingsWide) : ""}
+                  disabled={locked}
                   onChange={(v) =>
                     setCats((c) => ({ ...c, dwellingsWide: parseNum(v) }))
                   }
@@ -487,6 +572,7 @@ export function TakeoffEditor({
                 checked={cats.roomInRoof === true}
                 onChange={(v) => setCats((c) => ({ ...c, roomInRoof: v }))}
                 label="Room in roof"
+                disabled={locked}
               />
             </DetailRow>
             <DetailRow label="Rendered" card={cards.RENDERED} onGoToPage={onGoToPage}>
@@ -494,6 +580,7 @@ export function TakeoffEditor({
                 checked={cats.rendered === true}
                 onChange={(v) => setCats((c) => ({ ...c, rendered: v }))}
                 label="Rendered"
+                disabled={locked}
               />
             </DetailRow>
             <DetailRow label="Chimney" card={cards.CHIMNEY} onGoToPage={onGoToPage}>
@@ -501,6 +588,7 @@ export function TakeoffEditor({
                 checked={cats.chimney === true}
                 onChange={(v) => setCats((c) => ({ ...c, chimney: v }))}
                 label="Chimney"
+                disabled={locked}
               />
             </DetailRow>
           </div>
@@ -613,10 +701,12 @@ function NumField({
   value,
   unit,
   onChange,
+  disabled,
 }: {
   value: string;
   unit?: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <span className="inline-flex items-center gap-1">
@@ -624,8 +714,9 @@ function NumField({
         inputMode="decimal"
         value={value}
         placeholder="—"
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="w-16 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-right text-sm font-medium tabular-nums text-ink placeholder:text-ink-subtle transition-colors hover:border-hairline hover:bg-surface focus:border-hairline-strong focus:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+        className="w-16 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-right text-sm font-medium tabular-nums text-ink placeholder:text-ink-subtle transition-colors hover:border-hairline hover:bg-surface focus:border-hairline-strong focus:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent"
       />
       {unit ? (
         <span className="w-4 text-xs text-ink-subtle">{unit}</span>
@@ -640,16 +731,19 @@ function MiniSelect({
   value,
   options,
   onChange,
+  disabled,
 }: {
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <select
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+      className="h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>

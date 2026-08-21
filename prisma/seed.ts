@@ -32,10 +32,15 @@ async function main() {
       effectiveFrom: new Date("2026-07-01"),
       isActive: true,
       stageSplits: {
+        // Standard 50/25/25 (confirmed) + bungalow 65/10/25 (confirmed).
+        // NO_BIRDCAGE (75/…) is left for Laura to confirm.
         create: [
-          { name: "Plot Erect", percent: 50, sortOrder: 0 },
-          { name: "Birdcage Erect", percent: 25, sortOrder: 1 },
-          { name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "STANDARD", name: "Plot Erect", percent: 50, sortOrder: 0 },
+          { scenario: "STANDARD", name: "Birdcage Erect", percent: 25, sortOrder: 1 },
+          { scenario: "STANDARD", name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "BUNGALOW", name: "Plot Erect", percent: 65, sortOrder: 0 },
+          { scenario: "BUNGALOW", name: "Birdcage Erect", percent: 10, sortOrder: 1 },
+          { scenario: "BUNGALOW", name: "Dismantle", percent: 25, sortOrder: 2 },
         ],
       },
       items: {
@@ -48,7 +53,28 @@ async function main() {
     },
   });
 
-  console.log(`Seeded client ${client.name} and rate card ${rateCard.name}.`);
+  // Placeholder builder spec profile — the per-housebuilder "extras" rules.
+  // All values here are PLACEHOLDERS until the real design-standard spec arrives.
+  await prisma.builderProfile.upsert({
+    where: { id: "seed-profile-miller" },
+    update: {},
+    create: {
+      id: "seed-profile-miller",
+      clientId: client.id,
+      name: "Miller Homes standard (placeholder)",
+      accessType: "HAKI_STAIR",
+      ladderAllowedConfined: true,
+      beamOverLowLevel: false,
+      chimneyScaffoldAlways: false,
+      joistSupportVariant: "single",
+      extraHirePolicy: "charge",
+      notes: "PLACEHOLDER — confirm against Miller's design standard specification.",
+    },
+  });
+
+  console.log(
+    `Seeded client ${client.name}, rate card ${rateCard.name}, and a placeholder builder profile.`,
+  );
 }
 
 main()

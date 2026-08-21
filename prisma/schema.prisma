@@ -88,6 +88,13 @@ enum ReviewStatus {
   CONFIRMED
 }
 
+// Which payment-stage split applies (splits differ by house shape).
+enum StageScenario {
+  STANDARD // 50 / 25 / 25 (confirmed)
+  BUNGALOW // 65 / 10 / 25 (confirmed)
+  NO_BIRDCAGE // 75 / … (⚠ rest to confirm with Laura)
+}
+
 enum QuoteType {
   HOUSEBUILDING
   CONSTRUCTION
@@ -203,12 +210,59 @@ model User {
 
 // ---------- Org ----------
 model Client {
-  id          String      @id @default(cuid())
-  name        String
-  defaultBand RateBand    @default(MEDIUM)
-  createdAt   DateTime    @default(now())
-  projects    Project[]
-  houseTypes  HouseType[]
+  id              String                 @id @default(cuid())
+  name            String
+  defaultBand     RateBand               @default(MEDIUM)
+  createdAt       DateTime               @default(now())
+  projects        Project[]
+  houseTypes      HouseType[]
+  builderProfiles BuilderProfile[]
+  matrixTemplates ClientMatrixTemplate[]
+}
+
+// ---------- Housebuilder specification profile (per builder, versioned) ----------
+// The stored spec that governs the "extras" a take-off gets — access type,
+// loading bay policy, beam-overs, chimney rule, propping, etc. Specs are per
+// HOUSEBUILDER, not per house (confirmed 13 Aug). Fields are nullable so a
+// profile can start as a placeholder and be filled as the real spec arrives.
+model BuilderProfile {
+  id            String      @id @default(cuid())
+  clientId      String
+  client        Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name          String // e.g. "Keepmoat standard 2026"
+  version       Int         @default(1)
+  effectiveFrom DateTime    @default(now())
+  isActive      Boolean     @default(true)
+  // Confirmed/typed spec fields (null = not yet known)
+  accessType            AccessType? // preferred access tower
+  ladderAllowedConfined Boolean     @default(false) // ladder permitted in confined areas (a permission, not an instruction)
+  beamOverLowLevel      Boolean     @default(false) // beam over porch/bay instead of a returning low-level
+  chimneyScaffoldAlways Boolean     @default(false) // demands a chimney scaffold even when none is drawn
+  birdcageLiftsOver2p5m Int? // e.g. 2 lifts where a room exceeds 2.5 m (one client)
+  loadingBayPolicy      String? // free-text until the rule is pinned down
+  joistSupportVariant   String? // single / double / sacrificial
+  extraHirePolicy       String? // refuse / zero / charge
+  matrixTemplateId      String? // the client matrix template they insist on (soft pointer)
+  notes                 String?
+  spec                  Json? // flexible bag for anything not yet typed
+  createdAt             DateTime    @default(now())
+
+  @@index([clientId])
+}
+
+// ---------- Client's own pricing-matrix template (for the client-specific export) ----------
+model ClientMatrixTemplate {
+  id            String   @id @default(cuid())
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name          String
+  storageBucket String   @default("tender-packs")
+  storagePath   String? // the uploaded template file (null until uploaded)
+  fieldMapping  Json? // { ourField: "their column header", ... }
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([clientId])
 }
 
 model Project {
@@ -486,12 +540,13 @@ model RateItem {
 }
 
 model StageSplit {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   rateCardId String
-  rateCard   RateCard @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+  rateCard   RateCard      @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+  scenario   StageScenario @default(STANDARD) // which house shape this split applies to
   name       String
-  percent    Decimal  @db.Decimal(5, 2)
-  sortOrder  Int      @default(0)
+  percent    Decimal       @db.Decimal(5, 2)
+  sortOrder  Int           @default(0)
 
   @@index([rateCardId])
 }

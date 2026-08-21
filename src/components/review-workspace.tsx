@@ -21,6 +21,8 @@ export function ReviewWorkspace({
   pdfUrl,
   relevantPages,
   takeoffId,
+  status,
+  confirmedAt,
   measurements,
   walls,
   warnings,
@@ -32,6 +34,8 @@ export function ReviewWorkspace({
   pdfUrl: string | null;
   relevantPages?: number[];
   takeoffId: string;
+  status: string;
+  confirmedAt: string | null;
   measurements: EditorMeasurement[];
   walls: EditorWall[];
   warnings: Record<string, unknown>;
@@ -107,6 +111,8 @@ export function ReviewWorkspace({
       {/* Editable take-off, with provenance on hover */}
       <TakeoffEditor
         takeoffId={takeoffId}
+        status={status}
+        confirmedAt={confirmedAt}
         measurements={measurements}
         walls={walls}
         warnings={warnings}

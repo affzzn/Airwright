@@ -175,3 +175,69 @@ export async function saveTakeoffEdits(
   if (projectId) revalidatePath(`/projects/${projectId}`);
   return { ok: true };
 }
+
+/**
+ * Lock a take-off. The confirmed measurements become the frozen basis for
+ * pricing — nothing is priced off an unconfirmed take-off. Records who/when.
+ */
+export async function confirmTakeoff(
+  takeoffId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const user = await getCurrentUser();
+    await prisma.takeoff.update({
+      where: { id: takeoffId },
+      data: {
+        status: "CONFIRMED",
+        confirmedAt: new Date(),
+        confirmedById: user?.id ?? null,
+      },
+    });
+    await writeAudit(takeoffId, "CONFIRM");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Confirm failed" };
+  }
+  await revalidateForTakeoff(takeoffId);
+  return { ok: true };
+}
+
+/** Re-open a confirmed take-off for editing (back to IN_REVIEW). */
+export async function reopenTakeoff(
+  takeoffId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await prisma.takeoff.update({
+      where: { id: takeoffId },
+      data: { status: "IN_REVIEW", confirmedAt: null, confirmedById: null },
+    });
+    await writeAudit(takeoffId, "REOPEN");
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Re-open failed" };
+  }
+  await revalidateForTakeoff(takeoffId);
+  return { ok: true };
+}
+
+async function revalidateForTakeoff(takeoffId: string): Promise<void> {
+  const t = await prisma.takeoff.findUnique({
+    where: { id: takeoffId },
+    select: { houseType: { select: { projectId: true } } },
+  });
+  if (t?.houseType.projectId) revalidatePath(`/projects/${t.houseType.projectId}`);
+}
+
+async function writeAudit(takeoffId: string, action: string): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    let userId: string | null = null;
+    if (user) {
+      const u = await prisma.user.findUnique({ where: { id: user.id }, select: { id: true } });
+      userId = u?.id ?? null;
+    }
+    await prisma.auditLog.create({
+      data: { userId, entity: "Takeoff", entityId: takeoffId, action },
+    });
+  } catch {
+    // ignore audit failures
+  }
+}

@@ -132,6 +132,8 @@ export default async function ReviewPage({
           pdfUrl={pdfUrl}
           relevantPages={relevantPages}
           takeoffId={takeoff.id}
+          status={takeoff.status}
+          confirmedAt={takeoff.confirmedAt ? takeoff.confirmedAt.toISOString() : null}
           measurements={editorMeasurements}
           walls={editorWalls}
           warnings={rawWarnings}
