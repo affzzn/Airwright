@@ -34,11 +34,19 @@ export function AppShell({
             </nav>
           </div>
           {showSignOut && (
-            <form action={signOut}>
-              <Button variant="ghost" size="sm" type="submit">
-                Sign out
-              </Button>
-            </form>
+            <div className="flex items-center gap-5">
+              <Link
+                href="/rates"
+                className="text-sm text-ink-subtle transition-colors hover:text-ink"
+              >
+                Rates
+              </Link>
+              <form action={signOut}>
+                <Button variant="ghost" size="sm" type="submit">
+                  Sign out
+                </Button>
+              </form>
+            </div>
           )}
         </div>
       </header>
