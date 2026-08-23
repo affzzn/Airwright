@@ -1,0 +1,167 @@
+/**
+ * Price a whole development, plot by plot (per-plot pricing at quote time — the
+ * confirmed decision). For each plot it runs the measurement engine with THAT
+ * plot's configuration + render flag, prices the result, picks the stage split
+ * for the house shape, and reconciles to a grand total.
+ *
+ * Pure + unit-tested. Shared-item apportionment (loading bay / chute / access)
+ * and garages are FLAGGED as pending: those items come from the builder profile,
+ * which isn't wired into the take-off yet (Phase 4/7).
+ */
+
+import { buildTakeoff, type Configuration } from "@/lib/takeoff/engine";
+import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
+import { buildRateResolver, priceTakeoffLine } from "./engine";
+
+export interface HouseTypeForPricing {
+  id: string;
+  name: string;
+  code: string | null;
+  takeoffStatus: string; // DRAFT | IN_REVIEW | CONFIRMED
+  measurements: { key: string; valueNumber: number | null }[];
+  walls: { position: string; lengthM: number }[];
+  warnings: Record<string, unknown>;
+}
+export interface PlotForPricing {
+  id: string;
+  plotNumber: string;
+  houseTypeId: string;
+  configuration: string;
+  isRendered: boolean;
+  hasGarage: boolean;
+}
+export interface RateItemLite {
+  component: string;
+  action: string;
+  band: string;
+  rate: number;
+}
+export interface StageSplitLite {
+  scenario: string;
+  name: string;
+  percent: number;
+}
+
+export type PlotStatus = "PRICED" | "NOT_CONFIRMED" | "NO_HOUSE_TYPE";
+
+export interface PricedPlot {
+  plotId: string;
+  plotNumber: string;
+  houseTypeName: string;
+  houseTypeCode: string | null;
+  configuration: string;
+  status: PlotStatus;
+  subtotal: number;
+  stages: { name: string; percent: number; amount: number }[];
+  unpricedCount: number;
+  hasGarage: boolean;
+}
+
+export interface ProjectPricing {
+  band: string;
+  hasRateCard: boolean;
+  plots: PricedPlot[];
+  grandTotal: number;
+  /** Distinct "COMPONENT ACTION" strings that had no rate — surfaced for review. */
+  unpricedComponents: string[];
+  confirmedCount: number;
+  garageCount: number;
+}
+
+function scenarioFor(storeys: number | null, floorCount: number): string {
+  if (floorCount === 0) return "NO_BIRDCAGE";
+  if (storeys !== null && storeys <= 1) return "BUNGALOW";
+  return "STANDARD";
+}
+
+const natural = (a: string, b: string): number => {
+  const na = parseInt(a, 10);
+  const nb = parseInt(b, 10);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return a.localeCompare(b);
+};
+
+export function priceProject(input: {
+  houseTypes: HouseTypeForPricing[];
+  plots: PlotForPricing[];
+  rateItems: RateItemLite[];
+  stageSplits: StageSplitLite[];
+  band: string;
+}): ProjectPricing {
+  const htById = new Map(input.houseTypes.map((h) => [h.id, h]));
+  const resolve = buildRateResolver(input.rateItems, input.band);
+  const splitsFor = (scenario: string) => {
+    const s = input.stageSplits.filter((x) => x.scenario === scenario);
+    const use = s.length ? s : input.stageSplits.filter((x) => x.scenario === "STANDARD");
+    return use.map((x) => ({ name: x.name, percent: x.percent }));
+  };
+
+  const plots: PricedPlot[] = [];
+  const unpriced = new Set<string>();
+  let grandTotalPence = 0;
+  let confirmedCount = 0;
+  let garageCount = 0;
+
+  for (const plot of [...input.plots].sort((a, b) => natural(a.plotNumber, b.plotNumber))) {
+    const ht = htById.get(plot.houseTypeId);
+    const shell = {
+      plotId: plot.id,
+      plotNumber: plot.plotNumber,
+      houseTypeName: ht?.name ?? "—",
+      houseTypeCode: ht?.code ?? null,
+      configuration: plot.configuration,
+      hasGarage: plot.hasGarage,
+      unpricedCount: 0,
+      subtotal: 0,
+      stages: [] as { name: string; percent: number; amount: number }[],
+    };
+
+    if (!ht) {
+      plots.push({ ...shell, status: "NO_HOUSE_TYPE" });
+      continue;
+    }
+    if (ht.takeoffStatus !== "CONFIRMED") {
+      plots.push({ ...shell, status: "NOT_CONFIRMED" });
+      continue;
+    }
+
+    const engineInput = takeoffInputFromStored(
+      ht.measurements,
+      ht.walls,
+      ht.warnings,
+      plot.configuration as Configuration,
+    );
+    // Render is per plot — a non-rendered plot drops the house type's render.
+    if (!plot.isRendered) engineInput.renderSegmentsM = [];
+
+    const line = buildTakeoff(engineInput);
+    const scenario = scenarioFor(engineInput.storeys, line.birdcage.floorCount);
+    const result = priceTakeoffLine(line, {
+      resolveRate: resolve,
+      stageSplits: splitsFor(scenario),
+    });
+    result.unpriced.forEach((u) => unpriced.add(`${u.component} ${u.action}`));
+
+    confirmedCount += 1;
+    if (plot.hasGarage) garageCount += 1;
+    grandTotalPence += Math.round(result.subtotal * 100);
+
+    plots.push({
+      ...shell,
+      status: "PRICED",
+      subtotal: result.subtotal,
+      stages: result.stages,
+      unpricedCount: result.unpriced.length,
+    });
+  }
+
+  return {
+    band: input.band,
+    hasRateCard: input.rateItems.length > 0,
+    plots,
+    grandTotal: grandTotalPence / 100,
+    unpricedComponents: [...unpriced].sort(),
+    confirmedCount,
+    garageCount,
+  };
+}

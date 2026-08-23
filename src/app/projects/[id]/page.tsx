@@ -125,17 +125,25 @@ export default async function ProjectPage({
         ← Projects
       </Link>
 
-      <div className="mt-4 mb-8">
-        <p className="eyebrow mb-2">{project.client.name}</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          {project.name}
-        </h1>
-        <p className="mt-1 text-sm text-ink-subtle">
-          {project.estimatingMode === "CONSTRUCTION"
-            ? "Construction"
-            : "House build"}{" "}
-          · Pack v{pack?.version ?? 1}
-        </p>
+      <div className="mt-4 mb-8 flex items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow mb-2">{project.client.name}</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            {project.name}
+          </h1>
+          <p className="mt-1 text-sm text-ink-subtle">
+            {project.estimatingMode === "CONSTRUCTION"
+              ? "Construction"
+              : "House build"}{" "}
+            · Pack v{pack?.version ?? 1}
+          </p>
+        </div>
+        <Link
+          href={`/projects/${project.id}/pricing`}
+          className="shrink-0 rounded-md border border-hairline-strong px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface"
+        >
+          Pricing →
+        </Link>
       </div>
 
       {processing && (
