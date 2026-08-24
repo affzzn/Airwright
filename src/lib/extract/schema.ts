@@ -79,12 +79,28 @@ const elevation = z.object({
   face: z
     .enum(["front", "rear", "left", "right", "other"])
     .describe("Which elevation face this entry describes."),
+  faceRoof: z
+    .enum(["GABLED", "HIPPED"])
+    .nullable()
+    .describe(
+      "The roof shape where it meets THIS face: GABLED (brickwork rises to an apex point → needs a table lift) or HIPPED (slopes back, no brickwork above the eaves → no apex). Decide per face — a MIXED roof has some of each. null if you cannot tell.",
+    )
+    .optional()
+    .default(null),
   apexCount: z
     .number()
     .nullable()
     .describe(
       "Number of gable apexes on THIS face that have brickwork up to the point and so need a table lift. 0 if this face is hipped or has no apex.",
     ),
+  apexReason: z
+    .string()
+    .nullable()
+    .describe(
+      "One SHORT line justifying the apexCount for this face, decided BEFORE the number (e.g. 'projecting front gable rises to brickwork point → 1', 'hipped, nothing above eaves → 0').",
+    )
+    .optional()
+    .default(null),
   rendered: z
     .boolean()
     .nullable()
@@ -215,8 +231,14 @@ export const extractionResultSchema = z.object({
     )
     .default({ value: null, confidence: "unknown" }),
   heightToSoffitM: numberField.describe(
-    "Height to soffit / eaves in metres — the top of the wall the scaffold reaches, e.g. from 'U/S Wallplate 5025' = 5.025 m. Read it exactly. Do NOT compute the number of lifts.",
+    "Height to soffit in metres — the top of the wall the scaffold reaches. ALWAYS use the soffit / underside-of-wallplate value (e.g. 'U/S Wallplate 5025' = 5.025 m); never the ridge, never a mid-roof point; the same datum on every house type. Read it exactly. Do NOT compute the number of lifts.",
   ),
+  storeyHeightsM: z
+    .array(z.number())
+    .describe(
+      "The printed vertical storey heights from the SECTION, ground upward: each floor-to-floor height, with the LAST one being the top floor up to the soffit / underside of wallplate (e.g. [2.662, 2.063]). Report the RAW printed numbers only — do NOT add them up. Their sum is a second, independent estimate of the soffit height, which the engine cross-checks against heightToSoffitM. Empty if the section doesn't dimension storey heights.",
+    )
+    .default([]),
   roof: z
     .object({
       overallType: z

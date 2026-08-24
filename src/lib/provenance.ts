@@ -15,6 +15,7 @@
 
 import type { ExtractionResult } from "@/lib/extract/schema";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
+import { computeHeight } from "@/lib/extract/height";
 
 export interface ProvSource {
   sheet: string | null;
@@ -168,28 +169,41 @@ export function buildProvenanceCards(
     };
   }
 
-  // --- Height to soffit ---
-  if (raw.heightToSoffitM.value != null) {
-    const dim = raw.heightToSoffitM.sourceDimension;
-    const foot = looksMm(dim)
-      ? [`Converted from the printed millimetres: ${dim} → ${raw.heightToSoffitM.value} m.`]
-      : [];
-    cards.HEIGHT_TO_SOFFIT = {
-      title: "Height to soffit",
-      summary: "Read off a vertical dimension",
-      method: "read",
-      steps: [
-        {
-          text: `Height to soffit = ${raw.heightToSoffitM.value} m`,
+  // --- Height to soffit (triangulated: direct read vs storey ladder) ---
+  {
+    const hr = computeHeight({
+      directSoffitM: raw.heightToSoffitM.value,
+      storeyHeightsM: raw.storeyHeightsM,
+      storeys: raw.storeys.value,
+      readConfidence: raw.heightToSoffitM.confidence,
+    });
+    if (hr.soffitM != null) {
+      const dim = raw.heightToSoffitM.sourceDimension;
+      const steps: ProvStep[] = [];
+      if (hr.directM != null)
+        steps.push({
+          text: `Direct soffit read = ${hr.directM} m`,
           source: src(raw.heightToSoffitM.sourceSheet, dim, raw.heightToSoffitM.sourcePage),
-        },
-      ],
-      footnotes: [
-        ...foot,
-        "This is the height the lift count divides by (÷ 1.5 m). Datum (soffit / eaves / wall plate) is being confirmed with Colin.",
-      ],
-      confidenceLabel: raw.heightToSoffitM.confidence,
-    };
+        });
+      if (raw.storeyHeightsM.length > 0)
+        steps.push({ text: `Storey ladder ${raw.storeyHeightsM.join(" + ")} = ${hr.ladderSumM} m` });
+      steps.push({ text: hr.note });
+      steps.push({ text: `Height to soffit = ${hr.soffitM} m` });
+      const foot = looksMm(dim)
+        ? [`Converted from the printed millimetres: ${dim} → ${hr.directM} m.`]
+        : [];
+      cards.HEIGHT_TO_SOFFIT = {
+        title: "Height to soffit",
+        summary: hr.reconciled ? "Cross-checked against the storey ladder" : "Read off the U/S wallplate",
+        method: raw.storeyHeightsM.length > 0 ? "computed" : "read",
+        steps,
+        footnotes: [
+          ...foot,
+          "The lift count divides this by 1.5 m. Datum = soffit / underside of wallplate (confirmed).",
+        ],
+        confidenceLabel: hr.confidence,
+      };
+    }
   }
 
   // --- Corners ---
@@ -216,7 +230,7 @@ export function buildProvenanceCards(
     const withApex = raw.elevations.filter((e) => (e.apexCount ?? 0) > 0);
     const total = raw.elevations.reduce((a, e) => a + (e.apexCount ?? 0), 0);
     const steps: ProvStep[] = withApex.map((e) => ({
-      text: `${FACE[e.face] ?? e.face} elevation: ${e.apexCount} apex`,
+      text: `${FACE[e.face] ?? e.face} elevation: ${e.apexCount} apex${e.apexReason ? ` — ${e.apexReason}` : ""}`,
       source: src(e.sourceSheet, e.sourceDimension, e.sourcePage),
     }));
     if (raw.roof.overallType === "HIPPED") {

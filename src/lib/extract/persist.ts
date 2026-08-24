@@ -2,7 +2,9 @@ import { prisma } from "@/lib/db";
 import type { ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
+import { computeHeight } from "./height";
 import { makeDimensionVerifier, type PageDims } from "./dimensions";
+import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
 const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
@@ -54,9 +56,30 @@ export async function persistExtraction(
     const extraction = await tx.extraction.findUniqueOrThrow({
       where: { id: extractionId },
       include: {
-        document: { include: { pack: { include: { project: true } } } },
+        document: {
+          include: {
+            pack: { include: { project: true } },
+            pages: { select: { pageNumber: true, kind: true } },
+          },
+        },
       },
     });
+
+    // Map the model's sourcePage (1-based WITHIN the sliced PDF) back to the
+    // classified kind of that original page, so we can flag a wall length that
+    // was read off an ELEVATION (the roof-overhang trap) rather than a plan.
+    const orderedOriginalPages = extraction.pageRange
+      ? parseRangeString(extraction.pageRange)
+      : null; // null → the sliced page number equals the original page number
+    const kindByOriginal = new Map<number, string>();
+    for (const p of extraction.document.pages)
+      kindByOriginal.set(p.pageNumber, p.kind as string);
+    const kindOfSlicedPage = (sliced: number | null | undefined): string | null => {
+      if (sliced == null) return null;
+      const original = orderedOriginalPages ? orderedOriginalPages[sliced - 1] : sliced;
+      return original == null ? null : (kindByOriginal.get(original) ?? null);
+    };
+    const wallReadOffElevation: string[] = [];
 
     let houseTypeId = extraction.houseTypeId;
 
@@ -141,9 +164,20 @@ export async function persistExtraction(
       result.heightToSoffitM.sourcePage,
       "Height to soffit",
     );
+    // Triangulate: direct soffit read vs the summed storey ladder vs a storey
+    // sanity band. Confidence is computed from whether they give the same lift
+    // count (H3). Datum is fixed to the soffit (docs/11 §8a).
+    const heightRes = computeHeight({
+      directSoffitM: result.heightToSoffitM.value,
+      storeyHeightsM: result.storeyHeightsM,
+      storeys: result.storeys.value,
+      readConfidence: result.heightToSoffitM.confidence,
+    });
     push("HEIGHT_TO_SOFFIT", {
-      ...result.heightToSoffitM,
-      confidence: heightOk ? result.heightToSoffitM.confidence : capLow(result.heightToSoffitM.confidence),
+      value: heightRes.soffitM,
+      confidence: heightOk ? heightRes.confidence : capLow(heightRes.confidence),
+      sourceSheet: result.heightToSoffitM.sourceSheet ?? null,
+      sourceDimension: result.heightToSoffitM.sourceDimension ?? null,
     });
 
     // --- Apexes: total across elevations (= table-lift qty = apex-handrail qty) ---
@@ -235,8 +269,15 @@ export async function persistExtraction(
     if (result.wallSegments.length) {
       await tx.wallSegment.createMany({
         data: result.wallSegments.map((w) => {
-          const ok = checkDim(w.sourceDimension, w.sourcePage, `${w.position} wall`);
-          const conf = ok ? w.confidence : capLow(w.confidence);
+          const dimOk = checkDim(w.sourceDimension, w.sourcePage, `${w.position} wall`);
+          // A wall length cited off an ELEVATION page is suspect (roof overhang
+          // over-reads the wall) — cap its confidence and flag it.
+          const offElevation = kindOfSlicedPage(w.sourcePage) === "ELEVATION";
+          if (offElevation)
+            wallReadOffElevation.push(`${w.position} (page ${w.sourcePage})`);
+          let conf: Conf = w.confidence;
+          if (!dimOk) conf = capLow(conf);
+          if (offElevation) conf = capLow(conf);
           return {
             takeoffId: takeoff.id,
             position: w.position.toUpperCase() as Prisma.WallSegmentCreateManyInput["position"],
@@ -245,7 +286,7 @@ export async function persistExtraction(
             aiLengthM: w.lengthM,
             confidence: confToNumber(conf),
             sourceDimension: w.sourceDimension ?? null,
-            ambiguous: !ok || conf === "low" || conf === "unknown",
+            ambiguous: !dimOk || offElevation || conf === "low" || conf === "unknown",
           };
         }),
       });
@@ -271,12 +312,33 @@ export async function persistExtraction(
         apexCount: e.apexCount,
         rendered: e.rendered,
         renderLengthM: e.renderLengthM ?? null,
+        faceRoof: e.faceRoof ?? null,
+        apexReason: e.apexReason ?? null,
       }));
+      // A face the model called HIPPED but still gave an apex to → contradiction.
+      const apexContradictions = result.elevations
+        .filter((e) => e.faceRoof === "HIPPED" && (e.apexCount ?? 0) > 0)
+        .map((e) => `${e.face}: marked hipped but apex=${e.apexCount}`);
+      if (apexContradictions.length > 0) warnings.apexContradictions = apexContradictions;
     }
     // The step-by-step birdcage derivation (per floor) for the review tooltip.
     if (birdcageDerivation.length > 0) warnings.birdcageDerivation = birdcageDerivation;
     // Dimensions the model cited that aren't in the PDF text layer (likely misreads).
     if (unverifiedDimensions.length > 0) warnings.unverifiedDimensions = unverifiedDimensions;
+    // Walls whose length was read off an elevation page (roof-overhang risk).
+    if (wallReadOffElevation.length > 0) warnings.wallReadOffElevation = wallReadOffElevation;
+    // Height triangulation trail (direct vs storey ladder) for the review tooltip.
+    warnings.heightDerivation = {
+      soffitM: heightRes.soffitM,
+      directM: heightRes.directM,
+      ladderSumM: heightRes.ladderSumM,
+      liftsDirect: heightRes.liftsDirect,
+      liftsLadder: heightRes.liftsLadder,
+      reconciled: heightRes.reconciled,
+      withinBand: heightRes.withinBand,
+      confidence: heightRes.confidence,
+      note: heightRes.note,
+    };
     if (Object.keys(warnings).length) {
       await tx.takeoff.update({
         where: { id: takeoff.id },

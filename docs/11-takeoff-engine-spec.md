@@ -278,6 +278,53 @@ _Apartment-block questions (surfaced testing Augusta — §7a):_
 
 ---
 
+## 8a. Extraction-accuracy work items (scoped 2026-08-24 — the birdcage pattern reused)
+
+Three medium-risk reads to harden the same way birdcage was hardened: **read
+multiple independent sources → reconcile in code → compute the confidence from
+agreement → keep the genuinely-open bits as flags.** Scope decisions confirmed by
+the user; the sub-questions (H3/A2/W2) confirmed as the proposed defaults.
+**✅ IMPLEMENTED 2026-08-24 (prompt `2026-08-24.1`)** — validated live on Dekker:
+storey ladder [2.662, 2.063] → 4.725 reconciles the soffit (4 lifts, high); per-face
+apex front/rear HIPPED 0, left/right GABLED 1; walls verified. Engines:
+`src/lib/extract/height.ts` (triangulation) + the wall page-kind + apex per-face
+checks in `persist.ts`.
+
+**A. Height to soffit — FULL TRIANGULATION (confirmed).**
+- **Datum: soffit / underside of wallplate ONLY** ✅ (user-confirmed; supersedes
+  open-question §8 #1 for extraction — always read `U/S Wallplate`, never ridge/
+  eaves/mid-point, same datum on every house type; drop the "datum open" hedge).
+- **Plan:** the model reads a second, independent vertical stack — the printed
+  FFLs per floor + the top-floor-to-soffit — as raw numbers (never summed by the
+  model). A new pure `computeHeight` sums the ladder, compares it to the direct
+  soffit read and a storey sanity band, and sets confidence from agreement.
+- **⚠️ H3 (tolerance, proposed):** flag a disagreement only when the two height
+  estimates give a **different lift count** (`ceil(h/1.5)` differs) — that's the
+  thing that changes the price — rather than a fixed mm gap. *Confirm.*
+
+**B. Apex per face — PROMPT + PER-FACE FIELDS (confirmed).**
+- **Plan:** prompt walks each named face explicitly (front/rear/left/right →
+  "brickwork rising to a point?") with a Dekker micro-example (`front 0, rear 0,
+  left 1, right 1`); schema adds `faceRoof` (GABLED/HIPPED) + a one-line
+  `apexReason` per elevation (commit shape + reason before the count). Engine
+  flags a face marked hipped that still reports an apex.
+- **⚠️ A2 (proposed):** treat a **gablet / half-hip** and a **chimney-on-gable**
+  as normal faces (count the apex if brickwork rises to a point); no special rule
+  unless Colin wants one. *Confirm.*
+
+**C. Wall segments — PROMPT + PAGE-KIND CROSS-CHECK (confirmed).**
+- **Plan:** prompt enforces "read the wall length off the FLOOR PLAN / setting-out
+  plan from a printed dimension — never off an elevation, never scaled; the
+  building line is the brickwork INSIDE the roof overhang." Then thread the page
+  classification into `persist.ts` and flag/downgrade any wall whose cited
+  `sourcePage` is an ELEVATION page (catches the overhang error even when the
+  number is "real"). Complements the text-layer candidate list + verification.
+- **⚠️ W2 (proposed):** if ONLY the overhang dim is legible (no wall dim), store
+  it low-confidence AS-IS and flag — never subtract a standard overhang (same
+  no-arithmetic principle as birdcage). *Confirm.*
+
+---
+
 ## 9. Extractor prompt v2 — ✅ WIRED IN (2026-08-19)
 
 Live in `src/lib/extract/prompt.ts` (`PROMPT_VERSION = 2026-08-19.1`) and

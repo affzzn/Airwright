@@ -12,6 +12,7 @@ import {
   type TakeoffInput,
 } from "../src/lib/takeoff/engine";
 import { computeBirdcageFloor } from "../src/lib/extract/birdcage";
+import { computeHeight } from "../src/lib/extract/height";
 import { makeDimensionVerifier } from "../src/lib/extract/dimensions";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -89,9 +90,22 @@ async function run(path: string, configs: Configuration[]) {
   console.log(
     `corners: ${data.cornerCount.value}  dwellingsWide: ${data.dwellingsWide.value}  chimney: ${data.chimney.value}  lowLevel: porch=${data.lowLevel.porchCount} bay=${data.lowLevel.bayCount}  smartRoofPeak: ${data.smartRoofPeakHeightM.value}`,
   );
+  {
+    const h = computeHeight({
+      directSoffitM: data.heightToSoffitM.value,
+      storeyHeightsM: data.storeyHeightsM,
+      storeys: data.storeys.value,
+      readConfidence: data.heightToSoffitM.confidence,
+    });
+    console.log(
+      `height: direct=${data.heightToSoffitM.value} ladder=[${data.storeyHeightsM.join(", ")}]→${h.ladderSumM} → ${h.soffitM} m [${h.confidence}] — ${h.note}`,
+    );
+  }
   console.log("elevations:");
   for (const e of data.elevations)
-    console.log(`  ${e.face}: apex=${e.apexCount} rendered=${e.rendered} renderLM=${e.renderLengthM ?? "-"} [${e.confidence}]`);
+    console.log(
+      `  ${e.face}: roof=${e.faceRoof ?? "-"} apex=${e.apexCount} [${e.confidence}]${e.apexReason ? `  (${e.apexReason})` : ""}`,
+    );
   console.log("wall segments (building line):");
   for (const w of data.wallSegments)
     console.log(`  ${w.position}: ${w.lengthM} m (dim ${w.sourceDimension ?? "-"}) [${w.confidence}]`);
