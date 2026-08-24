@@ -11,7 +11,7 @@
 
 import { buildTakeoff, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
-import { buildRateResolver, priceTakeoffLine } from "./engine";
+import { buildRateResolver, priceTakeoffLine, type PricedLine } from "./engine";
 
 export interface HouseTypeForPricing {
   id: string;
@@ -53,6 +53,8 @@ export interface PricedPlot {
   status: PlotStatus;
   subtotal: number;
   stages: { name: string; percent: number; amount: number }[];
+  /** The true-cost priced operations behind this plot (for the quote snapshot). */
+  lines: PricedLine[];
   unpricedCount: number;
   hasGarage: boolean;
 }
@@ -114,6 +116,7 @@ export function priceProject(input: {
       unpricedCount: 0,
       subtotal: 0,
       stages: [] as { name: string; percent: number; amount: number }[],
+      lines: [] as PricedLine[],
     };
 
     if (!ht) {
@@ -151,6 +154,7 @@ export function priceProject(input: {
       status: "PRICED",
       subtotal: result.subtotal,
       stages: result.stages,
+      lines: result.lines,
       unpricedCount: result.unpriced.length,
     });
   }

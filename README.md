@@ -50,7 +50,10 @@ Upload → Supabase Storage + `Document` row → pg-boss job → worker runs
 
 ## Status
 
-**Weeks 1–2 complete · Week 3 core built & validated** — the extractor + deterministic
-take-off engine reproduce Colin's handwritten take-offs on real drawings. See
-[`PROGRESS.md`](./PROGRESS.md) and the canonical spec
-[`docs/11-takeoff-engine-spec.md`](./docs/11-takeoff-engine-spec.md).
+**Whole pipeline built & deployed on Render** — drawing → AI extract → editable review
+(with provenance page links) → **confirm/lock** → per-plot pricing matrix → **immutable
+quote** → Excel/print outputs. Runs on **placeholder rates** (Colin's rate sheet is the
+one thing gating correct pricing). See [`PROGRESS.md`](./PROGRESS.md) and the canonical
+specs: [`docs/11`](./docs/11-takeoff-engine-spec.md) (take-off),
+[`docs/13`](./docs/13-extraction-playbook.md) (extraction playbook),
+[`docs/14`](./docs/14-pricing-and-quote.md) (pricing & quote).

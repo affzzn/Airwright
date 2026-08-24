@@ -5,33 +5,21 @@ the Week-3 rules + open questions live in **`docs/11-takeoff-engine-spec.md`** (
 
 ## Now / small
 
-- [ ] **Commit the 2026-08-12→19 session work** (extractor v2, take-off engine,
-      classifier fallback, polling/perf/ZIP/retry fixes) — all still uncommitted on
-      `main`. Branch first. `data/` + `colin-data/` are gitignored (client PII).
+- [x] **Deployed to Render** (2026-08-20): web + worker, both Starter, Frankfurt,
+      Node **22** (Supabase JS needs the global WebSocket — Node 20 broke Storage
+      reads in the worker). Repo is `github.com/affzzn/Airwright` (private); pushing
+      to `main` auto-deploys, web `preDeployCommand` runs `db:deploy` (migrations).
+- [x] **All work committed + pushed** to `main`. `data/` + `colin-data/` gitignored (PII).
+- [x] **Delete / archive projects** — the tenders home is now a workspace (search,
+      status, stat strip, per-row archive + delete). Clears test junk self-serve.
 - [ ] **Colin follow-up call** — the 16 open questions in `docs/11 §8` (corner quantum,
-      height datum, birdcage cavity + apartment basis, render table, rate sheet…).
-      Do NOT encode any of them as assumptions.
-- [ ] Clean out test users/projects (tester@airwright.test, "Live test —…",
-      "Nested zip test", "ZIP upload test", "Bug Test"…). A Delete-project button
-      would make this self-serve (still not built).
-- [ ] Resumable (TUS) uploads for 150MB+ zips — current single PUT works (bucket now
-      250MB) but is slow/fragile on weak connections.
-
-- [ ] **Decide the Render deploy path** (Background Workers have NO free tier — $7/mo
-      minimum; Web Services do). Options: (a) pay $7/mo Starter for a proper always-on
-      worker — `render.yaml` already has this two-service setup, just deploy it; or
-      (b) combine web+worker into one free Web Service (`concurrently`) + an external
-      uptime pinger (e.g. UptimeRobot) to fight the 15-min sleep. (a) is cleaner/more
-      reliable; (b) is $0 but extractions stall while asleep. **User to choose.**
-- [x] Unit tests for classifier/segmentation/categorisation (`segment.test.ts`,
-      `persistPlots.test.ts`, `categorise.test.ts`, `pack-progress.test.ts` — 38 total),
-      using the real Travis Baker sample sheets.
-- [x] File-level relevance (done — see "File relevance"). Validated on the real 48-file pack.
-- [x] Broaden classifier for other builders — **Bloor/NSS handled** via `classifyByText`
-      text-scan fallback (drawing-type labels; internal-elevation + civils exclusions).
-      Miller, Travis Baker, Bloor-NSS, Bloor-Oadby all verified. Image-only drawings
-      (no text) still fall to UNCERTAIN + manual "Use file" (vision classification later).
-- [ ] Add a "Delete project" button (to clear stale test data) — offered, not built.
+      height datum, birdcage cavity + apartment basis, render table, **rate sheet**…).
+      Do NOT encode any of them as assumptions. **The rate sheet now blocks real pricing.**
+- [ ] **Supabase for prod**: create Colin's login user; set Site URL +
+      `/auth/callback` redirect URLs (email+password, confirm-email off). App runs
+      without these but you can't sign in until done.
+- [ ] Resumable (TUS) uploads for 150MB+ zips — current single PUT works (bucket 250MB)
+      but is slow/fragile on weak connections.
 
 ## File relevance (which FILES in a pack matter, not just which pages)
 
@@ -102,16 +90,43 @@ Colin's handwritten take-off sheets + 4 matched drawings are in `colin-data/` (g
 - [ ] **Get from Colin**: rate sheet (£/component/band) + the docs/11 §8 answers
       (corner quantum, cavity, render table, apartment birdcage basis, Tyard/Whitgrove).
 
-## Week 4 — Pricing (both modes), review screen, exports
+## Week 4 — Pricing (both modes), review screen, exports  — BUILT (on placeholder rates)
 
-- [ ] Deterministic pricing engine (pure, unit-tested), priced per operation + stage.
-- [ ] Percentage-derived stages (erect / birdcage / dismantle) from configurable rules.
-- [ ] Versioned, effective-dated rate cards; bands; `payPercent` hook for Build 2.
-- [ ] House-build path + construction path (per-elevation, hire weeks/permits/access/ground).
-- [ ] **Reconciliation enforced**: stages sum to plot; plots + garages sum to grand total.
-- [ ] Editable review screen: per-field edit, low-confidence floated up, sanity warnings,
-      confirm locks the take-off + generates the quote, every edit logged.
-- [ ] Exports: Strike-ready summary + Excel (ExcelJS), formula-injection sanitised.
+Pricing pipeline (Phases 0–5) is built end to end. See `docs/14-pricing-and-quote.md`
+for the full design. Rates are PLACEHOLDERS until Colin's rate sheet lands.
+
+- [x] **Editable review screen** — inline-edit every measurement/wall/toggle, per-field
+      confidence + provenance-on-hover (with page links), every edit audit-logged.
+- [x] **Confirm & lock the take-off** (`confirmTakeoff`/`reopenTakeoff`) — locks the
+      panel read-only, records who/when; nothing is priced off an unconfirmed take-off.
+- [x] **Rate cards + bands screen** (`/rates`) — versioned, effective-dated; inline-edit
+      £ per component×action×band, add/delete rates, edit stage-split % per scenario.
+- [x] **Deterministic pricing engine** (`src/lib/pricing/engine.ts`, pure, unit-tested) —
+      quantity × rate per operation, integer-pence, reconciles to the penny; keeps true
+      item cost vs presented stage split separate; flags unpriced components.
+- [x] **Per-plot development pricing** (`priceProject.ts`) + pricing matrix
+      (`/projects/[id]/pricing`) — prices every plot with its own config + render;
+      reconciles plots→grand total. Stage splits by scenario (standard/bungalow/no-birdcage).
+- [x] **Immutable Quote snapshot** (`generateQuote`) — freezes detail lines + stage rows;
+      versioned. Quote view (`/quotes/[id]`) = summary + matrix, print-ready (client quote).
+- [x] **Excel export** (ExcelJS, `/quotes/[id]/export`) — Matrix + Line-items sheets,
+      formula-injection sanitised. Doubles as the Strike-ready / Airwright-matrix output.
+- [ ] **Get Colin's rate sheet** → replace placeholder rates → validate the engine
+      reproduces the Oadby matrix to the penny (golden set).
+- [ ] **ScaffoldOperation rows**: pricing currently works off the engine line → priced
+      QuoteLineItems directly (per the per-plot-at-quote-time decision). The typed
+      `ScaffoldOperation` table is still unused; wire it if a persisted op-list is wanted.
+- [ ] **Shared-item apportionment** (loading bay/chute/access across a block) + **garages**
+      (own staged set) — flagged in the matrix as "not yet applied"; need the builder
+      profile extras + the 4-plot rule (docs/11 §8).
+- [ ] **Construction pricing path** — bespoke line-item catalogue from an imported
+      construction rate sheet + hire weeks (`ConstructionRateItem`/`Scope` exist, unused).
+- [ ] **Builder-profile screen** — the `BuilderProfile` model exists (per-housebuilder
+      spec: access type, loading-bay policy, beam-over, chimney rule…); needs a UI + to
+      feed the "extras" into the take-off/price. Placeholder Miller profile seeded.
+- [ ] **Client-specific matrix template** — populate a housebuilder's OWN Excel template
+      and export it. Model (`ClientMatrixTemplate`) exists; the fixed Airwright Excel
+      matrix works for now. **Do this later** — needs a real client template to map against.
 
 ## Weeks 5-7
 

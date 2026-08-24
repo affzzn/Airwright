@@ -70,6 +70,25 @@ Open rule values (corner quantum, height datum…) are `EngineParams` + flags �
 see `docs/11-takeoff-engine-spec.md` §8. Offline validation runner:
 `scripts/offline-extract.mts` (extractor + engine vs Colin's sheets).
 
+## The pricing engine (Layer 3 — after a human confirms the take-off)
+
+Full detail: `docs/14-pricing-and-quote.md`. After Colin **confirms** a take-off
+(`Takeoff.status = CONFIRMED`), pricing runs **per plot at quote time**:
+
+```
+confirmed observables → buildTakeoff(observables, plot.config, plot.render)
+  → priceTakeoffLine(line, rateResolver, stageSplits)   [src/lib/pricing/engine.ts]
+      → priced line items (true cost) + subtotal + stage split (pence, reconciles)
+  → priceProject(...) over all plots → pricing matrix + grand total
+  → generateQuote(...) → immutable Quote + QuoteLineItems (frozen)
+  → quote view (print → client PDF) + Excel export (ExcelJS, sanitised)
+```
+
+Pure + unit-tested (`engine.test.ts`, `priceProject.test.ts`). Rates live on
+`/rates` (versioned/effective-dated). **True item cost and presented stage split
+are kept separate** (checklist trap); the quote freezes both. ⚠ Rates + the
+operation→component mapping are placeholders until Colin's rate sheet.
+
 ## The review / browse UI
 
 - **Project page** (`src/app/projects/[id]`): the pack overview — House types (status +
@@ -131,4 +150,11 @@ see `docs/11-takeoff-engine-spec.md` §8. Offline validation runner:
 | `src/app/api/projects/[id]/pack-status` | Cheap status probe for the live poller |
 | `src/app/` | Pages: home, projects/[id], extractions/[id], login |
 | `scripts/offline-extract.mts` | Offline extractor+engine runner vs Colin's data |
-| `src/components/` | Shell, upload form, PDF viewer, auto-refresh, ui primitives |
+| `src/lib/pricing/engine.ts` | **Pricing engine (Layer 3, pure)** — quantity × rate → priced lines + stage split |
+| `src/lib/pricing/priceProject.ts` | Prices a whole development per plot; reconciles to a grand total |
+| `src/server/pricing.ts` | `loadProjectPricing()` — load project + active rate card, price it |
+| `src/server/actions/quotes.ts` | `generateQuote()` — snapshot the priced development into an immutable Quote |
+| `src/server/actions/rates.ts` | Rate-card admin actions |
+| `src/app/rates/*`, `.../pricing/*`, `src/app/quotes/[id]/*` | Rate screen, pricing matrix, quote view + Excel export |
+| `src/lib/provenance.ts` | Per-measurement "how was this derived" (page links via `sourcePage`) |
+| `src/components/` | Shell, upload form, PDF viewer, take-off editor, tenders workspace, rates manager, ui primitives |

@@ -12,7 +12,7 @@ export function AppShell({
 }) {
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="sticky top-0 z-10 border-b border-hairline bg-canvas/90 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-hairline bg-canvas/90 backdrop-blur print:hidden">
         <div className="mx-auto flex h-14 max-w-content items-center justify-between px-6">
           <div className="flex items-center gap-8">
             <Link href="/" className="text-sm font-semibold tracking-tight text-ink">

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { loadProjectPricing } from "@/server/pricing";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { priceProject } from "@/lib/pricing/priceProject";
+import { GenerateQuoteButton } from "@/components/quote-actions";
+import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -24,89 +26,36 @@ export default async function PricingPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const loaded = await loadProjectPricing(id);
+  if (!loaded) notFound();
+  const { project, rateCard, pricing } = loaded;
 
-  const project = await prisma.project.findUnique({
-    where: { id },
-    relationLoadStrategy: "join",
-    include: {
-      client: true,
-      houseTypes: {
-        include: {
-          takeoff: {
-            include: { measurements: true, wallSegments: true },
-          },
-        },
-      },
-      plots: true,
-    },
-  });
-  if (!project) notFound();
-
-  const rateCard = await prisma.rateCard.findFirst({
-    where: { mode: "HOUSE_BUILD", isActive: true },
-    orderBy: { effectiveFrom: "desc" },
-    include: { items: true, stageSplits: true },
+  const quotes = await prisma.quote.findMany({
+    where: { projectId: id },
+    orderBy: { version: "desc" },
+    select: { id: true, version: true, status: true, total: true, createdAt: true },
   });
 
-  const pricing = priceProject({
-    houseTypes: project.houseTypes.map((h) => ({
-      id: h.id,
-      name: h.name,
-      code: h.code,
-      takeoffStatus: h.takeoff?.status ?? "DRAFT",
-      measurements: (h.takeoff?.measurements ?? []).map((m) => ({
-        key: m.key as string,
-        valueNumber: m.valueNumber !== null ? Number(m.valueNumber) : null,
-      })),
-      walls: (h.takeoff?.wallSegments ?? []).map((w) => ({
-        position: w.position as string,
-        lengthM: Number(w.lengthM),
-      })),
-      warnings:
-        h.takeoff?.warnings && typeof h.takeoff.warnings === "object"
-          ? (h.takeoff.warnings as Record<string, unknown>)
-          : {},
-    })),
-    plots: project.plots.map((p) => ({
-      id: p.id,
-      plotNumber: p.plotNumber,
-      houseTypeId: p.houseTypeId,
-      configuration: p.configuration,
-      isRendered: p.isRendered,
-      hasGarage: p.hasGarage,
-    })),
-    rateItems: (rateCard?.items ?? []).map((i) => ({
-      component: i.component,
-      action: i.action,
-      band: i.band,
-      rate: Number(i.rate),
-    })),
-    stageSplits: (rateCard?.stageSplits ?? []).map((s) => ({
-      scenario: s.scenario,
-      name: s.name,
-      percent: Number(s.percent),
-    })),
-    band: project.client.defaultBand,
-  });
-
-  const stageNames = pricing.plots.find((p) => p.stages.length)?.stages.map((s) => s.name) ?? [];
+  const stageNames =
+    pricing.plots.find((p) => p.stages.length)?.stages.map((s) => s.name) ?? [];
+  const canQuote = rateCard !== null && pricing.confirmedCount > 0;
 
   return (
     <AppShell>
-      <Link
-        href={`/projects/${project.id}`}
-        className="text-sm text-ink-muted hover:text-ink"
-      >
+      <Link href={`/projects/${id}`} className="text-sm text-ink-muted hover:text-ink">
         ← Back to project
       </Link>
 
-      <div className="mt-4 mb-6">
-        <p className="eyebrow mb-2">Pricing matrix</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{project.name}</h1>
-        <p className="mt-1 text-sm text-ink-subtle">
-          {project.client.name} · band {project.client.defaultBand.toLowerCase().replace("_", " ")}
-          {rateCard ? ` · rate card ${rateCard.name}` : ""}
-        </p>
+      <div className="mt-4 mb-6 flex items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow mb-2">Pricing matrix</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">{project.name}</h1>
+          <p className="mt-1 text-sm text-ink-subtle">
+            {project.clientName} · band {project.band.toLowerCase().replace("_", " ")}
+            {rateCard ? ` · rate card ${rateCard.name}` : ""}
+          </p>
+        </div>
+        <GenerateQuoteButton projectId={id} disabled={!canQuote} />
       </div>
 
       {/* Flags */}
@@ -132,15 +81,46 @@ export default async function PricingPage({
           )}
           {pricing.garageCount > 0 && (
             <p>
-              ⚠ {pricing.garageCount} plot(s) have a garage — garage pricing is not applied yet
-              (own staged set, pending).
+              ⚠ {pricing.garageCount} plot(s) have a garage — garage pricing is not applied yet.
             </p>
           )}
           <p>
             Shared items (loading bay, chute, access) and builder-profile extras are not yet
-            applied — pending Phase 4/7.
+            applied.
           </p>
         </div>
+      )}
+
+      {/* Existing quotes */}
+      {quotes.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <h2 className="text-sm font-semibold text-ink">Quotes</h2>
+          </CardHeader>
+          <CardBody className="p-0">
+            <ul className="divide-y divide-hairline">
+              {quotes.map((q) => (
+                <li key={q.id}>
+                  <Link
+                    href={`/quotes/${q.id}`}
+                    className="flex items-center justify-between px-5 py-3 transition-colors hover:bg-surface"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-ink">v{q.version}</span>
+                      <Badge variant="muted">{q.status.toLowerCase()}</Badge>
+                      <span className="text-xs text-ink-subtle">
+                        {formatDate(q.createdAt)}
+                      </span>
+                    </div>
+                    <span className="text-sm font-medium tabular-nums text-ink">
+                      {gbp(Number(q.total))}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
       )}
 
       <Card>
@@ -188,10 +168,7 @@ export default async function PricingPage({
                         {CONFIG_LABEL[p.configuration] ?? p.configuration}
                       </td>
                       {p.status !== "PRICED" ? (
-                        <td
-                          colSpan={stageNames.length + 1}
-                          className="px-5 py-2.5 text-right"
-                        >
+                        <td colSpan={stageNames.length + 1} className="px-5 py-2.5 text-right">
                           <Badge variant="outline">
                             {p.status === "NOT_CONFIRMED"
                               ? "Take-off not confirmed"
@@ -211,10 +188,7 @@ export default async function PricingPage({
                           <td className="px-5 py-2.5 text-right font-medium tabular-nums text-ink">
                             {gbp(p.subtotal)}
                             {p.unpricedCount > 0 && (
-                              <span
-                                className="ml-1 text-ink-subtle"
-                                title={`${p.unpricedCount} line(s) with no rate`}
-                              >
+                              <span className="ml-1 text-ink-subtle" title="Some lines have no rate">
                                 *
                               </span>
                             )}
@@ -245,8 +219,7 @@ export default async function PricingPage({
 
       <p className="mt-3 text-[11px] text-ink-subtle">
         Stage columns are the payment-stage split (a share of the total), not the true cost of
-        those items. Each plot’s stages reconcile back to its total; the plots sum to the grand
-        total.
+        those items. Each plot’s stages reconcile to its total; the plots sum to the grand total.
       </p>
     </AppShell>
   );

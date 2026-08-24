@@ -5,12 +5,62 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 ---
 
-## Status: Weeks 1 & 2 DONE. Week 3 CORE BUILT: extractor v2 (Colin-grounded) + the
-## deterministic take-off engine, VALIDATED against Colin's handwritten sheets
-## (Dekker/Rosewood match to the metre). App hardened (polling, perf, ZIP, retry).
-## Next: Colin follow-up on the 16 open questions (docs/11 §8), then pricing (Week 4).
+## Status: WHOLE PIPELINE BUILT + DEPLOYED ON RENDER. Drawing → extract → editable
+## review (provenance-on-hover with page links) → CONFIRM/LOCK → per-plot pricing
+## matrix → immutable quote → Excel/print outputs. Runs on PLACEHOLDER rates — Colin's
+## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
+## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
+
+### 2026-08-20 — deployed to Render; pricing + quote pipeline (Phases 0–5); UX + docs
+
+**New canonical docs — read these:** `docs/13-extraction-playbook.md` (single source
+the prompt is generated from), `docs/14-pricing-and-quote.md` (the priced side),
+`docs/03-domain-glossary.md` (rebuilt from the call). Docs 09/10 were pre-call drafts,
+now DELETED (superseded by 11 + the call checklist docx in `docs/`).
+
+- **DEPLOYED to Render.** Web + worker, both Starter, Frankfurt, Node **22**. Repo
+  `github.com/affzzn/Airwright` (private); push to `main` auto-deploys; web
+  `preDeployCommand` runs `db:deploy`. **Key bug fixed:** `@supabase/supabase-js` needs
+  the global WebSocket → Node 20 broke Storage reads in the worker (`render.yaml` was
+  pinned to 20). Bumped to 22. Still TODO in Supabase: create Colin's login + set the
+  redirect URLs (app runs without, but no sign-in).
+- **Extraction knowledge base + prompt sync (accuracy).** Rebuilt the glossary; wrote the
+  extraction playbook (`docs/13`); synced `prompt.ts` + `schema.ts` to it
+  (`PROMPT_VERSION 2026-08-20.3`). Enrichments: sheet guide (where each value lives),
+  read-AND-derive-then-reconcile doctrine, birdcage prefer-gross-internal + derive
+  cross-check, explicit reading order, richer gable/apex/hipped + external-corner rules.
+- **Provenance page links.** Extraction now returns `sourcePage` (1-based page WITHIN the
+  attached PDF) for every read/derived value; the review screen links straight to that
+  page (exact, not fuzzy sheet-title matching). Applies to NEW extractions.
+- **Classifier fix:** "Setting Out Plan" sheets are now relevant (they carry the true
+  gross-internal GIA, e.g. Dekker 35.60) — with a civils guard + tests.
+- **Editable review + confirm/lock.** The review screen edits every measurement/wall/
+  toggle inline (auto-save, audit-logged, provenance-on-hover). **Confirm take-off** locks
+  it read-only (records who/when); **Re-open to edit** unlocks. Nothing is priced off an
+  unconfirmed take-off. Sticky drawing + page-thumbnail strip; notes/flags beside it.
+- **Tenders home redesigned** into a workspace: stat strip (Tenders / In progress /
+  Awaiting review), search + status filters, per-row **archive + delete** (delete verified
+  safe against the FK cascade), quiet monochrome status chips. Clears test junk self-serve.
+- **Per-file reading progress bars** on the queue (time-based ETA vs median latency,
+  asymptotic; new `Extraction.processingStartedAt`).
+- **Pricing + quote pipeline (Phases 0–5) — full detail in `docs/14`:**
+  - Data model: `BuilderProfile`, `ClientMatrixTemplate`, `StageSplit.scenario`
+    (STANDARD/BUNGALOW/NO_BIRDCAGE). Seed adds confirmed splits + a placeholder profile.
+  - **Rate-card screen** (`/rates`): versioned/effective-dated cards, inline-edit rates
+    (£ per component×action×band), stage-split % per scenario.
+  - **Pricing engine** (`src/lib/pricing/engine.ts`, pure, tested): quantity × rate per
+    operation, integer pence, reconciles to the penny; keeps true item cost vs presented
+    stage split separate; flags unpriced components.
+  - **Per-plot development pricing** (`priceProject.ts`) + matrix (`/projects/[id]/pricing`);
+    **priced per plot at quote time** with the plot's own config/render.
+  - **Immutable quote** (`generateQuote`) → `/quotes/[id]` (print-ready client quotation) +
+    **Excel export** (ExcelJS, sanitised).
+  - ⚠ Rates + the operation→component mapping are PLACEHOLDERS (flagged in code). Not yet
+    applied: shared-item apportionment, garages, construction mode, builder-profile extras.
+    **Client-specific matrix template = a LATER TODO** (fixed Airwright Excel matrix works now).
+- **All committed + pushed to `main`.** Build/typecheck/lint green; 100 tests.
 
 ### 2026-08-12 → 08-19 — Colin call digested, extractor v2 + engine built & validated, app hardened
 

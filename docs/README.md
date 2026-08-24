@@ -14,17 +14,23 @@ Read these in order before making changes.
 | 06 | [Setup guide](./06-setup.md) | Supabase, Render, env vars, deploy |
 | 07 | [Design system](./07-design-system.md) | Monochrome UI rules |
 | 08 | [Colin's data](./08-colin-data.md) | Real drawings + pricing matrices decoded (Week 3 input) |
-| 11 | [Take-off engine spec](./11-takeoff-engine-spec.md) | **Canonical build spec** — post-Colin rules, extractor field set, validation set, open questions. (Old drafts 09/10 deleted — superseded by this + the live code) |
+| 11 | [Take-off engine spec](./11-takeoff-engine-spec.md) | **Canonical take-off spec** — post-Colin rules, extractor field set, validation set, open questions |
+| 12 | [Extraction prompt reference](./12-extraction-prompt-reference.md) | What we send the model (mechanics + verbatim prompt) |
+| 13 | [Extraction playbook](./13-extraction-playbook.md) | **How the model reads each measurement** — the single source the prompt is generated from |
+| 14 | [Pricing & quote](./14-pricing-and-quote.md) | **The priced side (BUILT)** — pricing engine, matrix, immutable quote, outputs |
+| — | [Call checklist](./Airwright-Estimator-Build-Checklist_from_call.docx) | The 13 Aug Colin/Ben call digest (16 sections + open-rules table) |
+
+(Docs 09/10 were pre-call drafts and were deleted — superseded by 11 + the checklist.)
 
 ## Where we are
 
-**Phase 1 → Build 1 → Weeks 1–2 complete; Week 3 core built and validated
-(2026-08-19).** The pipeline runs end to end on real multi-builder packs (Miller,
-Bloor-NSS, Bloor-Oadby): upload PDF/ZIP → classify → extract observables (Opus,
-prompt v2026-08-19.2) → the deterministic take-off engine emits Colin's take-off
-line per configuration — matching his handwritten sheets (Dekker 20.56/10.66 vs
-his 20.5/10.6; Rosewood 48.5 exact). Next: the Colin follow-up on the open
-questions, then ScaffoldOperation rows + pricing (Week 4).
+**Whole pipeline built and DEPLOYED on Render (2026-08-20).** Drawing → AI extract
+(Opus, prompt `2026-08-20.3`) → editable review with provenance page links →
+**confirm/lock** → per-plot **pricing matrix** → **immutable quote** → Excel/print
+outputs. Take-off engine matches Colin's handwritten sheets (Dekker 20.56/10.66;
+Rosewood 48.5 exact). **Runs on placeholder rates** — Colin's rate sheet + the 16 open
+questions are the one thing gating correct pricing. See [`PROGRESS.md`](../PROGRESS.md),
+[doc 13](./13-extraction-playbook.md), [doc 14](./14-pricing-and-quote.md).
 
 ## The golden rule
 

@@ -1,18 +1,27 @@
 # CLAUDE.md
 
-Read this first, every session. Then read **`docs/11-takeoff-engine-spec.md`** — the
-canonical Week-3+ build spec (Colin's confirmed rules, the extractor field set, the
-validation results, and the 16 open questions that must NOT be guessed). For status +
-next steps: `PROGRESS.md` and `TODO.md`. For depth: `docs/02-prd-build1.md`,
-`docs/04-data-model.md`.
+Read this first, every session. Then read **`docs/11-takeoff-engine-spec.md`** (the
+canonical take-off spec — Colin's confirmed rules, the extractor field set, the
+validation results, the 16 open questions that must NOT be guessed) and
+**`docs/13-extraction-playbook.md`** (how the model reads each measurement — the
+single source the prompt is generated from). For the priced side, **`docs/14-pricing-and-quote.md`**.
+For status + next steps: `PROGRESS.md` and `TODO.md`. For depth: `docs/02-prd-build1.md`,
+`docs/04-data-model.md`. (Docs 09/10 were pre-call drafts and were deleted — superseded
+by 11 + the call checklist `docs/Airwright-Estimator-Build-Checklist_from_call.docx`.)
 
 ## What this is
 
 Airwright Midland's estimating platform — **Phase 1 · Build 1: the Quote & Take-off
 Engine**. It reads a house-builder's tender-pack PDFs, uses AI to extract the scaffold
-take-off measurements (human-in-the-loop), and will produce a priced quote. Client is a
-UK new-build scaffolding contractor; the estimator (Colin) is the primary user. Nothing
-is ever auto-priced — a person confirms every output.
+take-off measurements (human-in-the-loop), and produces a priced, reconcilable quote.
+Client is a UK new-build scaffolding contractor; the estimator (Colin) is the primary
+user. Nothing is ever auto-priced — a person **confirms** every take-off before it's priced.
+
+**Status (2026-08-20): the whole pipeline is built and DEPLOYED on Render** — drawing →
+extract → editable review + provenance → **confirm/lock** → per-plot pricing matrix →
+**immutable quote** → Excel/print outputs. It runs on **placeholder rates**; the real
+rate sheet (owed by Colin/Laura) is the one thing gating correct pricing. See
+`docs/14-pricing-and-quote.md` and `PROGRESS.md`.
 
 ## Tech stack
 
@@ -110,6 +119,27 @@ npm run setup:bucket   # create the private Storage bucket
 - Validated against Colin's handwritten sheets (`colin-data/`, gitignored):
   Dekker semi 20.56 / mid 10.66 (his 20.5 / 10.6), Rosewood 48.5 exact.
   Offline runner: `npx tsx scripts/offline-extract.mts <NAME>`.
+
+## The pricing & quote layer (BUILT — full detail in `docs/14-pricing-and-quote.md`)
+
+Layer 3, after Colin **confirms** a take-off (`Takeoff.status = CONFIRMED`, locks the
+review screen). Priced **per plot at quote time**: for each plot, run `buildTakeoff`
+with that plot's config + render, then `priceTakeoffLine` (`src/lib/pricing/engine.ts`,
+pure, tested) = quantity × rate per operation, integer pence, reconciles to the penny.
+`priceProject.ts` does the whole development → the pricing matrix (`/projects/[id]/pricing`).
+`generateQuote` freezes it into an immutable `Quote` + `QuoteLineItems`; the quote view
+(`/quotes/[id]`) is print-ready (= the client quotation) and has an ExcelJS export
+(`/quotes/[id]/export`, formula-injection sanitised). Rates live on `/rates` (versioned).
+
+- **True item cost vs presented stage split are kept SEPARATE** (checklist trap): the
+  matrix's stage columns are `subtotal × stage%`, not the real line costs. The quote
+  freezes both.
+- **⚠ Rates + the operation→component mapping are PLACEHOLDERS** — every mapping choice
+  is flagged in `engine.ts`. Confirm against Colin's rate sheet, then validate the engine
+  reproduces the Oadby matrix to the penny (the golden set in `data/`).
+- Not yet applied (flagged in the matrix): shared-item apportionment across a block,
+  garages, construction mode, builder-profile "extras". Client-specific matrix template
+  is a **later** TODO (the fixed Airwright Excel matrix works for now).
 
 ## ⚠ Correctness rules that must come from Colin, never inferred
 
