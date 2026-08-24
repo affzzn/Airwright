@@ -3,7 +3,7 @@ import type { ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
 import { computeHeight } from "./height";
-import { makeDimensionVerifier, type PageDims } from "./dimensions";
+import { makeDimensionVerifier, dimRuns, type PageDims } from "./dimensions";
 import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
@@ -79,6 +79,20 @@ export async function persistExtraction(
       if (sliced == null) return null;
       const original = orderedOriginalPages ? orderedOriginalPages[sliced - 1] : sliced;
       return original == null ? null : (kindByOriginal.get(original) ?? null);
+    };
+    // Robust to a miscounted sourcePage: does this dimension actually appear on a
+    // FLOOR-PLAN / SECTION page anywhere? If so it's a plan dimension regardless of
+    // the cited page — so we won't flag it as "read off an elevation".
+    const dimOnPlanPage = (dim: string | null | undefined): boolean => {
+      if (!dim || !dimensions) return false;
+      const runs = dimRuns(dim);
+      if (runs.length === 0) return false;
+      for (const p of dimensions) {
+        const k = kindOfSlicedPage(p.page);
+        if ((k === "FLOOR_PLAN" || k === "SECTION") && runs.some((r) => p.tokens.includes(r)))
+          return true;
+      }
+      return false;
     };
     const wallReadOffElevation: string[] = [];
 
@@ -272,8 +286,11 @@ export async function persistExtraction(
         data: result.wallSegments.map((w) => {
           const dimOk = checkDim(w.sourceDimension, w.sourcePage, `${w.position} wall`);
           // A wall length cited off an ELEVATION page is suspect (roof overhang
-          // over-reads the wall) — cap its confidence and flag it.
-          const offElevation = kindOfSlicedPage(w.sourcePage) === "ELEVATION";
+          // over-reads the wall) — cap + flag it, UNLESS the same dimension also
+          // appears on a floor-plan/section page (then the cited page was just
+          // miscounted and the number is a real plan dimension).
+          const offElevation =
+            kindOfSlicedPage(w.sourcePage) === "ELEVATION" && !dimOnPlanPage(w.sourceDimension);
           if (offElevation)
             wallReadOffElevation.push(`${w.position} (page ${w.sourcePage})`);
           let conf: Conf = w.confidence;
@@ -302,6 +319,23 @@ export async function persistExtraction(
     if (result.structure.form) warnings.structure = result.structure.form;
     if (result.roof.overallType) warnings.roofType = result.roof.overallType;
     if (result.roomInRoof.value !== null) warnings.roomInRoof = result.roomInRoof.value;
+
+    // Timber-frame changes the scaffold sequence/ties (not the LM/lift maths) —
+    // surface it so the estimator can confirm rather than it sitting unused.
+    if (result.buildType.value === "TIMBER_FRAME")
+      warnings.buildTypeNote =
+        "Timber-frame construction — confirm scaffold sequence / tie requirements (differ from traditional).";
+
+    // Room-in-roof ↔ storeys consistency (a positive cross-check).
+    const storeysVal = result.storeys.value;
+    const rir = result.roomInRoof.value;
+    if (storeysVal != null && rir != null) {
+      if (storeysVal === 2.5 && rir === false)
+        warnings.roomInRoofMismatch =
+          "storeys=2.5 implies a room in roof, but roomInRoof=false — check.";
+      else if (rir === true && Number.isInteger(storeysVal))
+        warnings.roomInRoofMismatch = `roomInRoof=true but storeys=${storeysVal} (whole number) — should this be ${storeysVal}.5?`;
+    }
     if (renderedFaces.length > 0) warnings.rendered = true;
     else if (result.elevations.length > 0) warnings.rendered = false;
     if (result.chimney.value !== null) warnings.chimney = result.chimney.value;
