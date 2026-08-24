@@ -14,6 +14,7 @@
  */
 
 import type { ExtractionResult } from "@/lib/extract/schema";
+import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 
 export interface ProvSource {
   sheet: string | null;
@@ -100,13 +101,20 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
     .filter((e) => e.rendered === true)
     .map((e) => e.renderLengthM ?? 0)
     .reduce((a, b) => a + b, 0);
+  const dwellingsWide =
+    raw.dwellingsWide.value != null && raw.dwellingsWide.value >= 1 ? raw.dwellingsWide.value : 1;
   const floorArea = (level: "GF" | "FF" | "SF"): number | null => {
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) return null;
-    if (fa.internalAreaM2 != null) return n2(fa.internalAreaM2);
-    if (fa.internalLengthM != null && fa.internalWidthM != null)
-      return n2(fa.internalLengthM * fa.internalWidthM);
-    return null;
+    return computeBirdcageFloor(
+      {
+        statedGrossInternalM2: fa.statedGrossInternalM2,
+        statedNdssM2: fa.statedNdssM2 ?? null,
+        rectangles: fa.rectangles,
+        readConfidence: fa.confidence,
+      },
+      dwellingsWide,
+    ).m2;
   };
   const low =
     raw.lowLevel.porchCount == null && raw.lowLevel.bayCount == null
@@ -251,7 +259,9 @@ export function buildProvenanceCards(
     };
   }
 
-  // --- Birdcage per floor ---
+  // --- Birdcage per floor — the full derivation broken down step by step ---
+  const dwellingsWideForBc =
+    raw.dwellingsWide.value != null && raw.dwellingsWide.value >= 1 ? raw.dwellingsWide.value : 1;
   for (const [key, level] of [
     ["BIRDCAGE_GF_M2", "GF"],
     ["BIRDCAGE_FF_M2", "FF"],
@@ -259,42 +269,84 @@ export function buildProvenanceCards(
   ] as const) {
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) continue;
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: fa.statedGrossInternalM2,
+        statedNdssM2: fa.statedNdssM2 ?? null,
+        rectangles: fa.rectangles,
+        readConfidence: fa.confidence,
+      },
+      dwellingsWideForBc,
+    );
+    if (r.m2 == null) continue;
     const page = resolve(fa.sourceSheet, fa.sourcePage);
-    let steps: ProvStep[];
-    let method: ProvContent["method"];
-    let summary: string;
-    if (fa.internalAreaM2 != null) {
-      steps = [
-        {
-          text: `Stated internal area (GIA) = ${n2(fa.internalAreaM2)} m²`,
-          source: { sheet: fa.sourceSheet ?? null, dim: null, page },
+    const floorSrc: ProvSource = { sheet: fa.sourceSheet ?? null, dim: null, page };
+    const steps: ProvStep[] = [];
+    const rects = fa.rectangles ?? [];
+    const multi = rects.length > 1;
+
+    // 1) Each rectangle: show how width and depth were read/derived, then area.
+    rects.forEach((raw0, i) => {
+      const rc = r.rectangles[i];
+      if (!rc || rc.areaM2 == null) return;
+      const tag = multi ? `Rect ${i + 1}: ` : "";
+      const w =
+        rc.widthBasis === "internal"
+          ? `internal width ${rc.widthM} m (read)`
+          : `width ${rc.widthM} m (${raw0.overallWidthM} − 2×${rc.wallMm / 1000}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
+      const d =
+        rc.depthBasis === "internal"
+          ? `internal depth ${rc.depthM} m (read)`
+          : `depth ${rc.depthM} m (${raw0.overallDepthM} − 2×${rc.wallMm / 1000})`;
+      steps.push({
+        text: `${tag}${w} × ${d} = ${rc.areaM2} m²`,
+        source: {
+          sheet: fa.sourceSheet ?? null,
+          dim: raw0.sourceDimension ?? null,
+          page: resolve(fa.sourceSheet, raw0.sourcePage) ?? page,
         },
-      ];
-      method = "read";
-      summary = "Taken from the stated floor area";
-    } else if (fa.internalLengthM != null && fa.internalWidthM != null) {
-      steps = [
-        {
-          text: `Internal ${fa.internalLengthM} m × ${fa.internalWidthM} m`,
-          source: { sheet: fa.sourceSheet ?? null, dim: null, page },
-        },
-        { text: `= ${n2(fa.internalLengthM * fa.internalWidthM)} m²` },
-      ];
-      method = "computed";
-      summary = "Internal length × width";
-    } else {
-      continue;
-    }
+      });
+    });
+    if (multi && r.derivedM2 != null)
+      steps.push({ text: `Rectangles sum = ${r.derivedM2} m² (derived)` });
+
+    // 2) The stated numbers on the drawing.
+    if (r.statedM2 != null)
+      steps.push({ text: `Stated gross-internal = ${r.statedM2} m²`, source: floorSrc });
+    if (r.ndssM2 != null)
+      steps.push({ text: `NDSS usable area = ${r.ndssM2} m²`, source: floorSrc });
+
+    // 3) The reconciliation + the number that won.
+    steps.push({ text: r.note });
+    steps.push({ text: `Birdcage (${level}) = ${r.m2} m²` });
+
     const levelName = { GF: "Ground floor", FF: "First floor", SF: "Second floor" }[level];
+    const summary =
+      r.source === "stated" && r.reconciled
+        ? "Stated area, cross-checked against the derived footprint"
+        : r.source === "stated"
+          ? "Stated gross-internal area"
+          : r.source === "derived"
+            ? "Derived from the internal dimensions"
+            : "NDSS usable area (fallback)";
+    const footnotes = [
+      `${levelName} internal deck. Birdcage = internal area inside the external walls; one per floor, one lift each, summed for the total.`,
+    ];
+    if (r.usedDefaultWall)
+      footnotes.push(
+        `No wall thickness was printed — an assumed ${302} mm build-up was used to strip the overall dimension. Confirm.`,
+      );
+    if (r.reconciled === false)
+      footnotes.push(
+        "The derived footprint and the stated area disagree by more than the tolerance — check the dimensions before pricing.",
+      );
     cards[key] = {
       title: `Birdcage (${level})`,
       summary,
-      method,
+      method: r.source === "derived" ? "computed" : "read",
       steps,
-      footnotes: [
-        `${levelName} internal deck. Birdcage = internal area inside the external walls; one per floor, one lift each, summed for the total.`,
-      ],
-      confidenceLabel: fa.confidence,
+      footnotes,
+      confidenceLabel: r.confidence,
     };
   }
 

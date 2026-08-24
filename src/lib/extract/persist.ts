@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
+import { computeBirdcageFloor } from "./birdcage";
 
 type Conf = "high" | "medium" | "low" | "unknown";
 const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
@@ -143,24 +144,45 @@ export async function persistExtraction(
       });
     }
 
-    // --- Birdcage m² per floor = internal length × width (from the floor plans) ---
+    // --- Birdcage m² per floor — the geometry (subtract/multiply/reconcile) is done
+    //     deterministically in birdcage.ts, NOT by the model. The stored confidence is
+    //     COMPUTED (does the derived footprint match the stated gross-internal area?). ---
     const BIRDCAGE_KEY: Record<string, Prisma.TakeoffMeasurementCreateManyInput["key"] | undefined> = {
       GF: "BIRDCAGE_GF_M2",
       FF: "BIRDCAGE_FF_M2",
       SF: "BIRDCAGE_SF_M2",
     };
+    const dwellingsWide =
+      result.dwellingsWide.value !== null && result.dwellingsWide.value >= 1
+        ? result.dwellingsWide.value
+        : 1;
+    const birdcageDerivation: Prisma.JsonObject[] = [];
     for (const fa of result.floorAreas) {
       const key = BIRDCAGE_KEY[fa.level];
       if (!key) continue; // TF (4th floor) — extremely rare for housing; skip.
-      // Prefer a stated GIA / internal area; else internal length × width.
-      let m2: number | null = null;
-      if (fa.internalAreaM2 !== null && fa.internalAreaM2 !== undefined) {
-        m2 = Math.round(fa.internalAreaM2 * 1000) / 1000;
-      } else if (fa.internalLengthM !== null && fa.internalWidthM !== null) {
-        m2 = Math.round(fa.internalLengthM * fa.internalWidthM * 1000) / 1000;
-      }
-      if (m2 === null) continue;
-      pushIf(key, { value: m2, confidence: fa.confidence, sourceSheet: fa.sourceSheet ?? null });
+      const r = computeBirdcageFloor(
+        {
+          statedGrossInternalM2: fa.statedGrossInternalM2,
+          statedNdssM2: fa.statedNdssM2 ?? null,
+          rectangles: fa.rectangles,
+          readConfidence: fa.confidence,
+        },
+        dwellingsWide,
+      );
+      if (r.m2 === null) continue;
+      push(key, { value: r.m2, confidence: r.confidence, sourceSheet: fa.sourceSheet ?? null });
+      birdcageDerivation.push({
+        level: fa.level,
+        m2: r.m2,
+        source: r.source,
+        derivedM2: r.derivedM2,
+        statedM2: r.statedM2,
+        ndssM2: r.ndssM2,
+        reconciled: r.reconciled,
+        confidence: r.confidence,
+        usedDefaultWall: r.usedDefaultWall,
+        note: r.note,
+      });
     }
 
     // --- Low-level features (porches + bays) as a single count ---
@@ -213,6 +235,8 @@ export async function persistExtraction(
         renderLengthM: e.renderLengthM ?? null,
       }));
     }
+    // The step-by-step birdcage derivation (per floor) for the review tooltip.
+    if (birdcageDerivation.length > 0) warnings.birdcageDerivation = birdcageDerivation;
     if (Object.keys(warnings).length) {
       await tx.takeoff.update({
         where: { id: takeoff.id },

@@ -37,22 +37,23 @@ function confidenceLabel(value: number | null): string {
 }
 
 /**
- * Subtle monochrome confidence indicator: a small dot whose fill encodes
- * certainty. Hover shows the level via a native tooltip — no visible label.
+ * Confidence indicator: a small dot whose colour encodes certainty —
+ * high = green, medium = amber, low = red (unknown = a neutral dashed outline).
+ * Hover shows the level via a native tooltip.
  */
 export function ConfidenceDot({ value }: { value: number | null }) {
   const label = confidenceLabel(value);
   const styles: Record<string, string> = {
-    high: "bg-ink",
-    medium: "bg-ink-subtle",
-    low: "border border-hairline-strong",
+    high: "bg-green-500",
+    medium: "bg-amber-500",
+    low: "bg-red-500",
     unknown: "border border-dashed border-hairline-strong",
   };
   return (
     <span
       title={`Confidence: ${label}`}
       aria-label={`Confidence: ${label}`}
-      className={cn("inline-block h-1.5 w-1.5 rounded-full", styles[label])}
+      className={cn("inline-block h-2 w-2 rounded-full", styles[label])}
     />
   );
 }

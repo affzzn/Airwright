@@ -35,6 +35,9 @@ export async function runToolExtraction(opts: {
   const response = await client.messages.create({
     model,
     max_tokens: opts.maxTokens ?? 4096,
+    // Pin temperature to 0 for repeatable extractions — the same drawing should
+    // read the same way every run (a hard requirement for a trust-critical tool).
+    temperature: 0,
     system: [
       { type: "text", text: opts.system, cache_control: { type: "ephemeral" } },
     ],

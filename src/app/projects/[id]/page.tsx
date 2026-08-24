@@ -10,6 +10,9 @@ import { PackProgress } from "@/components/pack-progress";
 import { DocumentToggle } from "@/components/document-toggle";
 import { RetryExtraction } from "@/components/retry-extraction";
 import { ExtractionProgress } from "@/components/extraction-progress";
+import { PlotEditor } from "@/components/plot-editor";
+import { HouseTypeDelete } from "@/components/house-type-delete";
+import { AddAsPlot } from "@/components/add-as-plot";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
@@ -108,13 +111,23 @@ export default async function ProjectPage({
     if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
     return a.plotNumber.localeCompare(b.plotNumber);
   });
-  const configLabel = (c: string) =>
-    ({
-      DETACHED: "Detached",
-      SEMI_DETACHED: "Semi",
-      END_TERRACE: "End terrace",
-      MID_TERRACE: "Mid terrace",
-    })[c] ?? c;
+  // House-type options for the plot editor (ALL types, incl. the "Unknown"
+  // stub, so every plot's current assignment resolves); the editor sorts
+  // confirmed/coded ones to the top.
+  const houseTypeOptions = project.houseTypes.map((ht) => ({
+    id: ht.id,
+    name: ht.name,
+    code: ht.code,
+    status: ht.takeoff?.status ?? "NONE",
+    plotCount: ht._count.plots,
+  }));
+  const plotRows = plots.map((p) => ({
+    id: p.id,
+    plotNumber: p.plotNumber,
+    houseTypeId: p.houseTypeId,
+    configuration: p.configuration as string,
+    isRendered: p.isRendered,
+  }));
 
   return (
     <AppShell>
@@ -226,6 +239,10 @@ export default async function ProjectPage({
                             Review →
                           </Link>
                         )}
+                        {!reading && (
+                          <AddAsPlot projectId={project.id} houseTypeId={ht.id} />
+                        )}
+                        {!reading && <HouseTypeDelete houseTypeId={ht.id} />}
                       </div>
                     </div>
                     {ex && reading && (
@@ -247,45 +264,20 @@ export default async function ProjectPage({
         </CardBody>
       </Card>
 
-      {/* Plots (from the plot list) */}
-      {plots.length > 0 && (
+      {/* Plots — assign each plot its house type + configuration, or add one by
+          hand to price a house type when the pack had no site layout. */}
+      {houseTypeOptions.length > 0 && (
         <Card className="mb-6">
           <CardHeader className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">Plots</h2>
             <span className="text-xs text-ink-subtle">{plots.length}</span>
           </CardHeader>
           <CardBody className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-hairline text-left">
-                    <th className="px-5 py-2.5 font-medium text-ink-subtle">Plot</th>
-                    <th className="px-5 py-2.5 font-medium text-ink-subtle">House type</th>
-                    <th className="px-5 py-2.5 font-medium text-ink-subtle">Configuration</th>
-                    <th className="px-5 py-2.5 font-medium text-ink-subtle">Render</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plots.map((p) => (
-                    <tr key={p.id} className="border-b border-hairline last:border-0">
-                      <td className="px-5 py-2.5 font-medium text-ink">{p.plotNumber}</td>
-                      <td className="px-5 py-2.5 text-ink-muted">
-                        {p.houseType.name}
-                        {p.houseType.code && (
-                          <span className="ml-1.5 text-ink-subtle">{p.houseType.code}</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-2.5 text-ink-muted">
-                        {configLabel(p.configuration)}
-                      </td>
-                      <td className="px-5 py-2.5 text-ink-subtle">
-                        {p.isRendered ? "Yes" : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PlotEditor
+              projectId={project.id}
+              plots={plotRows}
+              houseTypes={houseTypeOptions}
+            />
           </CardBody>
         </Card>
       )}

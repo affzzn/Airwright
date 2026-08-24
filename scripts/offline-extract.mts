@@ -11,8 +11,25 @@ import {
   type Configuration,
   type TakeoffInput,
 } from "../src/lib/takeoff/engine";
+import { computeBirdcageFloor } from "../src/lib/extract/birdcage";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Shared birdcage resolve for the offline runner (same engine as production). */
+function birdcageM2(
+  f: ExtractionResult["floorAreas"][number],
+  dwellingsWide: number,
+) {
+  return computeBirdcageFloor(
+    {
+      statedGrossInternalM2: f.statedGrossInternalM2,
+      statedNdssM2: f.statedNdssM2 ?? null,
+      rectangles: f.rectangles,
+      readConfidence: f.confidence,
+    },
+    dwellingsWide,
+  );
+}
 
 function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput {
   const apexByFace: ApexByFace = { front: 0, rear: 0, left: 0, right: 0, other: 0 };
@@ -24,14 +41,11 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     .filter((e) => e.rendered === true)
     .map((e) => e.renderLengthM ?? null)
     .filter((x): x is number => x !== null);
+  const dwellingsWide =
+    d.dwellingsWide.value !== null && d.dwellingsWide.value >= 1 ? d.dwellingsWide.value : 1;
   const floors = d.floorAreas
     .map((f) => {
-      const m2 =
-        f.internalAreaM2 != null
-          ? round3(f.internalAreaM2)
-          : f.internalLengthM != null && f.internalWidthM != null
-            ? round3(f.internalLengthM * f.internalWidthM)
-            : null;
+      const m2 = birdcageM2(f, dwellingsWide).m2;
       return m2 === null ? null : { level: f.level, m2 };
     })
     .filter((x): x is { level: (typeof d.floorAreas)[number]["level"]; m2: number } => x !== null);
@@ -41,8 +55,7 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     heightToSoffitM: d.heightToSoffitM.value,
     roofType: d.roof.overallType,
     wallSegments: d.wallSegments.map((w) => ({ position: w.position, lengthM: w.lengthM })),
-    dwellingsWide:
-      d.dwellingsWide.value !== null && d.dwellingsWide.value >= 1 ? d.dwellingsWide.value : 1,
+    dwellingsWide,
     isApartmentBlock: d.structure.form === "APARTMENT_BLOCK",
     cornerCount: d.cornerCount.value,
     apexByFace,
@@ -78,14 +91,15 @@ async function run(path: string, configs: Configuration[]) {
   for (const w of data.wallSegments)
     console.log(`  ${w.position}: ${w.lengthM} m (dim ${w.sourceDimension ?? "-"}) [${w.confidence}]`);
   console.log("floor areas (internal → birdcage):");
-  for (const f of data.floorAreas) {
-    const m2 =
-      f.internalAreaM2 != null
-        ? `${round3(f.internalAreaM2)} (GIA)`
-        : f.internalLengthM != null && f.internalWidthM != null
-          ? `${round3(f.internalLengthM * f.internalWidthM)} (L×W)`
-          : "-";
-    console.log(`  ${f.level}: ${f.internalLengthM} × ${f.internalWidthM} → ${m2} m² [${f.confidence}]`);
+  {
+    const dw =
+      data.dwellingsWide.value !== null && data.dwellingsWide.value >= 1
+        ? data.dwellingsWide.value
+        : 1;
+    for (const f of data.floorAreas) {
+      const r = birdcageM2(f, dw);
+      console.log(`  ${f.level}: ${r.m2 ?? "-"} m² [${r.confidence}] (${r.source}) — ${r.note}`);
+    }
   }
   if (data.notes) console.log(`notes: ${data.notes}`);
 
