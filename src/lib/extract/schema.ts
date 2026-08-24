@@ -83,7 +83,15 @@ const elevation = z.object({
     .enum(["GABLED", "HIPPED"])
     .nullable()
     .describe(
-      "The roof shape where it meets THIS face: GABLED (brickwork rises to an apex point → needs a table lift) or HIPPED (slopes back, no brickwork above the eaves → no apex). Decide per face — a MIXED roof has some of each. null if you cannot tell.",
+      "STEP 1 — the roof shape where it meets THIS face: GABLED (brickwork rises to an apex point → needs a table lift) or HIPPED (slopes back, no brickwork above the eaves → no apex). Decide per face — a MIXED roof has some of each. null if you cannot tell.",
+    )
+    .optional()
+    .default(null),
+  apexReason: z
+    .string()
+    .nullable()
+    .describe(
+      "STEP 2 — decide this BEFORE the number: one SHORT line of reasoning for THIS face (e.g. 'projecting front gable rises to a brickwork point → 1', 'hipped, nothing above the eaves → 0').",
     )
     .optional()
     .default(null),
@@ -91,16 +99,8 @@ const elevation = z.object({
     .number()
     .nullable()
     .describe(
-      "Number of gable apexes on THIS face that have brickwork up to the point and so need a table lift. 0 if this face is hipped or has no apex.",
+      "STEP 3 — the number that follows from faceRoof + apexReason: how many gable apexes on THIS face have brickwork up to the point (each needs a table lift). 0 if this face is hipped or has no apex.",
     ),
-  apexReason: z
-    .string()
-    .nullable()
-    .describe(
-      "One SHORT line justifying the apexCount for this face, decided BEFORE the number (e.g. 'projecting front gable rises to brickwork point → 1', 'hipped, nothing above eaves → 0').",
-    )
-    .optional()
-    .default(null),
   rendered: z
     .boolean()
     .nullable()
@@ -236,7 +236,7 @@ export const extractionResultSchema = z.object({
   storeyHeightsM: z
     .array(z.number())
     .describe(
-      "The printed vertical storey heights from the SECTION, ground upward: each floor-to-floor height, with the LAST one being the top floor up to the soffit / underside of wallplate (e.g. [2.662, 2.063]). Report the RAW printed numbers only — do NOT add them up. Their sum is a second, independent estimate of the soffit height, which the engine cross-checks against heightToSoffitM. Empty if the section doesn't dimension storey heights.",
+      "The floor-to-floor STOREY HEIGHTS from the SECTION, ground upward — each the DIFFERENCE between one level and the next, with the LAST one being the top floor up to the soffit / underside of wallplate (e.g. [2.662, 2.063]). These are DELTAS (heights), NOT absolute floor levels: if the drawing prints absolute FFL levels like 0 / 2662 / 5325, report the DIFFERENCES (2662, 2663), not the levels. Report the RAW printed numbers only — do NOT add them up. Their sum is a second, independent estimate of the soffit height the engine cross-checks against heightToSoffitM. Empty if the section doesn't dimension storey heights.",
     )
     .default([]),
   roof: z
@@ -291,6 +291,23 @@ export const extractionResultSchema = z.object({
       "If the roof peak looks unusually high for this house type (a possible 'smart roof' with a raised peak), report the peak height in metres; else null. Do NOT apply a threshold — just flag an unusually high peak.",
     )
     .default({ value: null, confidence: "unknown" }),
+  underbuild: z
+    .object({
+      needed: z
+        .boolean()
+        .nullable()
+        .describe(
+          "Whether this house appears to need UNDERBUILD / a foot scaffold at the base because it sits on a slope or has stepped foundations — ONLY if that is visible on the section or an elevation you were given. The authoritative source is the SITE ELEVATIONS plan, a SEPARATE drawing; if you were not given it, leave null. Never guess from a house elevation alone.",
+        ),
+      note: z
+        .string()
+        .nullable()
+        .describe("Brief note on what you saw (e.g. 'FFL steps 600mm across the plot on section A-A').")
+        .optional(),
+      confidence,
+    })
+    .describe("Underbuild / foot-scaffold need where the plot is on a slope (often not knowable without the site plan).")
+    .default({ needed: null, note: null, confidence: "unknown" }),
   notes: z
     .string()
     .describe(

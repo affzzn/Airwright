@@ -8,6 +8,7 @@ import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
 const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 /** Map the AI confidence label to a 0-1 float for storage. */
 function confToNumber(c: Conf): number {
@@ -306,6 +307,49 @@ export async function persistExtraction(
     if (result.chimney.value !== null) warnings.chimney = result.chimney.value;
     if (result.smartRoofPeakHeightM.value !== null)
       warnings.smartRoofPeakM = result.smartRoofPeakHeightM.value;
+    if (result.underbuild?.needed != null)
+      warnings.underbuild = {
+        needed: result.underbuild.needed,
+        note: result.underbuild.note ?? null,
+      };
+
+    // C3 — structure ↔ dwellingsWide consistency (this drives the frontage
+    // division, so a contradiction silently mis-prices the perimeter).
+    const form = result.structure.form;
+    const dw = result.dwellingsWide.value;
+    if (form && dw != null) {
+      const bad =
+        ((form === "SINGLE" || form === "APARTMENT_BLOCK") && dw !== 1) ||
+        (form === "PAIR_OR_TERRACE" && dw < 2);
+      if (bad)
+        warnings.structureDwellingsMismatch = `structure=${form} but dwellingsWide=${dw} — check (frontage division depends on this)`;
+    }
+
+    // C9 — front/rear and gable symmetry: a mismatch flags a possible wall-role
+    // swap or misread (front/rear should match, especially on a pair/terrace).
+    const wsum = (pos: string) =>
+      round3(
+        result.wallSegments
+          .filter((w) => w.position === pos)
+          .reduce((a, w) => a + w.lengthM, 0),
+      );
+    const relDiff = (a: number, b: number) =>
+      a > 0 && b > 0 ? Math.abs(a - b) / Math.max(a, b) : 0;
+    const front = wsum("front");
+    const rear = wsum("rear");
+    const gl = wsum("gable_left");
+    const gr = wsum("gable_right");
+    const asym: string[] = [];
+    if (relDiff(front, rear) > 0.1) asym.push(`front ${front}m vs rear ${rear}m`);
+    if (relDiff(gl, gr) > 0.1) asym.push(`gable_left ${gl}m vs gable_right ${gr}m`);
+    if (asym.length > 0) warnings.wallAsymmetry = asym;
+
+    // C8 — rendered face with no dimensioned length (render would be dropped).
+    const renderedNoLM = result.elevations
+      .filter((e) => e.rendered === true && e.renderLengthM == null)
+      .map((e) => e.face);
+    if (renderedNoLM.length > 0) warnings.renderedNotDimensioned = renderedNoLM;
+
     if (result.elevations.length > 0) {
       warnings.elevations = result.elevations.map((e) => ({
         face: e.face,

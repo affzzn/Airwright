@@ -323,6 +323,33 @@ checks in `persist.ts`.
   it low-confidence AS-IS and flag — never subtract a standard overhang (same
   no-arithmetic principle as birdcage). *Confirm.*
 
+## 8b. Layer-1 confidence & cross-check hardening (✅ IMPLEMENTED 2026-08-25, prompt `2026-08-25.1`)
+
+From the Layer-1 audit. The theme: replace SELF-REPORTED confidence with COMPUTED
+cross-checks, and flag contradictions instead of trusting one read.
+
+- **C7 — apex reasoning order:** schema now orders each face `faceRoof → apexReason
+  → apexCount`, so the model reasons *before* committing the number (was post-hoc).
+- **C3 — structure ↔ dwellingsWide consistency:** `persist` flags SINGLE/APARTMENT
+  with dwellingsWide ≠ 1, or PAIR/TERRACE with < 2 (`warnings.structureDwellingsMismatch`).
+- **C11 — NDSS birdcage cross-check** (`birdcage.ts`): with no stated gross-internal,
+  the derived footprint is checked against the NDSS *usable* area — gross-internal
+  should sit **0–12% above** usable → high (medium if an assumed wall was used);
+  outside the band → low + flag. ⚠️ band approximate, confirm with Colin.
+- **C9 — wall symmetry** (`persist`): front≈rear and gable_left≈gable_right;
+  a >10% mismatch flags a likely role-swap/misread (`warnings.wallAsymmetry`).
+- **C5 — storey ladder = deltas:** prompt + schema clarify `storeyHeightsM` are
+  floor-to-floor DIFFERENCES, not absolute FFLs; `height.ts` surfaces a notable
+  direct-vs-ladder gap (>0.15 m) even when the lift count still agrees.
+- **C8 — rendered-but-undimensioned:** a rendered face with no `renderLengthM`
+  is flagged (`warnings.renderedNotDimensioned`) instead of render being dropped.
+- **D4 — underbuild hook:** a `underbuild {needed, note}` observable added — the
+  model fills it only if a slope/stepped foundation is visible; **the site-elevations
+  plan (the real source) is still not classified/sent — that remains the main
+  MISSING observable** (glossary §6, docs/11 §3 #14).
+- **NOT done (by decision):** C6 (MIXED-roof / honour per-face faceRoof over the
+  overall label) — the "hipped overall → force apex 0" behaviour is left as-is.
+
 ---
 
 ## 9. Extractor prompt v2 — ✅ WIRED IN (2026-08-19)

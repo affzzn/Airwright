@@ -40,6 +40,15 @@ export const DEFAULT_WALL_MM = 302;
  */
 export const BIRDCAGE_TOLERANCE = 0.02; // 2%
 
+/**
+ * NDSS cross-check band. When no gross-internal area is stated, the derived
+ * (gross-internal) footprint can still be checked against the NDSS "usable"
+ * area: gross-internal should sit SLIGHTLY ABOVE usable (NDSS excludes stair
+ * voids etc.). Expected over-read ≈ 0–12%. ⚠ Approximate — confirm with Colin.
+ */
+export const BIRDCAGE_NDSS_MIN_OVER = -0.02; // allow a marginal rounding dip
+export const BIRDCAGE_NDSS_MAX_OVER = 0.12;
+
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 export interface BirdcageRectInput {
@@ -171,6 +180,27 @@ export function computeBirdcageFloor(
   }
 
   if (derivedM2 != null) {
+    // Cross-check the derived gross-internal footprint against the NDSS usable
+    // area when there's no stated gross-internal: gross-internal should sit
+    // slightly ABOVE usable. Within the band → corroborated (high, or medium if
+    // the derivation leaned on an assumed wall). Outside → flag.
+    if (ndssM2 != null) {
+      const over = round3((derivedM2 - ndssM2) / ndssM2);
+      const consistent = over >= BIRDCAGE_NDSS_MIN_OVER && over <= BIRDCAGE_NDSS_MAX_OVER;
+      const pctOver = `${(over * 100).toFixed(1)}%`;
+      if (consistent)
+        return {
+          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
+          confidence: usedDefaultWall ? "medium" : "high",
+          reconciled: true, relDiff: over, usedDefaultWall,
+          note: `Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected — usable excludes voids).`,
+        };
+      return {
+        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
+        confidence: "low", reconciled: false, relDiff: over, usedDefaultWall,
+        note: `Derived ${derivedM2} m² vs NDSS usable ${ndssM2} m² differ by ${pctOver} (expected gross-internal 0–12% ABOVE usable) — check the dimensions.`,
+      };
+    }
     const base: Conf = usedDefaultWall ? "low" : "medium";
     const note = usedDefaultWall
       ? `Derived ${derivedM2} m² from dimensions, using an ASSUMED ${DEFAULT_WALL_MM} mm wall (none printed) — confirm. No stated area to cross-check.`

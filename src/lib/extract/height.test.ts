@@ -49,6 +49,18 @@ describe("computeHeight", () => {
     expect(r.note).toMatch(/different lift count/i);
   });
 
+  it("same lift count but a notable raw gap is surfaced in the note (still high)", () => {
+    const r = computeHeight({
+      directSoffitM: 4.65,
+      storeyHeightsM: [2.587, 2.348], // sum 4.935 — 0.285 m apart, but both ceil to 4 lifts
+      storeys: 2,
+      readConfidence: "high",
+    });
+    expect(r.reconciled).toBe(true);
+    expect(r.confidence).toBe("high");
+    expect(r.note).toMatch(/differ by 0\.285 m/);
+  });
+
   it("direct read only, within the storey band → medium", () => {
     const r = computeHeight({ directSoffitM: 4.725, storeyHeightsM: [], storeys: 2, readConfidence: "high" });
     expect(r.soffitM).toBe(4.725);

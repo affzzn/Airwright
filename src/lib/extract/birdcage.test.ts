@@ -133,6 +133,53 @@ describe("computeBirdcageFloor", () => {
     expect(r.source).toBe("derived");
   });
 
+  it("no stated GIA but NDSS present: derived cross-checks vs NDSS (gross slightly above usable) → high", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        statedNdssM2: 38, // usable; derived gross-internal should sit slightly above
+        rectangles: [{ internalWidthM: 5, internalDepthM: 8 }], // derived 40 → +5.3%
+        readConfidence: "high",
+      },
+      1,
+    );
+    expect(r.derivedM2).toBe(40);
+    expect(r.m2).toBe(40);
+    expect(r.source).toBe("derived");
+    expect(r.reconciled).toBe(true);
+    expect(r.confidence).toBe("high");
+    expect(r.note).toMatch(/cross-checked vs NDSS/);
+  });
+
+  it("NDSS cross-check out of band (derived BELOW usable) → low + flag", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        statedNdssM2: 45, // derived 40 is 11% BELOW usable — impossible for gross-internal
+        rectangles: [{ internalWidthM: 5, internalDepthM: 8 }],
+        readConfidence: "high",
+      },
+      1,
+    );
+    expect(r.reconciled).toBe(false);
+    expect(r.confidence).toBe("low");
+  });
+
+  it("NDSS cross-check within band but an assumed wall was used → medium (not high)", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        statedNdssM2: 38,
+        rectangles: [{ internalWidthM: 5, overallDepthM: 8.604 }], // no wall → default 302 → depth 8.0 → 40
+        readConfidence: "high",
+      },
+      1,
+    );
+    expect(r.derivedM2).toBe(40);
+    expect(r.usedDefaultWall).toBe(true);
+    expect(r.confidence).toBe("medium");
+  });
+
   it("only NDSS available → uses it, notes it reads low", () => {
     const r = computeBirdcageFloor(
       { statedGrossInternalM2: null, statedNdssM2: 35.0, rectangles: [], readConfidence: "high" },

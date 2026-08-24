@@ -20,6 +20,9 @@ import { type Conf, worseConf } from "./birdcage";
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
+/** Direct-vs-ladder gap (m) worth mentioning even when the lift count still agrees. */
+export const HEIGHT_GAP_NOTE_M = 0.15;
+
 export interface HeightInput {
   directSoffitM: number | null; // the printed soffit / U-S wallplate value
   storeyHeightsM: number[]; // printed floor-to-floor heights (last = to soffit)
@@ -73,9 +76,16 @@ export function computeHeight(input: HeightInput): HeightResult {
   // Both present → the lift-count agreement is the signal (H3).
   if (directM !== null && ladderSumM !== null) {
     const reconciled = liftsDirect === liftsLadder;
-    const note = reconciled
-      ? `Soffit ${directM} m ✓ cross-checked: storey ladder sums to ${ladderSumM} m — both give ${liftsDirect} lift(s).`
-      : `Soffit reads ${directM} m (${liftsDirect} lifts) but the storey ladder sums to ${ladderSumM} m (${liftsLadder} lifts) — different lift count, CHECK.`;
+    const gap = round3(Math.abs(directM - ladderSumM));
+    let note: string;
+    if (reconciled) {
+      note = `Soffit ${directM} m ✓ cross-checked: storey ladder sums to ${ladderSumM} m — both give ${liftsDirect} lift(s).`;
+      // Same lift count, but flag a notable raw gap — one of the two reads may be slightly off.
+      if (gap > HEIGHT_GAP_NOTE_M)
+        note += ` (Direct and ladder differ by ${gap} m — same lift count, but worth a glance.)`;
+    } else {
+      note = `Soffit reads ${directM} m (${liftsDirect} lifts) but the storey ladder sums to ${ladderSumM} m (${liftsLadder} lifts) — different lift count, CHECK.`;
+    }
     return {
       soffitM, directM, ladderSumM, liftsDirect, liftsLadder,
       reconciled, withinBand,
