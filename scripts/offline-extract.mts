@@ -12,6 +12,7 @@ import {
   type TakeoffInput,
 } from "../src/lib/takeoff/engine";
 import { computeBirdcageFloor } from "../src/lib/extract/birdcage";
+import { makeDimensionVerifier } from "../src/lib/extract/dimensions";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -70,9 +71,13 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
 async function run(path: string, configs: Configuration[]) {
   const buf = readFileSync(path);
   console.log(`\n${"=".repeat(78)}\n${path}  (${(buf.length / 1e6).toFixed(1)} MB)\n${"=".repeat(78)}`);
-  const { data, meta } = await extractDrawing(buf);
+  const { data, meta, dimensions } = await extractDrawing(buf);
   console.log(
     `model=${meta.model}  ${(meta.latencyMs / 1000).toFixed(1)}s  in=${meta.inputTokens} out=${meta.outputTokens}  $${meta.costUsd.toFixed(3)}`,
+  );
+  const tokenCount = dimensions.reduce((a, p) => a + p.tokens.length, 0);
+  console.log(
+    `text-layer: ${dimensions.filter((p) => p.tokens.length).length}/${dimensions.length} pages carry dims, ${tokenCount} candidate numbers fed to the model`,
   );
   console.log("\n--- EXTRACTED (observables) ---");
   console.log(
@@ -101,6 +106,24 @@ async function run(path: string, configs: Configuration[]) {
       console.log(`  ${f.level}: ${r.m2 ?? "-"} m² [${r.confidence}] (${r.source}) — ${r.note}`);
     }
   }
+  // Point 3: verify each cited sourceDimension against the text layer.
+  const verify = makeDimensionVerifier(dimensions);
+  const bad: string[] = [];
+  if (data.heightToSoffitM.sourceDimension && !verify(data.heightToSoffitM.sourceDimension, data.heightToSoffitM.sourcePage))
+    bad.push(`height "${data.heightToSoffitM.sourceDimension}"`);
+  for (const w of data.wallSegments)
+    if (w.sourceDimension && !verify(w.sourceDimension, w.sourcePage))
+      bad.push(`${w.position} "${w.sourceDimension}"`);
+  for (const f of data.floorAreas)
+    for (const r of f.rectangles ?? [])
+      if (r.sourceDimension && !verify(r.sourceDimension, r.sourcePage))
+        bad.push(`birdcage ${f.level} "${r.sourceDimension}"`);
+  console.log(
+    bad.length
+      ? `dimension check: ⚠ ${bad.length} cited value(s) NOT in the text layer → ${bad.join(", ")}`
+      : `dimension check: ✓ all cited dimensions verified against the text layer`,
+  );
+
   if (data.notes) console.log(`notes: ${data.notes}`);
 
   console.log("\n--- COMPUTED TAKE-OFF (engine) ---");

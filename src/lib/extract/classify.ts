@@ -1,4 +1,5 @@
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import type { PageDims } from "./dimensions";
 
 /**
  * Cheap, AI-free page classification from the PDF text layer.
@@ -269,4 +270,34 @@ function null2str(kind: PageKind): string {
 
 export function selectRelevantPages(pages: PageClass[]): number[] {
   return pages.filter((p) => p.relevant).map((p) => p.page);
+}
+
+/**
+ * Read the distinct 3–5 digit dimension strings from each page's text layer of
+ * an (already-sliced) PDF — page 1 = the first page the model is shown. Feeds the
+ * candidate hint + the sourceDimension verifier (see dimensions.ts). Worker-only.
+ */
+export async function extractDimensionsByPage(buffer: Buffer): Promise<PageDims[]> {
+  const doc = await getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise;
+
+  const out: PageDims[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const raw = content.items
+      .map((it: unknown) =>
+        it && typeof it === "object" && "str" in it
+          ? String((it as { str: string }).str)
+          : "",
+      )
+      .join(" ");
+    const set = new Set<string>();
+    for (const m of raw.match(/\d{3,5}/g) ?? []) set.add(m);
+    out.push({ page: i, tokens: [...set].sort((a, b) => Number(a) - Number(b)) });
+  }
+  return out;
 }

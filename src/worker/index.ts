@@ -97,7 +97,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
       `[worker] extraction ${extractionId}: ${pageNumbers.length} pages (${pageRange ?? "all"})`,
     );
 
-    const { data, meta } = await extractDrawing(pdf);
+    const { data, meta, dimensions } = await extractDrawing(pdf);
 
     await prisma.extraction.update({
       where: { id: extractionId },
@@ -113,7 +113,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
       },
     });
 
-    await persistExtraction(extractionId, data);
+    await persistExtraction(extractionId, data, dimensions);
 
     console.log(
       `[worker] extraction ${extractionId} completed in ${meta.latencyMs}ms ($${meta.costUsd.toFixed(4)})`,

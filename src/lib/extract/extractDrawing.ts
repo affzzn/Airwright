@@ -3,6 +3,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { extractionResultSchema, type ExtractionResult } from "./schema";
 import { PROMPT_VERSION, SYSTEM_PROMPT, USER_INSTRUCTION } from "./prompt";
 import { runToolExtraction } from "./claude";
+import { extractDimensionsByPage } from "./classify";
+import { buildDimensionHint, type PageDims } from "./dimensions";
 
 const TOOL_NAME = "record_takeoff";
 
@@ -14,6 +16,8 @@ const toolInputSchema = zodToJsonSchema(extractionResultSchema, {
 
 export interface ExtractDrawingResult {
   data: ExtractionResult;
+  /** Per-page text-layer dimensions of the sliced PDF — used to verify the model's cited strings. */
+  dimensions: PageDims[];
   meta: {
     model: string;
     promptVersion: string;
@@ -27,10 +31,16 @@ export interface ExtractDrawingResult {
 
 /** Extract the scaffold take-off from a drawing PDF (Claude tool-use + Zod). */
 export async function extractDrawing(pdf: Buffer): Promise<ExtractDrawingResult> {
+  // Read the exact printed dimension strings off the PDF text layer and feed them
+  // to the model as a per-page candidate list, so it snaps to real digits rather
+  // than re-reading them off the linework. Empty (no hint) for a scanned PDF.
+  const dimensions = await extractDimensionsByPage(pdf).catch(() => [] as PageDims[]);
+  const userText = USER_INSTRUCTION + buildDimensionHint(dimensions);
+
   const res = await runToolExtraction({
     pdf,
     system: SYSTEM_PROMPT,
-    userText: USER_INSTRUCTION,
+    userText,
     toolName: TOOL_NAME,
     toolDescription: "Record the extracted scaffold take-off measurements.",
     inputSchema: toolInputSchema,
@@ -41,6 +51,7 @@ export async function extractDrawing(pdf: Buffer): Promise<ExtractDrawingResult>
 
   return {
     data,
+    dimensions,
     meta: {
       model: res.model,
       promptVersion: PROMPT_VERSION,

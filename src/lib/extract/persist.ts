@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
+import { makeDimensionVerifier, type PageDims } from "./dimensions";
 
 type Conf = "high" | "medium" | "low" | "unknown";
 const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
@@ -30,7 +31,25 @@ function worstConf(cs: Conf[]): Conf {
 export async function persistExtraction(
   extractionId: string,
   result: ExtractionResult,
+  dimensions?: PageDims[],
 ): Promise<{ houseTypeId: string; takeoffId: string }> {
+  // Verify each cited sourceDimension against the PDF text layer. A number the
+  // model claims to have read that ISN'T actually printed on that page is a
+  // likely misread/hallucination → we cap its confidence at "low" and flag it.
+  // No text layer (scanned PDF) → the verifier passes everything (can't check).
+  const verify = dimensions ? makeDimensionVerifier(dimensions) : () => true;
+  const unverifiedDimensions: string[] = [];
+  const capLow = (c: Conf): Conf => (CONF_RANK[c] > CONF_RANK.low ? "low" : c);
+  const checkDim = (
+    dim: string | null | undefined,
+    page: number | null | undefined,
+    label: string,
+  ): boolean => {
+    const ok = verify(dim, page);
+    if (!ok && dim) unverifiedDimensions.push(`${label}: "${dim}"`);
+    return ok;
+  };
+
   return prisma.$transaction(async (tx) => {
     const extraction = await tx.extraction.findUniqueOrThrow({
       where: { id: extractionId },
@@ -117,7 +136,15 @@ export async function persistExtraction(
 
     // --- Core, always shown ---
     push("STOREYS", result.storeys);
-    push("HEIGHT_TO_SOFFIT", result.heightToSoffitM);
+    const heightOk = checkDim(
+      result.heightToSoffitM.sourceDimension,
+      result.heightToSoffitM.sourcePage,
+      "Height to soffit",
+    );
+    push("HEIGHT_TO_SOFFIT", {
+      ...result.heightToSoffitM,
+      confidence: heightOk ? result.heightToSoffitM.confidence : capLow(result.heightToSoffitM.confidence),
+    });
 
     // --- Apexes: total across elevations (= table-lift qty = apex-handrail qty) ---
     const apexParts = result.elevations
@@ -160,12 +187,19 @@ export async function persistExtraction(
     for (const fa of result.floorAreas) {
       const key = BIRDCAGE_KEY[fa.level];
       if (!key) continue; // TF (4th floor) — extremely rare for housing; skip.
+      // Verify each rectangle's cited dimension; an unverified one caps the
+      // floor's read confidence (which caps the reconciled birdcage confidence).
+      let readConf: Conf = fa.confidence;
+      for (const rect of fa.rectangles ?? []) {
+        if (!checkDim(rect.sourceDimension, rect.sourcePage, `Birdcage ${fa.level}`))
+          readConf = capLow(readConf);
+      }
       const r = computeBirdcageFloor(
         {
           statedGrossInternalM2: fa.statedGrossInternalM2,
           statedNdssM2: fa.statedNdssM2 ?? null,
           rectangles: fa.rectangles,
-          readConfidence: fa.confidence,
+          readConfidence: readConf,
         },
         dwellingsWide,
       );
@@ -200,16 +234,20 @@ export async function persistExtraction(
 
     if (result.wallSegments.length) {
       await tx.wallSegment.createMany({
-        data: result.wallSegments.map((w) => ({
-          takeoffId: takeoff.id,
-          position: w.position.toUpperCase() as Prisma.WallSegmentCreateManyInput["position"],
-          label: w.label ?? null,
-          lengthM: w.lengthM,
-          aiLengthM: w.lengthM,
-          confidence: confToNumber(w.confidence),
-          sourceDimension: w.sourceDimension ?? null,
-          ambiguous: w.confidence === "low" || w.confidence === "unknown",
-        })),
+        data: result.wallSegments.map((w) => {
+          const ok = checkDim(w.sourceDimension, w.sourcePage, `${w.position} wall`);
+          const conf = ok ? w.confidence : capLow(w.confidence);
+          return {
+            takeoffId: takeoff.id,
+            position: w.position.toUpperCase() as Prisma.WallSegmentCreateManyInput["position"],
+            label: w.label ?? null,
+            lengthM: w.lengthM,
+            aiLengthM: w.lengthM,
+            confidence: confToNumber(conf),
+            sourceDimension: w.sourceDimension ?? null,
+            ambiguous: !ok || conf === "low" || conf === "unknown",
+          };
+        }),
       });
     }
 
@@ -237,6 +275,8 @@ export async function persistExtraction(
     }
     // The step-by-step birdcage derivation (per floor) for the review tooltip.
     if (birdcageDerivation.length > 0) warnings.birdcageDerivation = birdcageDerivation;
+    // Dimensions the model cited that aren't in the PDF text layer (likely misreads).
+    if (unverifiedDimensions.length > 0) warnings.unverifiedDimensions = unverifiedDimensions;
     if (Object.keys(warnings).length) {
       await tx.takeoff.update({
         where: { id: takeoff.id },
