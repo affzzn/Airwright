@@ -107,20 +107,22 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 - **Layer:** reads (storeys cross-checks the height-based lift count; never count lifts).
 - **Edge cases:** a room-in-roof can look like a 2-storey from the front — the dormers/velux on the rear or the section are the tell.
 
-### 3.4 Height to soffit
-- **What:** vertical height to the soffit/eaves — the top of the wall the scaffold reaches.
-- **Where:** section (best) or a dimensioned elevation; a vertical dim like `U/S Wallplate 4725`.
-- **How:** read it in mm, convert to m (4725 → 4.725 m). "FFL" (finished floor level) confirms storey height.
-- **Layer:** reads (engine computes lifts = `ceil(height ÷ 1.5) + room-in-roof`).
-- **Edge cases:** ⚠️ **which datum** (soffit / eaves / wall plate / ridge) is an open question — read the soffit/wallplate value and cite the exact string; do not switch datums between house types.
-- **Confidence:** high only if the printed vertical dim is unambiguous.
+### 3.4 Height to soffit — triangulated (direct read vs storey ladder)
+- **What:** vertical height to the soffit — the top of the wall the scaffold reaches.
+- **Datum:** ✅ **soffit / underside of wallplate ONLY** (user-confirmed, docs/11 §8a) — always read `U/S Wallplate …`; never the ridge/eaves/mid-point; the same datum on every house type.
+- **Where:** section (best) — read BOTH the soffit dim (`U/S Wallplate 4725`) into `heightToSoffitM` AND the floor-to-floor **storey heights** into `storeyHeightsM` (e.g. `[2.662, 2.063]`, the last up to the wallplate).
+- **How (model):** report the raw mm→m values; do NOT sum them. **The engine (`height.ts`) triangulates:** sums the ladder as a second estimate, compares it to the direct read and a storey sanity band, and sets a **computed** confidence.
+- **How (engine, H3):** ✅ a disagreement is flagged **only when the two give a different LIFT count** (`ceil(h/1.5)`) — that's what changes the price — not a fixed mm gap. Both agree → high; different lift count → low + flag.
+- **Layer:** model **reads** two sources; `height.ts` reconciles → engine lifts. Also verified: the soffit `sourceDimension` is checked against the text layer.
+- **Edge cases:** only the direct read → lean on the storey band (medium, or low if out of band); only the ladder → use its sum (medium); neither → null/unknown.
 
 ### 3.5 Wall segments (front / rear / gable_left / gable_right)
 - **What:** each external wall length along the building line, for one dwelling.
 - **Where:** ground-floor plan / **setting-out plan** — the **building line (brickwork line)**, off the outside of the plan. Gable lengths also come from the side/gable elevation or the plan depth.
 - **How:** read each wall separately with its dimension string. Front/rear = the eaves faces (the frontage); gable_left/right = the two side/end walls. For a pair, front/rear = the **full frontage spanning both houses** (engine divides); gables = full depth.
-- **Layer:** reads (engine sums → perimeter, applies config + corner allowance).
-- **Edge cases:** a minor step in the footprint → take the bounding rectangle; a genuinely L-shaped footprint → list the extra walls as `other`. Do **not** sum them and do **not** add a corner allowance here.
+- **SOURCE (the classic error — wall line vs roof overhang):** read the length off the **FLOOR PLAN / setting-out plan** printed dimension, **never off an elevation and never by scaling**. The roof overhangs the wall by ~200–400 mm each side, so an elevation's overall over-reads the wall. If only the overhang line is legible, read it, set the wall LOW, and note it — **never subtract an overhang** yourself. The **text-layer candidate list** (§2 systemic) makes the model snap to the exact printed number.
+- **Layer:** reads (engine sums → perimeter, applies config + corner allowance). Two automatic checks: the `sourceDimension` is **verified against the text layer**, and a wall whose cited page is an **ELEVATION** (not a floor plan) is **capped + flagged** in `persist.ts` (`warnings.wallReadOffElevation`).
+- **Edge cases:** a minor step → bounding rectangle (still 4 corners); a genuine L/T/U → list the extra walls as `other` AND split the birdcage into rectangles. Do **not** sum them and do **not** add a corner allowance here.
 
 ### 3.6 Corners
 - **What:** number of external corners/returns on the scaffolded footprint.
@@ -139,9 +141,9 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 ### 3.8 Apexes (per elevation)
 - **What:** the count of gable apexes (triangular brickwork tops) per elevation face.
 - **Where:** each elevation — physically count the points with brickwork to them.
-- **How:** count per face (front and rear apexes count too, e.g. a projecting front gable). Hipped face = 0. Record per-face so config reduction can drop the party-gable apex.
-- **Layer:** reads (engine = table lift + apex handrail per apex, reduced by configuration).
-- **Edge cases:** a detached house typically has 2; more than 3 has never been priced (treat >3 as low confidence / check). In Strike this is "apex scaffold".
+- **How — GO FACE BY FACE, decide the shape before the number:** for each named face set `faceRoof` (GABLED/HIPPED) and a one-line `apexReason`, THEN the `apexCount`. Front and rear apexes (a projecting street/garden gable) are the ones most often MISSED — check them explicitly, don't assume apexes only sit on the two ends. Hipped face = 0. Micro-example (Dekker): front HIPPED 0, rear 0, left GABLED 1, right GABLED 1.
+- **Layer:** reads (engine = table lift + apex handrail per apex, reduced by configuration). Automatic check: a face marked `HIPPED` that still reports an apex is flagged (`warnings.apexContradictions`); a hipped **overall** roof forces apex 0.
+- **Edge cases:** a detached house typically has 2; more than 3 has never been priced (treat >3 as low confidence / check). A gablet/half-hip or chimney-on-gable → count normally if brickwork rises to a point (docs/11 §8a A2). In Strike this is "apex scaffold".
 
 ### 3.9 Render (per elevation)
 - **What:** which elevations have a rendered/clad section, and its linear metres.

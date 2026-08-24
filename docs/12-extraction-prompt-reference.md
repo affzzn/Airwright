@@ -4,9 +4,9 @@ Everything we send to the model to read scaffold take-off **measurements** off a
 house-type drawing, and everything we require it to return. This is the *live*
 configuration as it runs in production.
 
-- **Prompt version:** `2026-08-21.1`
+- **Prompt version:** `2026-08-24.1`
 - **Model:** `claude-opus-4-8` (set via the `ANTHROPIC_EXTRACTION_MODEL` env var)
-- **Source of truth in code:** `src/lib/extract/prompt.ts` (prompt), `src/lib/extract/schema.ts` (contract), `src/lib/extract/birdcage.ts` (birdcage geometry), `src/lib/extract/claude.ts` (request), `src/lib/extract/extractDrawing.ts` (wiring)
+- **Source of truth in code:** `src/lib/extract/prompt.ts` (prompt), `src/lib/extract/schema.ts` (contract), `src/lib/extract/birdcage.ts` + `height.ts` (deterministic reconciliation), `src/lib/extract/dimensions.ts` (text-layer candidates + verification), `src/lib/extract/claude.ts` (request), `src/lib/extract/extractDrawing.ts` (wiring)
 
 > This doc mirrors the code. If in doubt, `prompt.ts` / `schema.ts` win — bump the
 > version here whenever their wording changes.
@@ -17,40 +17,38 @@ configuration as it runs in production.
 
 The model is a **reader, not a calculator**. It extracts *observable facts* off
 the drawing — wall lengths, heights, counts, roof form, and the **raw dimensions**
-behind an area — each with a **confidence level** and its **source** (which sheet,
-which printed dimension string, which page). It must **never** compute the number
-of lifts, the perimeter total, **the birdcage area**, the render lift count, stage
-splits, or any pricing. All of that is done afterwards by deterministic code
-(`src/lib/takeoff/engine.ts`, and `src/lib/extract/birdcage.ts` for the birdcage
-geometry + reconciliation). Anything the model can't read is returned as `null`
-with confidence `"unknown"` — never a guess.
+behind an area or a height — each with a **confidence** and its **source** (sheet,
+printed dimension string, page). It must **never** compute lifts, the perimeter
+total, **the birdcage area**, **the height**, render lifts, stage splits, or any
+pricing. Deterministic code does all of that (`src/lib/takeoff/engine.ts`, plus
+`birdcage.ts` for the birdcage geometry and `height.ts` for the height
+triangulation). Anything it can't read is `null` + confidence `"unknown"`.
 
-**New (2026-08-21):** the model no longer hands over already-computed internal
-dimensions for the birdcage. It reports only the **raw printed numbers** (stated
-areas + overall/internal dimensions + wall thickness); the engine does the
-subtraction, the multiply and the reconciliation, and sets the confidence.
+**The recurring pattern (birdcage → height → walls → apex):** the model reports
+**multiple independent raw observations**; the engine **reconciles** them and sets
+a **computed** confidence (high on agreement, flagged on divergence); genuinely
+open questions stay flags.
 
 ---
 
 ## 2. How the request is made (mechanics)
 
-Sent via the Anthropic Messages API using **forced tool-use** so the output is
-always structured JSON validated against our schema.
+Forced tool-use so the output is always structured JSON validated against our schema.
 
 | Setting | Value |
 |---|---|
-| Model | `claude-opus-4-8` |
+| Model | `claude-opus-4-8` (no `temperature` — Opus 4.8 rejects it) |
 | `max_tokens` | 16384 (drawing extraction) |
 | `tool_choice` | forced — must call the `record_takeoff` tool |
-| Input | the drawing PDF (base64 `document` block) + the user instruction (text) |
+| Input | the drawing PDF (base64 `document` block) + the user instruction + the **text-layer dimension candidates** (per-page list from `dimensions.ts`) |
 | Tool `input_schema` | generated from our Zod schema (§5) so they can't drift |
-| Prompt caching | the system prompt + tool schema are marked `cache_control: ephemeral` (fixed across calls, so only the PDF bytes vary — cuts cost) |
-| Validation | the returned JSON is parsed with Zod; a failure fails the extraction |
-| Telemetry stored | model, latency, input/output tokens, `costUsd` |
+| Prompt caching | system prompt + tool schema marked `cache_control: ephemeral`; only the PDF + candidate list vary |
+| Validation | returned JSON parsed with Zod; a failure fails the extraction |
+| Post-checks | each cited `sourceDimension` is verified against the text layer; unverified → confidence capped + flagged |
+| Telemetry | model, latency, input/output tokens, `costUsd` |
 
-Only the pages relevant to one house type are sliced out of the PDF and sent
-(chosen upstream by the free page classifier), so the model isn't paying to read
-electrical/drainage/schedule sheets.
+Only the pages relevant to one house type are sliced out and sent (chosen by the
+free page classifier).
 
 ---
 
@@ -70,14 +68,14 @@ WHICH SHEETS MATTER (and what to read from each)
 - ELEVATIONS (front / rear / side / gable; brick / render / stone / boarded variants) → roof type, apex count per face, rendered sections + their length, chimney, porches and bays.
 - FLOOR PLANS (ground / first / …) → internal room dimensions, the footprint, and the NDSS "Total Floor Area" schedule (a USABLE-area figure — see BIRDCAGE).
 - SETTING OUT PLAN (Beam & Block / Suspended Slab) → the GROSS INTERNAL footprint area per dwelling (e.g. "35.60m² (BEAM & BLOCK)") and the exterior-wall run. This is the birdcage area to prefer.
-- SECTION (A-A, B-B) → vertical heights: height to soffit / underside of wallplate, FFL.
+- SECTION (A-A, B-B) → vertical heights: height to soffit / underside of wallplate, FFL, and the floor-to-floor storey heights.
 - TRUSS / ROOF SETTING OUT → roof pitch, overall wallplate dimensions, chimney position note (often conditional).
 - You may be given one combined PDF or several separate face files; treat them as one house.
 - IGNORE internal room elevations ("Kitchen Elevation", "Cloak Plan Elevation" — interior joinery), and services, drainage, levels, foundation, electrical and general-note sheets.
 
 READING DIMENSIONS
 - Dimensions are usually in millimetres — convert to metres ("9203" = 9.203 m). If a number's unit is genuinely unclear, lower the confidence and say so; never invent a unit.
-- Height to soffit / eaves is the top of the wall the scaffold reaches: read it from vertical dims like "U/S Wallplate 5025" (= 5.025 m). "FFL" is finished floor level and helps confirm storey height.
+- Height to soffit is the top of the wall the scaffold reaches: ALWAYS read the SOFFIT / underside-of-wallplate value (e.g. "U/S Wallplate 5025" = 5.025 m) into heightToSoffitM — never the ridge, never a mid-roof point. ALSO read the printed floor-to-floor STOREY HEIGHTS off the SECTION into storeyHeightsM (ground upward, the last one being the top floor up to the wallplate/soffit, e.g. [2.662, 2.063]) as RAW numbers — do NOT add them up; the engine sums them as an independent cross-check of the soffit height. "FFL" (finished floor level) marks each floor.
 - Quote the EXACT printed dimension string for every value you report.
 
 CITE THE PAGE (sourcePage) FOR EVERY VALUE
@@ -92,7 +90,7 @@ REPORT NUMBERS, NOT ARITHMETIC
 WORK IN THIS ORDER
 1. Identify the house type, and whether it is a SINGLE house, a PAIR_OR_TERRACE of houses, or an APARTMENT_BLOCK — set structure + dwellingsWide first; it frames everything else.
 2. Storeys, and whether there is a room in the roof.
-3. Height to soffit.
+3. Height to soffit (the U/S wallplate value) AND the section's storey heights.
 4. Roof type, then the apex count per elevation.
 5. Per elevation, any render and its length.
 6. The external wall lengths (front / rear / gable) off the building line.
@@ -118,8 +116,13 @@ ONE DWELLING (houses), or ONE BLOCK (flats)
 
 PERIMETER (wall segments)
 - Take the perimeter off the OUTSIDE of the GROUND-FLOOR plan, along the BUILDING LINE (the brickwork line), for ONE dwelling.
-- Report EACH external wall length separately, tagged with its role (front / rear / gable_left / gable_right) and its dimension string. Read a gable wall's length from the side/gable elevation or the plan depth; read front/rear from the frontage. Do NOT sum them into a single perimeter, and do NOT add any corner allowance — that is applied downstream.
-- Also report the number of EXTERNAL corners / returns, counted off the footprint on the GROUND-FLOOR / setting-out plan. Count only OUTWARD (external) corners where the scaffold has to wrap round the building — do NOT count internal corners. A plain rectangle has 4; an L-shaped or stepped footprint has more (typically 5-6). A minor step can be taken as the bounding rectangle (still 4); only a genuinely irregular (L-shaped) footprint needs its extra walls listed as well.
+- Report EACH external wall length separately, tagged with its role (front / rear / gable_left / gable_right) and its printed dimension string. Do NOT sum them into a single perimeter, and do NOT add any corner allowance — that is applied downstream.
+- SOURCE — read wall lengths off the FLOOR PLAN / SETTING-OUT PLAN, from a PRINTED dimension: never off an elevation, and never by scaling the drawing. The wall length is the BUILDING LINE (the brickwork line), which sits INSIDE the roof overhang — the roof projects past the wall by ~200-400 mm each side, so an elevation's overall width/depth OVER-reads the wall. Front/rear come from the plan frontage; a gable/side length is the plan DEPTH (not the elevation's overall). Cite the floor-plan page in sourcePage. If the ONLY legible dimension is the roof/overhang line, read it, set that wall to LOW confidence, and say so in notes — never subtract an overhang yourself.
+- Also report the number of EXTERNAL corners / returns on the scaffolded footprint (ground-floor / setting-out plan). Follow this EXACT rule so the count is repeatable run to run:
+  · A roughly rectangular house = 4 corners, EVEN IF it has a small step, recess, bay or porch — take the bounding rectangle. (Bays and porches are counted separately as low-level items, never as corners.)
+  · Count MORE than 4 ONLY when the footprint is a distinct L, T or U shape — a whole wing / leg of the building projects out (not a minor step). Then count every OUTWARD (external) return: an L-shape has 6.
+  · Count OUTWARD (external) returns only — never internal corners. When you are genuinely unsure whether a projection is "distinct" or "minor", use 4.
+  · Only for a genuine L / T / U footprint: also list its extra walls in wallSegments, and split the birdcage into separate rectangles (see BIRDCAGE).
 
 STOREYS AND ROOM-IN-ROOF
 - Report the storeys (1, 2, 2.5, 3). A 2.5-storey has a habitable ROOM IN THE ROOF — signalled by dormers, roof/velux windows, or a raised eaves with living space above. Set roomInRoof accordingly; it adds a lift and a birdcage floor downstream.
@@ -127,7 +130,13 @@ STOREYS AND ROOM-IN-ROOF
 ROOF, APEXES, RENDER (read per elevation)
 - Overall roof form: PITCHED (the roof rises to a ridge and the wall below carries a triangular brickwork top) vs HIPPED (the roof slopes back on all sides, so there is NO brickwork above the eaves) vs MIXED (some faces pitched, some hipped).
 - WHAT AN APEX (gable) IS: the triangular, pointed top of a wall under a PITCHED roof — the brickwork above the eaves that rises to a point. Reaching that brickwork needs an extra "table lift", so each apex is counted. A HIPPED face has NO apex (nothing rises above the eaves).
-- HOW TO COUNT APEXES: look at EACH elevation face and count the triangular brickwork points on it. Most apexes sit on the two GABLE-END (side) walls, but a projecting FRONT or REAR gable is also an apex — count those too. A hipped face = 0. A detached house typically has 2 apexes; a count above 3 is unusual, so lower the confidence and note it.
+- HOW TO COUNT APEXES — GO FACE BY FACE, and for EACH face decide the shape BEFORE the number: set faceRoof (GABLED or HIPPED), write a one-line apexReason, THEN give apexCount.
+  · FRONT: is there brickwork rising to a point (a projecting front gable)? If yes it is GABLED and counts; a plain eaves front is HIPPED/flat → 0.
+  · REAR: same question — a projecting rear gable counts too.
+  · LEFT gable-end and RIGHT gable-end: usually GABLED (apex = 1 each) on a pitched house; HIPPED → 0.
+  · A HIPPED face has NO brickwork above the eaves → apexCount 0. Front and rear apexes are the ones most often MISSED — check them explicitly, do not assume apexes only sit on the two ends.
+  WORKED EXAMPLE (Dekker, pitched semi): front → HIPPED/flat, 0; rear → 0; left → GABLED, 1; right → GABLED, 1 (total 2).
+- A detached house typically has 2 apexes; a count above 3 is unusual, so lower the confidence and note it.
 - RENDER: for each face, note whether it has a rendered / clad section and, if dimensioned, the linear metres of ONLY the rendered section (never the whole wall).
 
 BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
@@ -140,6 +149,7 @@ BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
      · internalWidthM / internalDepthM — a DIRECTLY PRINTED internal dimension (the clear internal span / depth of ONE dwelling). Prefer these when shown.
      · overallWidthM / overallDepthM — the overall EXTERNAL dimension, ONLY when no internal one is printed. Report it exactly as printed — do NOT subtract walls, do NOT divide a pair's frontage.
      · wallThicknessMm — the printed external wall build-up in mm (e.g. 302), so the engine can strip it. null if not shown.
+- L-SHAPED / STEPPED FOOTPRINT (important): if the floor is NOT a plain rectangle — it has a step, a projection, or an L/T shape (a tell: MORE than 4 external corners) — do NOT report one big bounding rectangle (that over-reads the area). Split the footprint into the SEVERAL plain rectangles that make it up and report EACH as its own entry in rectangles; the engine sums them. Only a genuinely rectangular floor is a single rectangle.
 - WORKED EXAMPLE (Dekker, a semi-detached pair, ground floor):
     Setting Out Plan prints "35.60m² (BEAM & BLOCK)"; floor plan schedule prints "35.00m²"; the internal width of one house reads 4877; the overall depth reads 7904; the wall build-up reads 302.
     → statedGrossInternalM2 = 35.60, statedNdssM2 = 35.00,
@@ -166,6 +176,11 @@ NOTES
 You must respond by calling the provided tool with your structured extraction. Do not write prose outside the tool call.
 ```
 
+Plus, appended to the user message on each call: **the per-page text-layer
+dimension candidates** — the exact printed numbers on each attached page, so the
+model snaps its reading to a real string rather than re-reading digits off the
+linework (`buildDimensionHint` in `dimensions.ts`).
+
 ---
 
 ## 4. User instruction (verbatim)
@@ -180,10 +195,9 @@ Extract the scaffold take-off measurements for this house type from the attached
 
 ## 5. The output contract (what the model must return)
 
-Every value carries a **confidence** (`high` / `medium` / `low` / `unknown`) and,
-where relevant, its **source** (`sourceSheet`, `sourceDimension`, `sourcePage`).
-The tool schema is generated from this Zod definition, so the model's output can
-never drift from what we expect. Full definition in `src/lib/extract/schema.ts`.
+Every value carries a **confidence** and, where relevant, its **source**
+(`sourceSheet`, `sourceDimension`, `sourcePage`). The tool schema is generated
+from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 
 ### Fields
 
@@ -194,62 +208,62 @@ never drift from what we expect. Full definition in `src/lib/extract/schema.ts`.
 | `structure.form` | `SINGLE` \| `PAIR_OR_TERRACE` \| `APARTMENT_BLOCK` \| null | decides how the take-off is split |
 | `storeys` | number (1 / 2 / 2.5 / 3) | observed, **not** used to count lifts here |
 | `roomInRoof` | boolean | habitable room in the roof → 2.5-storey |
-| `heightToSoffitM` | number (metres) | height to soffit/eaves the scaffold reaches |
-| `roof.overallType` | `PITCHED` \| `HIPPED` \| `MIXED` \| null | roof form (drives apex/table lift) |
-| `elevations[]` | array | per face: `face`, `apexCount`, `rendered`, `renderLengthM`, source |
-| `wallSegments[]` | array | per wall: `position` (front/rear/gable_left/gable_right/other), `lengthM`, `sourceDimension`, `sourcePage` |
-| `cornerCount` | number | external corners/returns (rectangle = 4) |
+| `heightToSoffitM` | number (metres) | the direct **soffit / U-S wallplate** read (datum fixed to soffit) |
+| `storeyHeightsM` | number[] | the section's floor-to-floor storey heights (last = to soffit); the engine **sums them as a 2nd height estimate** and reconciles |
+| `roof.overallType` | `PITCHED` \| `HIPPED` \| `MIXED` \| null | overall roof form |
+| `elevations[]` | array | per face: `face`, **`faceRoof` (GABLED/HIPPED)**, `apexCount`, **`apexReason`**, `rendered`, `renderLengthM`, source |
+| `wallSegments[]` | array | per wall: `position`, `lengthM`, `sourceDimension`, `sourcePage` (read off the **floor plan**, not an elevation) |
+| `cornerCount` | number | external corners/returns (bounding rectangle = 4; >4 only for a real L/T/U) |
 | `dwellingsWide` | number | how many dwellings share the printed frontage (engine divides) |
-| `floorAreas[]` | array | per floor — **raw** birdcage inputs (see below); the engine computes + reconciles the area |
-| `lowLevel` | object | `porchCount`, `bayCount` (each = one low-level scaffold) |
+| `floorAreas[]` | array | per floor — **raw** birdcage inputs (below); the engine computes + reconciles the area |
+| `lowLevel` | object | `porchCount`, `bayCount` |
 | `chimney` | boolean | a chimney stack actually drawn |
 | `smartRoofPeakHeightM` | number \| null | peak height if unusually high (no threshold applied by the model) |
 | `notes` | string | short, useful estimator notes only |
 
 ### `floorAreas[]` — the birdcage inputs (raw, no arithmetic)
 
-The model reports numbers only; `src/lib/extract/birdcage.ts` does the geometry
-and reconciliation and sets the stored confidence.
-
 | Field | Type | Meaning |
 |---|---|---|
 | `level` | `GF` \| `FF` \| `SF` \| `TF` | floor level |
 | `statedGrossInternalM2` | number \| null | stated gross-internal / masonry area (Setting Out), per dwelling — **preferred** |
 | `statedNdssM2` | number \| null | NDSS "Total Floor Area" usable value — fallback |
-| `rectangles[]` | array | the internal footprint as rectangles (several for an L-shape) |
+| `rectangles[]` | array | internal footprint as rectangles (several for an L-shape) |
 | ↳ `internalWidthM` / `internalDepthM` | number \| null | a **directly printed** internal dimension (preferred) |
-| ↳ `overallWidthM` / `overallDepthM` | number \| null | the overall **external** dimension, when no internal one is printed (reported as-is) |
-| ↳ `wallThicknessMm` | number \| null | the printed external wall build-up (mm); the engine strips two of these |
+| ↳ `overallWidthM` / `overallDepthM` | number \| null | overall **external** dimension, when no internal one is printed |
+| ↳ `wallThicknessMm` | number \| null | printed external wall build-up (mm); the engine strips two of these |
 
-**What the engine then does** (`computeBirdcageFloor`): `depth = internalDepthM ??
-(overallDepthM − 2·wall)`; `width = internalWidthM ?? (overallWidthM − 2·wall) ÷
-dwellingsWide`; `derivedArea = Σ(width × depth)`. It reconciles against
-`statedGrossInternalM2` (within 2%): agree → use the stated area, **high**
-confidence; diverge → use the stated area but **flag** it; only NDSS → use it,
-noted as ~1–2% low; only derived → use it (low if the wall thickness was assumed).
-The step-by-step breakdown is shown in the review-screen tooltip.
+### The deterministic engines the model feeds
+
+- **Birdcage** (`birdcage.ts`): `depth = internalDepthM ?? (overallDepthM − 2·wall)`; `width = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide`; `Σ(width×depth)`; reconcile vs `statedGrossInternalM2` (2%) → high/flag.
+- **Height** (`height.ts`): sum `storeyHeightsM`; compare to `heightToSoffitM` + a storey band; **flag only when the two give a different lift count** (`ceil(h/1.5)`).
+- **Dimension verification** (`dimensions.ts`): each cited `sourceDimension` must be in the page text layer, else confidence is capped + flagged.
+- **Wall page-kind** (`persist.ts`): a wall cited off an ELEVATION page is capped + flagged (roof-overhang risk).
+- **Apex** (`persist.ts` / engine): a face marked `HIPPED` that still reports an apex is flagged; a hipped overall roof forces apex 0.
 
 ### Enums
 
-- **Confidence:** `high` (printed value certain and unambiguous) · `medium` · `low` · `unknown` (couldn't read → value is `null`).
+- **Confidence:** `high` · `medium` · `low` · `unknown`.
 - **Wall position:** `front`, `rear`, `gable_left`, `gable_right`, `other`.
-- **Elevation face:** `front`, `rear`, `left`, `right`, `other`.
-- **Floor level:** `GF` (ground), `FF` (first), `SF` (second), `TF` (third).
+- **Elevation face:** `front`, `rear`, `left`, `right`, `other`. **faceRoof:** `GABLED`, `HIPPED`.
+- **Floor level:** `GF`, `FF`, `SF`, `TF`.
 
 ### Example output (abridged, Dekker semi-detached pair)
 
 ```json
 {
   "houseType": { "name": "Dekker", "code": "NSS.277", "confidence": "high" },
-  "buildType": { "value": "TRADITIONAL", "confidence": "medium" },
   "structure": { "form": "PAIR_OR_TERRACE", "confidence": "high" },
-  "storeys": { "value": 2, "confidence": "high", "sourceSheet": "Front Elevation" },
+  "storeys": { "value": 2, "confidence": "high" },
   "roomInRoof": { "value": false, "confidence": "high" },
   "heightToSoffitM": { "value": 4.725, "confidence": "high", "sourceDimension": "4725" },
+  "storeyHeightsM": [2.662, 2.063],
   "roof": { "overallType": "PITCHED", "confidence": "high" },
   "elevations": [
-    { "face": "left", "apexCount": 1, "rendered": false, "confidence": "high" },
-    { "face": "right", "apexCount": 1, "rendered": false, "confidence": "high" }
+    { "face": "front", "faceRoof": "HIPPED", "apexCount": 0, "apexReason": "plain eaves front → 0", "confidence": "high" },
+    { "face": "rear",  "faceRoof": "HIPPED", "apexCount": 0, "apexReason": "no projecting gable → 0", "confidence": "high" },
+    { "face": "left",  "faceRoof": "GABLED", "apexCount": 1, "apexReason": "gable-end rises to a point → 1", "confidence": "high" },
+    { "face": "right", "faceRoof": "GABLED", "apexCount": 1, "apexReason": "gable-end rises to a point → 1", "confidence": "high" }
   ],
   "wallSegments": [
     { "position": "front", "lengthM": 10.66, "sourceDimension": "10660", "confidence": "high" },
@@ -260,59 +274,39 @@ The step-by-step breakdown is shown in the review-screen tooltip.
   "cornerCount": { "value": 4, "confidence": "high" },
   "dwellingsWide": { "value": 2, "confidence": "high" },
   "floorAreas": [
-    {
-      "level": "GF",
-      "statedGrossInternalM2": 35.60,
-      "statedNdssM2": 35.00,
-      "rectangles": [
-        { "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }
-      ],
-      "sourceSheet": "Setting Out Plan", "confidence": "high"
-    },
-    {
-      "level": "FF",
-      "statedGrossInternalM2": 35.60,
-      "statedNdssM2": 35.00,
-      "rectangles": [
-        { "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }
-      ],
-      "sourceSheet": "First Floor Plan", "confidence": "high"
-    }
+    { "level": "GF", "statedGrossInternalM2": 35.60, "statedNdssM2": 35.00,
+      "rectangles": [{ "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }],
+      "sourceSheet": "Setting Out Plan", "confidence": "high" },
+    { "level": "FF", "statedGrossInternalM2": 35.60, "statedNdssM2": 35.00,
+      "rectangles": [{ "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }],
+      "sourceSheet": "First Floor Plan", "confidence": "high" }
   ],
   "lowLevel": { "porchCount": 1, "bayCount": 0, "confidence": "medium" },
   "chimney": { "value": false, "confidence": "high" },
-  "smartRoofPeakHeightM": { "value": null, "confidence": "unknown" },
-  "notes": "Semi-detached pair (NSS.277 + NSS.277-1 mirrored); front/rear reported as full 10660 frontage, dwellingsWide=2; gables 7904 depth. GF+FF gross-internal 35.60 (Beam & Block), NDSS 35.00."
+  "notes": "Semi-detached pair; frontage 10660 spans both (dwellingsWide=2); storey ladder 2662+2063=4725 confirms the soffit; GF+FF gross-internal 35.60."
 }
 ```
 
-The engine turns those two floors into `BIRDCAGE_GF_M2 = BIRDCAGE_FF_M2 = 35.60 m²`,
-each **high confidence** (derived 35.602 reconciles with the stated 35.60), total
-`71.20 m²`.
+---
+
+## 6. What happens to this output
+
+1. **Validated** (Zod) and stored verbatim as `Extraction.rawOutput`.
+2. **`sourceDimension` verified** against the text layer; **wall page-kind** and
+   **apex/roof** consistency checked — anything off is confidence-capped + flagged.
+3. **`height.ts`** reconciles the soffit read vs the storey ladder; **`birdcage.ts`**
+   computes + reconciles the area. Both write a step-by-step derivation to the
+   take-off `warnings` for the review tooltip.
+4. **Persisted** into measurement rows + wall segments + the per-elevation breakdown.
+5. **The take-off engine** turns the observables into Colin's line (lifts, perimeter,
+   birdcage, render, apex, party walls).
+6. **The review screen** shows every field, its (computed) confidence, and — on hover —
+   how it was read or reconciled. A person confirms before anything is priced.
+
+The model reads; the engines reconcile; a human signs off. Nothing is auto-priced.
 
 ---
 
-## 6. What happens to this output (so the team sees the whole loop)
-
-1. **Validated** against the schema (Zod) and stored verbatim as `Extraction.rawOutput`.
-2. **Persisted** into measurement rows + wall segments + a per-elevation breakdown.
-   The birdcage m² per floor is computed + reconciled by `birdcage.ts` (not the
-   model), and its step-by-step derivation is saved to the take-off `warnings`.
-3. **The deterministic engine** (`src/lib/takeoff/engine.ts`) turns the observables
-   into Colin's take-off line — lifts (`ceil(height / 1.5) + room-in-roof`, storey
-   cross-check), perimeter by configuration + corner allowance, birdcage per floor,
-   render lifts, config-aware apex, party walls. Open rule values (corner quantum,
-   height datum, render table…) are configurable flags, never guessed.
-4. **The review screen** shows every field, its confidence, and — on hover — exactly
-   how it was read (dimension string + page) or computed (step by step, including the
-   birdcage width × depth and the stated-vs-derived reconciliation). A person
-   confirms and can correct any value before it's used.
-
-The model reads; the engine computes; a human signs off. Nothing is auto-priced.
-
----
-
-*Prompt version `2026-08-21.1` · model `claude-opus-4-8`. If the wording of §3/§4
-changes, bump `PROMPT_VERSION` in `src/lib/extract/prompt.ts` so evaluations stay
-comparable. Full background: `docs/11-takeoff-engine-spec.md`; the measurement
-playbook: `docs/13-extraction-playbook.md`.*
+*Prompt version `2026-08-24.1` · model `claude-opus-4-8`. Bump `PROMPT_VERSION` when
+§3/§4 change. Background: `docs/11-takeoff-engine-spec.md` (§8a for the walls/apex/
+height hardening); measurement playbook: `docs/13-extraction-playbook.md`.*
