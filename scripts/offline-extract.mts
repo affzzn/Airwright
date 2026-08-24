@@ -160,9 +160,16 @@ const targets: Record<string, Configuration[]> = {
 };
 
 const only = process.argv[2];
-const entries = only
-  ? Object.entries(targets).filter(([p]) => p.includes(only))
-  : Object.entries(targets);
+const cfgArg = process.argv[3] as Configuration | undefined;
+
+// A path argument (contains "/" or ends .pdf) runs that drawing directly, with an
+// optional configuration (default DETACHED); otherwise filter the known targets.
+const entries: [string, Configuration[]][] =
+  only && (only.includes("/") || only.toLowerCase().endsWith(".pdf"))
+    ? [[only, cfgArg ? [cfgArg] : (["DETACHED"] as Configuration[])]]
+    : only
+      ? Object.entries(targets).filter(([p]) => p.includes(only))
+      : Object.entries(targets);
 
 for (const [path, configs] of entries) {
   try {
