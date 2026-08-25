@@ -176,79 +176,92 @@ export async function GET(
   wb.creator = "Airwright";
 
   const plotsByType = pricedPlotsByBuildType(quote.lineItems as unknown as QuoteLineItem[]);
+  const garages = pricedGarages(quote.lineItems as unknown as QuoteLineItem[]);
 
-  // One matrix sheet per build type present (Colin's real column layout).
+  // ONE stacked sheet, laid out like Colin's template: plot matrix (per build
+  // type), then the garages block, then the 3-line grand-total block.
+  const sheetName =
+    (quote.project.name || "Pricing Matrix").replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 28) || "Matrix";
+  const ws = wb.addWorksheet(sheetName);
+
+  const title = ws.addRow([`${quote.project.name} — Pricing Matrix (v${quote.version})`]);
+  title.font = { bold: true, size: 13 };
+  ws.addRow([]);
+
+  /** Append a header + rows + a section-total line, then a spacer. */
+  const addBlock = (
+    label: string,
+    columns: { key: string; header: string }[],
+    rows: unknown[][],
+    totalKey: string,
+    totalLabel: string,
+    totalValue: number,
+  ) => {
+    const lbl = ws.addRow([label]);
+    lbl.font = { bold: true };
+    ws.addRow(columns.map((c) => c.header)).font = { bold: true };
+    for (const r of rows) ws.addRow(r);
+    const totalCol = columns.findIndex((c) => c.key === totalKey) + 1;
+    const tr = ws.addRow([]);
+    tr.getCell(1).value = totalLabel;
+    if (totalCol > 0) tr.getCell(totalCol).value = totalValue;
+    tr.font = { bold: true };
+    ws.addRow([]);
+  };
+
   let grandTotal = 0;
   for (const [buildType, plots] of plotsByType) {
     const matrix = buildClientMatrix(plots, buildType);
     grandTotal += matrix.grandTotal;
-    const ws = wb.addWorksheet(`Matrix (${BUILD_LABEL[buildType]})`);
-
-    ws.addRow(matrix.columns.map((c) => c.header));
-    ws.getRow(1).font = { bold: true };
-
-    for (const row of matrix.rows) {
-      const cells = matrix.columns.map((c) => {
+    const rows = matrix.rows.map((row) =>
+      matrix.columns.map((c) => {
         if (c.key === "plot") return safe(row.plotNumber);
         if (c.key === "code") return safe(row.houseTypeCode ?? row.houseTypeName);
         if (c.key === "config") return safe(CONFIG_LABEL[row.configuration] ?? row.configuration);
         if (c.key === "storey") return "";
         if (c.key === "total") return row.costTotal;
         return row.cells[c.key] ?? 0; // cost + stage columns
-      });
-      ws.addRow(cells);
-    }
-
-    // Section total = Σ plot totals (this build type's Erect & Dismantle price).
-    const totalColIndex = matrix.columns.findIndex((c) => c.key === "total") + 1;
-    ws.addRow([]);
-    const totalRow = ws.addRow([]);
-    totalRow.getCell(1).value = "Erect & Dismantle Price";
-    totalRow.getCell(totalColIndex).value = matrix.grandTotal;
-    totalRow.font = { bold: true };
-
-    ws.getColumn(2).width = 22;
+      }),
+    );
+    addBlock(
+      `Plots — ${BUILD_LABEL[buildType]}`,
+      matrix.columns,
+      rows,
+      "total",
+      "Erect & Dismantle Price",
+      matrix.grandTotal,
+    );
   }
 
-  // Garages — their own section (Colin's garage block; docs/15 §6).
-  const garages = pricedGarages(quote.lineItems as unknown as QuoteLineItem[]);
+  // Garages — Colin's garage block (docs/15 §6).
   let garageTotal = 0;
   if (garages.length > 0) {
     const gm = buildGarageMatrix(garages);
     garageTotal = gm.total;
-    const ws = wb.addWorksheet("Garages");
-    ws.addRow(gm.columns.map((c) => c.header));
-    ws.getRow(1).font = { bold: true };
-    for (const row of gm.rows) {
-      ws.addRow(
-        gm.columns.map((c) => {
-          if (c.key === "plot") return safe(row.plotNumber);
-          if (c.key === "type") return safe(row.garageType);
-          if (c.key === "total") return row.costTotal;
-          return row.cells[c.key] ?? 0;
-        }),
-      );
-    }
-    const totalColIndex = gm.columns.findIndex((c) => c.key === "total") + 1;
-    ws.addRow([]);
-    const totalRow = ws.addRow([]);
-    totalRow.getCell(1).value = "Garages";
-    totalRow.getCell(totalColIndex).value = gm.total;
-    totalRow.font = { bold: true };
-    ws.getColumn(2).width = 14;
+    const rows = gm.rows.map((row) =>
+      gm.columns.map((c) => {
+        if (c.key === "plot") return safe(row.plotNumber);
+        if (c.key === "type") return safe(row.garageType);
+        if (c.key === "total") return row.costTotal;
+        return row.cells[c.key] ?? 0;
+      }),
+    );
+    addBlock("Garages", gm.columns, rows, "total", "Garages", gm.total);
   }
 
-  // Grand total = plots (across build types) + garages.
-  if (plotsByType.size > 0 || garages.length > 0) {
-    const summary = wb.addWorksheet("Summary");
-    summary.addRow(["", "Amount (£)"]);
-    summary.getRow(1).font = { bold: true };
-    summary.addRow(["Erect & Dismantle (plots)", round2(grandTotal)]);
-    summary.addRow(["Garages", round2(garageTotal)]);
-    const gt = summary.addRow(["Grand Total", num(quote.total)]);
-    gt.font = { bold: true };
-    summary.getColumn(1).width = 28;
-  }
+  // Grand-total block (plots across build types + garages).
+  const g1 = ws.addRow([]);
+  g1.getCell(1).value = "Erect & Dismantle (plots)";
+  g1.getCell(2).value = round2(grandTotal);
+  const g2 = ws.addRow([]);
+  g2.getCell(1).value = "Garages";
+  g2.getCell(2).value = round2(garageTotal);
+  const g3 = ws.addRow([]);
+  g3.getCell(1).value = "Grand Total";
+  g3.getCell(2).value = num(quote.total);
+  g3.font = { bold: true };
+  ws.getColumn(1).width = 26;
+  ws.getColumn(2).width = 20;
 
   // Line items — the true-cost audit backing (unchanged).
   const detailRows = quote.lineItems.filter((li) => li.component && !li.stage);

@@ -58,6 +58,33 @@ export interface ClientMatrix {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const penceOf = (n: number): number => Math.round(n * 100);
 
+// Payment-stage columns render in a fixed order, and their header carries the %
+// (both matches Colin's layout and disambiguates the stage "Dismantle 25%" from
+// the cost "Dismantle" column). The % is recovered from the first priced row.
+const STAGE_ORDER: Record<string, number> = {
+  "Plot Erect": 0,
+  "Gar Erect": 0,
+  "Birdcage Erect": 1,
+  Dismantle: 2,
+};
+interface StageCol {
+  name: string;
+  header: string;
+}
+function stageColumnsFrom(
+  rows: { subtotal: number; stages: { name: string; amount: number }[] }[],
+): StageCol[] {
+  const first = rows.find((r) => r.stages.length);
+  if (!first) return [];
+  const total = first.subtotal || first.stages.reduce((a, s) => a + s.amount, 0);
+  return [...first.stages]
+    .sort((a, b) => (STAGE_ORDER[a.name] ?? 9) - (STAGE_ORDER[b.name] ?? 9))
+    .map((s) => {
+      const pct = total > 0 ? Math.round((s.amount / total) * 100) : 0;
+      return { name: s.name, header: `${s.name} ${pct}%` };
+    });
+}
+
 // --- Column layouts (headers verbatim from Colin's templates — docs/16 §2) ---
 
 const TRADITIONAL_LIFT_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -70,7 +97,7 @@ const FLOOR_ERECT_HEADER: Record<string, string> = {
   TF: "3rd Floor Birdcage",
 };
 
-function traditionalColumns(stageNames: string[]): MatrixColumn[] {
+function traditionalColumns(stageCols: StageCol[]): MatrixColumn[] {
   const cols: MatrixColumn[] = [
     { key: "plot", header: "Plot", kind: "id" },
     { key: "code", header: "House Type Code", kind: "id" },
@@ -86,14 +113,14 @@ function traditionalColumns(stageNames: string[]): MatrixColumn[] {
   for (const f of FLOORS)
     cols.push({ key: `bcageStrip${f}`, header: `Strip ${f} Birdcage`, kind: "cost" });
   cols.push({ key: "dismantle", header: "Dismantle", kind: "cost" });
-  for (const s of stageNames) cols.push({ key: `stage:${s}`, header: s, kind: "stage" });
+  for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Erect & Strip Price", kind: "total" });
   return cols;
 }
 
 const TF_ADAPTION_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
-function timberFrameColumns(stageNames: string[]): MatrixColumn[] {
+function timberFrameColumns(stageCols: StageCol[]): MatrixColumn[] {
   const cols: MatrixColumn[] = [
     { key: "plot", header: "Plot", kind: "id" },
     { key: "code", header: "House Type Code", kind: "id" },
@@ -106,7 +133,7 @@ function timberFrameColumns(stageNames: string[]): MatrixColumn[] {
     cols.push({ key: `adaption${lvl}`, header: `Adaption ${ORDINAL[lvl]} Lift`, kind: "cost" });
   cols.push({ key: "render", header: "Render/Cladding Adaption", kind: "cost" });
   cols.push({ key: "dismantle", header: "Dismantle", kind: "cost" });
-  for (const s of stageNames) cols.push({ key: `stage:${s}`, header: s, kind: "stage" });
+  for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Erect & Strip Price", kind: "total" });
   return cols;
 }
@@ -166,9 +193,9 @@ export function buildClientMatrix(
   buildType: MatrixBuildType = "TRADITIONAL",
 ): ClientMatrix {
   const priced = plots.filter((p) => p.status === "PRICED");
-  const stageNames = priced.find((p) => p.stages.length)?.stages.map((s) => s.name) ?? [];
+  const stageCols = stageColumnsFrom(priced);
   const columns =
-    buildType === "TIMBER_FRAME" ? timberFrameColumns(stageNames) : traditionalColumns(stageNames);
+    buildType === "TIMBER_FRAME" ? timberFrameColumns(stageCols) : traditionalColumns(stageCols);
   const cellsFor = buildType === "TIMBER_FRAME" ? timberFrameCells : traditionalCells;
 
   const rows: MatrixRow[] = [];
@@ -214,7 +241,7 @@ const GARAGE_TYPE_LABEL: Record<string, string> = {
   CAR_PORT: "Car Port",
 };
 
-function garageColumns(stageNames: string[]): MatrixColumn[] {
+function garageColumns(stageCols: StageCol[]): MatrixColumn[] {
   const cols: MatrixColumn[] = [
     { key: "plot", header: "Garage", kind: "id" },
     { key: "type", header: "Type", kind: "id" },
@@ -224,7 +251,7 @@ function garageColumns(stageNames: string[]): MatrixColumn[] {
     { key: "gfBirdcage", header: "GF Birdcage", kind: "cost" },
     { key: "dismantle", header: "Dismantle", kind: "cost" },
   ];
-  for (const s of stageNames) cols.push({ key: `stage:${s}`, header: s, kind: "stage" });
+  for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Total Price", kind: "total" });
   return cols;
 }
@@ -249,8 +276,7 @@ function garageCells(lines: PricedLine[]): Record<string, number> {
 
 /** Build the garages block. Reconciles the same way: total = Σ cost columns. */
 export function buildGarageMatrix(garages: PricedGarage[]): GarageMatrix {
-  const stageNames = garages.find((g) => g.stages.length)?.stages.map((s) => s.name) ?? [];
-  const columns = garageColumns(stageNames);
+  const columns = garageColumns(stageColumnsFrom(garages));
   const rows: GarageMatrixRow[] = [];
   let totalPence = 0;
   for (const g of garages) {
