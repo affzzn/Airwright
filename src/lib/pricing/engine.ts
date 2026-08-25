@@ -179,18 +179,97 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
   const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
 
   // --- Stage split: presented as a % of the subtotal (NOT the item costs). ---
-  // Round each to the penny; give the remainder to the last stage so the stages
+  // Rounded to the penny with the remainder on the last stage, so the stages
   // always reconcile back to the subtotal exactly.
+  const stages = allocateStages(subtotalPence, opts.stageSplits);
+
+  return { lines, subtotal: subtotalPence / 100, stages, unpriced };
+}
+
+/** Allocate a subtotal (pence) across stage %s, remainder to the last stage. */
+function allocateStages(
+  subtotalPence: number,
+  stageSplits: { name: string; percent: number }[],
+): StageAmount[] {
   const stages: StageAmount[] = [];
   let allocated = 0;
-  opts.stageSplits.forEach((s, i) => {
-    const isLast = i === opts.stageSplits.length - 1;
-    const pence = isLast
-      ? subtotalPence - allocated
-      : Math.round((subtotalPence * s.percent) / 100);
+  stageSplits.forEach((s, i) => {
+    const isLast = i === stageSplits.length - 1;
+    const pence = isLast ? subtotalPence - allocated : Math.round((subtotalPence * s.percent) / 100);
     allocated += pence;
     stages.push({ name: s.name, percent: s.percent, amount: pence / 100 });
   });
+  return stages;
+}
 
-  return { lines, subtotal: subtotalPence / 100, stages, unpriced };
+/**
+ * Price a TIMBER-FRAME house type (docs/15 §7). The frame contractor's own
+ * scaffold is ADAPTED as it rises, so the client matrix is a single external
+ * erect + apex handrails + per-lift adaptions + render + dismantle, with an 80/20
+ * split and NO birdcage stage. The take-off line is the same; only the priced
+ * operation set + columns differ.
+ *
+ * ⚠ MAPPING (rates open — docs/15 §11.7): external erect + dismantle priced on the
+ * total external LM; each adaption on the per-lift LM. Confirm quantities/£ with Colin.
+ */
+export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceResult {
+  const lines: PricedLine[] = [];
+  const unpriced: { component: string; action: Action }[] = [];
+  const add = (
+    component: string,
+    action: Action,
+    quantity: number,
+    unit: string,
+    liftLevel: number | null = null,
+    note?: string,
+  ) => {
+    if (quantity <= 0) return;
+    const rate = opts.resolveRate(component, action, liftLevel);
+    const priced = rate !== null;
+    const pence = priced ? Math.round(quantity * (rate as number) * 100) : 0;
+    if (!priced) unpriced.push({ component, action });
+    lines.push({
+      component,
+      action,
+      liftLevel,
+      quantity: round2(quantity),
+      unit,
+      rate: rate ?? 0,
+      amount: pence / 100,
+      priced,
+      note,
+    });
+  };
+
+  const lifts = line.lifts.lifts ?? 0;
+  const perLift = line.perimeter.perLiftM;
+  const totalExternal = round2(perLift * lifts);
+
+  // One external erect for the whole envelope (matrix col E).
+  add("TF_EXTERNAL", "ERECT", totalExternal, "LM", 0, "erect timber-frame external");
+  // Apex handrails — TF has handrails, not table lifts (matrix col F).
+  if (line.apex.count > 0) add("GABLE_RAILS", "ERECT", line.apex.count, "EACH", null, "apex handrails");
+  // Per-lift adaptions as the frame rises (matrix cols G–L; up to 6).
+  for (let lvl = 1; lvl <= Math.min(lifts, 6); lvl++)
+    add("ADAPTION", "ERECT", perLift, "LM", lvl, `adaption lift ${lvl}`);
+  // Render / cladding adaption (matrix col M).
+  if (line.render && line.render.lifts)
+    add(
+      "RENDER_ADAPTION",
+      "ERECT",
+      round2(line.render.lengthM * line.render.lifts),
+      "LM",
+      null,
+      `render ${line.render.lengthM} m × ${line.render.lifts} lifts`,
+    );
+  // Single external dismantle (matrix col N). No birdcage in the TF plot matrix.
+  if (totalExternal > 0) add("TF_EXTERNAL", "DISMANTLE", totalExternal, "LM", null, "dismantle");
+
+  const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
+  return {
+    lines,
+    subtotal: subtotalPence / 100,
+    stages: allocateStages(subtotalPence, opts.stageSplits),
+    unpriced,
+  };
 }

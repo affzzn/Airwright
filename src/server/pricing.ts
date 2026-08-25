@@ -43,6 +43,7 @@ export async function loadProjectPricing(
       id: h.id,
       name: h.name,
       code: h.code,
+      buildType: h.buildType,
       takeoffStatus: h.takeoff?.status ?? "DRAFT",
       measurements: (h.takeoff?.measurements ?? []).map((m) => ({
         key: m.key as string,

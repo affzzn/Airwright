@@ -9,6 +9,7 @@ const confirmed: HouseTypeForPricing = {
   id: "ht1",
   name: "Rosewood",
   code: null,
+  buildType: "TRADITIONAL",
   takeoffStatus: "CONFIRMED",
   measurements: [
     { key: "STOREYS", valueNumber: 2 },

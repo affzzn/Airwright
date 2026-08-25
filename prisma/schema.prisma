@@ -160,6 +160,8 @@ enum ScaffoldComponent {
   BIRDCAGE_FF
   BIRDCAGE_SF
   BIRDCAGE_TF
+  TF_EXTERNAL // timber-frame: the single external erect (matrix col E) — docs/15 §7
+  ADAPTION // timber-frame: a per-lift adaption as the frame rises (cols G–L)
   LOADING_BAY
   HAKI
   LADDER_TOWER

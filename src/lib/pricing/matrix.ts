@@ -144,13 +144,14 @@ function timberFrameCells(lines: PricedLine[]): Record<string, number> {
   const put = (key: string, pence: number) => {
     if (pence !== 0) cells[key] = round2(pence / 100);
   };
-  // The whole external envelope collapses into one erect column (docs/15 §7).
-  put("externalErect", sumPence(lines, (l) => l.component === "LIFT" && l.action === "ERECT"));
-  put("apexHandrails", sumPence(lines, (l) => l.component === "GABLE" && l.action === "ERECT"));
+  // The whole external envelope is one erect column (docs/15 §7); dismantle is one column.
+  put("externalErect", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "ERECT"));
+  put("apexHandrails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
   put("render", sumPence(lines, (l) => l.component === "RENDER_ADAPTION" && l.action === "ERECT"));
-  put("dismantle", sumPence(lines, (l) => l.component === "LIFT" && l.action === "DISMANTLE"));
-  // NOTE: per-lift TF "Adaption" columns need a TF-specific priced set (A5) — the
-  // current engine emits a Traditional line, so adaption1..6 stay empty until A5.
+  put("dismantle", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "DISMANTLE"));
+  // Per-lift adaptions (cols G–L) — one column per lift level, priced by priceTimberFrameLine.
+  for (const lvl of TF_ADAPTION_LEVELS)
+    put(`adaption${lvl}`, sumPence(lines, (l) => l.component === "ADAPTION" && l.action === "ERECT" && l.liftLevel === lvl));
   return cells;
 }
 

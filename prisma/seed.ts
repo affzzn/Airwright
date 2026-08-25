@@ -62,6 +62,11 @@ async function main() {
           { component: "BIRDCAGE_GF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
           { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
           { component: "GABLE", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 120.0 },
+          // Timber-frame placeholders (⚠ real TF rates owed by Colin — docs/15 §11.7).
+          { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 12.0 },
+          { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", unit: "LM", rate: 4.0 },
+          { component: "ADAPTION", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 5.0, liftLevel: 0 },
+          { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 40.0 },
         ],
       },
     },

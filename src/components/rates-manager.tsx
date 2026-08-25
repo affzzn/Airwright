@@ -52,6 +52,8 @@ const COMPONENT_OPTS: { value: string; label: string }[] = [
   { value: "GABLE_RAILS", label: "Gable rails" },
   { value: "TABLE_LIFT", label: "Table lift" },
   { value: "RENDER_ADAPTION", label: "Render adaption" },
+  { value: "TF_EXTERNAL", label: "TF external (timber frame)" },
+  { value: "ADAPTION", label: "Adaption (timber frame)" },
   { value: "BIRDCAGE_GF", label: "Birdcage (GF)" },
   { value: "BIRDCAGE_FF", label: "Birdcage (FF)" },
   { value: "BIRDCAGE_SF", label: "Birdcage (SF)" },
@@ -95,10 +97,11 @@ const SCENARIO_LABEL: Record<string, string> = {
   GARAGE_NO_BCAGE: "Garage (no birdcage)",
   TIMBER_FRAME: "Timber frame",
 };
-// A lift level 1..8 only means something for the LIFT component; everything else
-// is priced at the base rate (level 0), shown as "—".
+// A lift level 1..8 only means something for per-lift components (LIFT erect,
+// and timber-frame ADAPTION); everything else is the base rate (0), shown as "—".
+const usesLiftLevel = (component: string) => component === "LIFT" || component === "ADAPTION";
 const liftLevelLabel = (component: string, level: number) =>
-  component === "LIFT" && level > 0 ? `${level}` : "—";
+  usesLiftLevel(component) && level > 0 ? `${level}` : "—";
 
 export function RatesManager({ cards }: { cards: RateCardVM[] }) {
   const [newOpen, setNewOpen] = useState(false);
@@ -337,8 +340,8 @@ function AddRateRow({ rateCardId }: { rateCardId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  // Lift level only applies to the LIFT component; force base (0) otherwise.
-  const effectiveLevel = component === "LIFT" ? liftLevel : 0;
+  // Lift level only applies to per-lift components; force base (0) otherwise.
+  const effectiveLevel = usesLiftLevel(component) ? liftLevel : 0;
 
   const add = () => {
     const n = Number(rate);
@@ -386,8 +389,8 @@ function AddRateRow({ rateCardId }: { rateCardId: string }) {
       <select
         className={sel}
         value={effectiveLevel}
-        disabled={component !== "LIFT"}
-        title="Lift level (LIFT only): base rate, or a specific lift"
+        disabled={!usesLiftLevel(component)}
+        title="Lift level (per-lift components only): base rate, or a specific lift"
         onChange={(e) => setLiftLevel(Number(e.target.value))}
       >
         <option value={0}>Base lift</option>

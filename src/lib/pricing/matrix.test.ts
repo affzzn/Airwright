@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTakeoff, type TakeoffInput } from "@/lib/takeoff/engine";
-import { buildRateResolver, priceTakeoffLine } from "./engine";
+import { buildRateResolver, priceTakeoffLine, priceTimberFrameLine } from "./engine";
 import type { PricedPlot } from "./priceProject";
 import { buildClientMatrix } from "./matrix";
 
@@ -119,7 +119,35 @@ describe("buildClientMatrix — Traditional", () => {
 });
 
 describe("buildClientMatrix — Timber Frame", () => {
-  const m = buildClientMatrix([pricedPlot("DETACHED", "1")], "TIMBER_FRAME");
+  const TF_RATES = [
+    { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", rate: 12.0 },
+    { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", rate: 4.0 },
+    { component: "ADAPTION", action: "ERECT", band: "MEDIUM", rate: 5.0, liftLevel: 0 },
+    { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
+  ];
+  const TF_SPLITS = [
+    { name: "Plot Erect", percent: 80 },
+    { name: "Dismantle", percent: 20 },
+  ];
+  const tfResolve = buildRateResolver(TF_RATES, "MEDIUM");
+  const tfLine = priceTimberFrameLine(buildTakeoff(base), {
+    resolveRate: tfResolve,
+    stageSplits: TF_SPLITS,
+  });
+  const tfPlot: PricedPlot = {
+    plotId: "tf-1",
+    plotNumber: "1",
+    houseTypeName: "Ashorn",
+    houseTypeCode: "A1",
+    configuration: "DETACHED",
+    status: "PRICED",
+    subtotal: tfLine.subtotal,
+    stages: tfLine.stages,
+    lines: tfLine.lines,
+    unpricedCount: 0,
+    hasGarage: false,
+  };
+  const m = buildClientMatrix([tfPlot], "TIMBER_FRAME");
 
   it("collapses the envelope into one external-erect column + apex handrails", () => {
     const keys = m.columns.map((c) => c.key);
@@ -131,10 +159,20 @@ describe("buildClientMatrix — Timber Frame", () => {
     expect(keys).toContain("stage:Plot Erect");
   });
 
-  it("externalErect = sum of all lift erects", () => {
+  it("populates external erect, per-lift adaptions, and an 80/20 split", () => {
     const row = m.rows[0];
-    // 4 lifts: 1st 38.2×21 + three at 38.2×18.25 = 802.2 + 2091.98 (approx)
-    expect(row.cells.externalErect).toBeGreaterThan(row.cells.dismantle);
-    expect(row.cells.externalErect).toBeCloseTo(802.2 + 3 * 38.2 * 18.25, 2);
+    // 4 lifts, perimeter/lift = 38.2 m: external = 38.2×4×12 ; adaption/lift = 38.2×5.
+    expect(row.cells.externalErect).toBeCloseTo(38.2 * 4 * 12, 2);
+    expect(row.cells.adaption1).toBeCloseTo(38.2 * 5, 2);
+    expect(row.cells.adaption4).toBeCloseTo(38.2 * 5, 2);
+    expect(row.cells.bcageErectGF).toBeUndefined(); // no birdcage on TF
+    // cost columns still reconcile to the plot total.
+    const costSum = m.columns
+      .filter((c) => c.kind === "cost")
+      .reduce((a, c) => a + (row.cells[c.key] ?? 0), 0);
+    expect(Math.round(costSum * 100)).toBe(Math.round(row.costTotal * 100));
+    expect(row.cells["stage:Plot Erect"]).toBeCloseTo(round2(row.costTotal * 0.8), 1);
   });
 });
+
+const round2 = (n: number) => Math.round(n * 100) / 100;

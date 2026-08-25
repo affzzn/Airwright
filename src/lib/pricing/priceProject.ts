@@ -11,12 +11,18 @@
 
 import { buildTakeoff, DEFAULT_PARAMS, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
-import { buildRateResolver, priceTakeoffLine, type PricedLine } from "./engine";
+import {
+  buildRateResolver,
+  priceTakeoffLine,
+  priceTimberFrameLine,
+  type PricedLine,
+} from "./engine";
 
 export interface HouseTypeForPricing {
   id: string;
   name: string;
   code: string | null;
+  buildType: string | null; // TRADITIONAL | TIMBER_FRAME | null → selects the matrix
   takeoffStatus: string; // DRAFT | IN_REVIEW | CONFIRMED
   measurements: { key: string; valueNumber: number | null }[];
   walls: { position: string; lengthM: number }[];
@@ -149,11 +155,15 @@ export function priceProject(input: {
     if (!plot.isRendered) engineInput.renderSegmentsM = [];
 
     const line = buildTakeoff(engineInput, params);
-    const scenario = scenarioFor(engineInput.storeys, line.birdcage.floorCount);
-    const result = priceTakeoffLine(line, {
-      resolveRate: resolve,
-      stageSplits: splitsFor(scenario),
-    });
+    const isTimberFrame = ht.buildType === "TIMBER_FRAME";
+    // Timber-frame is one 80/20 split; traditional picks by house shape.
+    const scenario = isTimberFrame
+      ? "TIMBER_FRAME"
+      : scenarioFor(engineInput.storeys, line.birdcage.floorCount);
+    const priceOpts = { resolveRate: resolve, stageSplits: splitsFor(scenario) };
+    const result = isTimberFrame
+      ? priceTimberFrameLine(line, priceOpts)
+      : priceTakeoffLine(line, priceOpts);
     result.unpriced.forEach((u) => unpriced.add(`${u.component} ${u.action}`));
 
     confirmedCount += 1;
