@@ -23,7 +23,17 @@ export async function GET(
         include: {
           plot: {
             include: {
-              houseType: { select: { name: true, code: true, buildType: true } },
+              houseType: {
+                select: {
+                  name: true,
+                  code: true,
+                  buildType: true,
+                  // Storeys for the matrix's Storey column (identity, not price).
+                  takeoff: {
+                    select: { measurements: { where: { key: "STOREYS" }, select: { valueNumber: true } } },
+                  },
+                },
+              },
             },
           },
         },
@@ -32,7 +42,29 @@ export async function GET(
   });
   if (!quote) return new NextResponse("Not found", { status: 404 });
 
-  const bytes = await buildQuoteWorkbook(quote);
+  // Flatten the take-off's STOREYS measurement onto each line item's plot so the
+  // workbook can fill the Storey column without re-pricing.
+  const quoteForExcel = {
+    ...quote,
+    lineItems: quote.lineItems.map((li) => ({
+      ...li,
+      plot: li.plot
+        ? {
+            ...li.plot,
+            storeys: li.plot.houseType.takeoff?.measurements[0]?.valueNumber
+              ? Number(li.plot.houseType.takeoff.measurements[0].valueNumber)
+              : null,
+            houseType: {
+              name: li.plot.houseType.name,
+              code: li.plot.houseType.code,
+              buildType: li.plot.houseType.buildType,
+            },
+          }
+        : null,
+    })),
+  };
+
+  const bytes = await buildQuoteWorkbook(quoteForExcel);
   return new NextResponse(bytes as unknown as BodyInit, {
     headers: {
       "Content-Type":

@@ -20,6 +20,7 @@
 
 import type { PricedPlot, PricedGarage } from "./priceProject";
 import type { PricedLine } from "./engine";
+import { isInclusionComponent } from "./engine";
 
 export type MatrixBuildType = "TRADITIONAL" | "TIMBER_FRAME";
 
@@ -36,6 +37,7 @@ export interface MatrixRow {
   houseTypeName: string;
   houseTypeCode: string | null;
   configuration: string;
+  storeys: number | null;
   cells: Record<string, number>; // column key → £ amount
   costTotal: number; // Σ cost columns = "Erect & Strip Price" (AA/Q)
 }
@@ -212,6 +214,7 @@ export function buildClientMatrix(
       houseTypeName: p.houseTypeName,
       houseTypeCode: p.houseTypeCode,
       configuration: p.configuration,
+      storeys: p.storeys,
       cells,
       costTotal: round2(costTotalPence / 100),
     });
@@ -219,6 +222,77 @@ export function buildClientMatrix(
   }
 
   return { buildType, columns, rows, grandTotal: round2(grandPence / 100) };
+}
+
+// --- Standard inclusions: items the matrix has NO column for ---
+// Colin's templates have no low-level / party-wall / chimney column — their cost
+// is covered by the rates and they're named in a standard-inclusions list (docs/15
+// §3 P6, decision 2026-08-25). So they're EXCLUDED from every total and instead
+// listed once here: what's included, and on which plots. Descriptive, not priced.
+
+export interface InclusionItem {
+  component: string;
+  label: string;
+  /** Total count across the development (informational — not a price). */
+  totalQty: number;
+  /** Plot numbers where the item applies. */
+  plots: string[];
+}
+
+const INCLUSION_LABEL: Record<string, string> = {
+  LOW_LEVEL: "Low-level towers (porch / bay)",
+  PARTY_WALL: "Party-wall scaffold",
+  OTHER: "Chimney scaffold",
+};
+const INCLUSION_ORDER = ["LOW_LEVEL", "PARTY_WALL", "OTHER"];
+
+/**
+ * Aggregate raw inclusion entries (component + qty + plot) into the display list,
+ * in a stable order. Shared by the live path (`buildInclusions`) and the quote
+ * view / export, which read frozen line items rather than PricedPlots.
+ */
+export function aggregateInclusions(
+  entries: { component: string; quantity: number; plotNumber: string }[],
+): InclusionItem[] {
+  const byComponent = new Map<string, { qty: number; plots: Set<string> }>();
+  for (const it of entries) {
+    if (!isInclusionComponent(it.component) || it.quantity <= 0) continue;
+    const e = byComponent.get(it.component) ?? { qty: 0, plots: new Set<string>() };
+    e.qty += it.quantity;
+    e.plots.add(it.plotNumber);
+    byComponent.set(it.component, e);
+  }
+  return [...byComponent.entries()]
+    .sort((a, b) => (INCLUSION_ORDER.indexOf(a[0]) + 1 || 99) - (INCLUSION_ORDER.indexOf(b[0]) + 1 || 99))
+    .map(([component, e]) => ({
+      component,
+      label: INCLUSION_LABEL[component] ?? component,
+      totalQty: round2(e.qty),
+      plots: [...e.plots].sort((x, y) => {
+        const nx = parseInt(x, 10);
+        const ny = parseInt(y, 10);
+        if (!Number.isNaN(nx) && !Number.isNaN(ny) && nx !== ny) return nx - ny;
+        return x.localeCompare(y);
+      }),
+    }));
+}
+
+/**
+ * Aggregate the inclusion lines across a priced development into one list. Empty
+ * → no block rendered. (Live path; the quote view builds entries from frozen
+ * line items and calls `aggregateInclusions` directly.)
+ */
+export function buildInclusions(plots: PricedPlot[]): InclusionItem[] {
+  const entries: { component: string; quantity: number; plotNumber: string }[] = [];
+  for (const p of plots) {
+    if (p.status !== "PRICED") continue;
+    for (const l of p.lines) {
+      if (l.inclusion ?? isInclusionComponent(l.component)) {
+        entries.push({ component: l.component, quantity: l.quantity, plotNumber: p.plotNumber });
+      }
+    }
+  }
+  return aggregateInclusions(entries);
 }
 
 // --- Garages: a separate priced section (docs/15 §6, docs/16 §2) ---

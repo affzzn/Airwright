@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildTakeoff, type TakeoffInput } from "@/lib/takeoff/engine";
 import { buildRateResolver, priceTakeoffLine, priceTimberFrameLine } from "./engine";
 import type { PricedPlot } from "./priceProject";
-import { buildClientMatrix } from "./matrix";
+import { buildClientMatrix, buildInclusions } from "./matrix";
 
 /**
  * The client matrix is a pure RESHAPE of already-priced lines into Colin's column
@@ -63,6 +63,7 @@ function pricedPlot(config: TakeoffInput["config"], plotNumber: string): PricedP
     houseTypeName: "Wollaton",
     houseTypeCode: "W1",
     configuration: config,
+    storeys: 2,
     status: "PRICED",
     subtotal: result.subtotal,
     stages: result.stages,
@@ -140,6 +141,7 @@ describe("buildClientMatrix — Timber Frame", () => {
     houseTypeName: "Ashorn",
     houseTypeCode: "A1",
     configuration: "DETACHED",
+    storeys: 2,
     status: "PRICED",
     subtotal: tfLine.subtotal,
     stages: tfLine.stages,
@@ -176,3 +178,83 @@ describe("buildClientMatrix — Timber Frame", () => {
 });
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+describe("standard inclusions (P6) — excluded from every total, listed once", () => {
+  // Rates that DO price the inclusion items, so their exclusion is actually tested.
+  const RATES_WITH_INCL = [
+    ...RATES,
+    { component: "LOW_LEVEL", action: "ERECT", band: "MEDIUM", rate: 150.0 },
+    { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", rate: 80.0 },
+  ];
+  const resolveIncl = buildRateResolver(RATES_WITH_INCL, "MEDIUM");
+  const price = (config: TakeoffInput["config"], plotNumber: string): PricedPlot => {
+    const result = priceTakeoffLine(buildTakeoff({ ...base, config }), {
+      resolveRate: resolveIncl,
+      stageSplits: SPLITS,
+    });
+    return {
+      plotId: `p-${plotNumber}`,
+      plotNumber,
+      houseTypeName: "Wollaton",
+      houseTypeCode: "W1",
+      configuration: config,
+      storeys: 2,
+      status: "PRICED",
+      subtotal: result.subtotal,
+      stages: result.stages,
+      lines: result.lines,
+      unpricedCount: 0,
+      hasGarage: false,
+    };
+  };
+
+  const plots = [price("DETACHED", "1"), price("SEMI_DETACHED", "2")];
+
+  it("keeps the low-level line priced but OUT of the subtotal", () => {
+    const det = plots[0];
+    const low = det.lines.find((l) => l.component === "LOW_LEVEL")!;
+    expect(low.amount).toBe(150); // still priced (audit)
+    expect(low.inclusion).toBe(true);
+    // subtotal excludes it: columned lines only.
+    const columned = det.lines.filter((l) => !l.inclusion).reduce((a, l) => a + l.amount, 0);
+    expect(round2(det.subtotal)).toBe(round2(columned));
+  });
+
+  it("stages reconcile to the plot total to the penny (fix #1/#2)", () => {
+    for (const p of plots) {
+      const stageSum = p.stages.reduce((a, s) => a + s.amount, 0);
+      expect(Math.round(stageSum * 100)).toBe(Math.round(p.subtotal * 100));
+    }
+  });
+
+  it("matrix cost columns, total and grand total all agree (fix #3)", () => {
+    const m = buildClientMatrix(plots, "TRADITIONAL");
+    for (const row of m.rows) {
+      const costSum = m.columns
+        .filter((c) => c.kind === "cost")
+        .reduce((a, c) => a + (row.cells[c.key] ?? 0), 0);
+      expect(Math.round(costSum * 100)).toBe(Math.round(row.costTotal * 100));
+      const stageSum = m.columns
+        .filter((c) => c.kind === "stage")
+        .reduce((a, c) => a + (row.cells[c.key] ?? 0), 0);
+      expect(Math.round(stageSum * 100)).toBe(Math.round(row.costTotal * 100));
+    }
+    const sumTotals = m.rows.reduce((a, r) => a + r.costTotal, 0);
+    expect(Math.round(m.grandTotal * 100)).toBe(Math.round(sumTotals * 100));
+  });
+
+  it("aggregates the inclusions into one list (fix B)", () => {
+    const inc = buildInclusions(plots);
+    const low = inc.find((i) => i.component === "LOW_LEVEL")!;
+    expect(low.label).toMatch(/low-level/i);
+    expect(low.totalQty).toBe(2); // one per plot
+    expect(low.plots).toEqual(["1", "2"]);
+    const party = inc.find((i) => i.component === "PARTY_WALL")!;
+    expect(party.plots).toEqual(["2"]); // only the semi
+  });
+
+  it("carries the storey into the matrix row (fix C)", () => {
+    const m = buildClientMatrix(plots, "TRADITIONAL");
+    expect(m.rows[0].storeys).toBe(2);
+  });
+});

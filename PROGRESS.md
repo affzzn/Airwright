@@ -13,6 +13,23 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-08-25
 
+### 2026-08-25 (c) — segmentation by NAME (fix: one combined file was splitting into phantom house types)
+
+A single "Combined Working Drawings" file was producing 2+ house types (Chesterwood
+×2: pages 13-14 mis-parsed code 1337 vs 1377; Hampton ×2: section/plan/elevation pages
+carried no portfolio code → a code-less phantom). Cause: `segmentByHouseType` keyed on
+CODE first, so a misread digit or a code-less page peeled pages into a separate group.
+
+- **Fix (`segment.ts`):** group by house-type **NAME** (the reliable identity). 1 distinct
+  name → ONE group with all relevant pages (absorbs misread-code + code-less pages, code =
+  majority vote); ≥2 names → group by name with code-less pages attached by code-match;
+  0 names → legacy code grouping. Verified on the real files — Chesterwood & Hampton now
+  1 house type each. 8 segment tests (+4), full suite 168 green, typecheck + lint clean.
+- **Not the model/extraction** — this is the free text-layer classifier + grouping, before
+  any AI call. Unrelated to the plot-list removal.
+- ⚠ **Existing DB rows already split** — the fix prevents FUTURE splits; re-ingest the pack
+  (or run `scripts/merge-duplicate-house-types.mts`) to collapse the duplicates already there.
+
 ### 2026-08-25 (b) — birdcage: internal-first, per-side walls, internal-vs-derived cross-check
 
 Follow-up to the ladder below, after Charford read an overall and halved it while

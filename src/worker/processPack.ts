@@ -14,12 +14,8 @@ import {
   isRelevantCategory,
 } from "@/lib/extract/categorise";
 import { segmentByHouseType } from "@/lib/extract/segment";
-import { buildRangeString } from "@/lib/pdf";
 import { getBoss } from "@/lib/queue/boss";
-import {
-  EXTRACT_DRAWING_QUEUE,
-  EXTRACT_PLOT_LIST_QUEUE,
-} from "@/lib/queue/jobs";
+import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
 
 /**
  * Process a whole tender pack:
@@ -233,17 +229,9 @@ async function classifyAndSegment(packId: string): Promise<void> {
       continue;
     }
 
-    // Plot-layout pages → queue a plot-list extraction (plot → type + config).
-    const plotPages = pages.filter((p) => p.kind === "PLOT_LAYOUT").map((p) => p.page);
-    if (plotPages.length > 0) {
-      await boss.send(EXTRACT_PLOT_LIST_QUEUE, {
-        documentId: doc.id,
-        pageRange: buildRangeString(plotPages),
-      });
-      console.log(`[process-pack] ${doc.fileName}: plot layout → queued plot-list extraction`);
-    }
-
-    // Segment into house types and queue one extraction each.
+    // Segment into house types and queue one extraction each. (Plots are NOT read
+    // from a site plan — they're created when a take-off is confirmed; extras are
+    // added by hand. So plot-layout sheets are simply not extracted.)
     const groups = segmentByHouseType(pages);
     for (const group of groups) {
       const houseType = await ensureHouseType(

@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GenerateQuoteButton } from "@/components/quote-actions";
+import { buildInclusions } from "@/lib/pricing/matrix";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export default async function PricingPage({
   const stageNames =
     pricing.plots.find((p) => p.stages.length)?.stages.map((s) => s.name) ?? [];
   const canQuote = rateCard !== null && pricing.confirmedCount > 0;
+  const inclusions = buildInclusions(pricing.plots);
 
   return (
     <AppShell>
@@ -224,6 +226,29 @@ export default async function PricingPage({
           )}
         </CardBody>
       </Card>
+
+      {inclusions.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <h2 className="text-sm font-semibold text-ink">Standard inclusions</h2>
+          </CardHeader>
+          <CardBody className="p-0">
+            <p className="border-b border-hairline px-5 py-2 text-[11px] text-ink-subtle">
+              Included in the rates — no separate charge, so not in the totals above.
+            </p>
+            <ul className="divide-y divide-hairline">
+              {inclusions.map((inc) => (
+                <li key={inc.component} className="flex items-center justify-between px-5 py-2.5 text-sm">
+                  <span className="text-ink">{inc.label}</span>
+                  <span className="text-xs text-ink-subtle">
+                    {inc.totalQty} · plot{inc.plots.length === 1 ? "" : "s"} {inc.plots.join(", ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
 
       <p className="mt-3 text-[11px] text-ink-subtle">
         Stage columns are the payment-stage split (a share of the total), not the true cost of

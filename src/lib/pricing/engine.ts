@@ -32,8 +32,27 @@ export interface PricedLine {
   rate: number; // £ per unit (0 when unpriced)
   amount: number; // £, 2 dp
   priced: boolean; // false when no rate was found for this component/action/band
+  /**
+   * True for items Colin's client matrix has NO column for — low level, party
+   * wall, chimney. In his files these are covered by a "standard inclusions" list
+   * (their cost is inside the rates), so they are EXCLUDED from the plot subtotal,
+   * the stage split and the grand total (docs/15 §3 P6, decision 2026-08-25). They
+   * are still carried here (and in the Line-items audit) so the inclusions list can
+   * name them. When Colin's rate sheet confirms the bundling this stays; if he ever
+   * wants one priced as an extra, drop it from INCLUSION_COMPONENTS.
+   */
+  inclusion?: boolean;
   note?: string;
 }
+
+/** Components the client matrix has no column for — listed as standard inclusions. */
+export const INCLUSION_COMPONENTS = new Set(["LOW_LEVEL", "PARTY_WALL", "OTHER"]);
+export const isInclusionComponent = (component: string): boolean =>
+  INCLUSION_COMPONENTS.has(component);
+
+/** Σ of the COLUMNED lines (pence) — inclusions are excluded from every total. */
+const columnedSubtotalPence = (lines: PricedLine[]): number =>
+  lines.reduce((a, l) => (l.inclusion ? a : a + Math.round(l.amount * 100)), 0);
 
 export interface StageAmount {
   name: string;
@@ -129,6 +148,7 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
       rate: rate ?? 0,
       amount: pence / 100,
       priced,
+      inclusion: isInclusionComponent(component),
       note,
     });
   };
@@ -177,7 +197,7 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
   if (line.chimney) add("OTHER", "ERECT", 1, "EACH", null, "chimney scaffold"); // ⚠ no CHIMNEY enum
 
   // --- Subtotal (pence, then pounds) ---
-  const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
+  const subtotalPence = columnedSubtotalPence(lines);
 
   // --- Stage split: presented as a % of the subtotal (NOT the item costs). ---
   // Rounded to the penny with the remainder on the last stage, so the stages
@@ -238,6 +258,7 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
       rate: rate ?? 0,
       amount: pence / 100,
       priced,
+      inclusion: isInclusionComponent(component),
       note,
     });
   };
@@ -266,7 +287,7 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
   // Single external dismantle (matrix col N). No birdcage in the TF plot matrix.
   if (totalExternal > 0) add("TF_EXTERNAL", "DISMANTLE", totalExternal, "LM", null, "dismantle");
 
-  const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
+  const subtotalPence = columnedSubtotalPence(lines);
   return {
     lines,
     subtotal: subtotalPence / 100,
@@ -306,6 +327,7 @@ export function priceGarageLine(garage: GarageLine, opts: PriceOpts): PriceResul
       rate: rate ?? 0,
       amount: pence / 100,
       priced,
+      inclusion: isInclusionComponent(component),
       note,
     });
   };
@@ -324,7 +346,7 @@ export function priceGarageLine(garage: GarageLine, opts: PriceOpts): PriceResul
   if (garage.lifts > 0)
     add("LIFT", "DISMANTLE", round2(garage.perimeterPerLiftM * garage.lifts), "LM", null, "garage dismantle");
 
-  const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
+  const subtotalPence = columnedSubtotalPence(lines);
   return {
     lines,
     subtotal: subtotalPence / 100,

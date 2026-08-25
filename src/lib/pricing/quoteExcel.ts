@@ -9,9 +9,9 @@
  * live formula when the file opens.
  */
 import ExcelJS from "exceljs";
-import { buildClientMatrix, buildGarageMatrix, type MatrixBuildType } from "./matrix";
+import { buildClientMatrix, buildGarageMatrix, buildInclusions, type MatrixBuildType } from "./matrix";
 import type { PricedPlot, PricedGarage } from "./priceProject";
-import type { PricedLine, Action } from "./engine";
+import { isInclusionComponent, type PricedLine, type Action } from "./engine";
 
 const CONFIG_LABEL: Record<string, string> = {
   DETACHED: "Detached",
@@ -48,6 +48,7 @@ export type QuoteLineItemForExcel = {
     plotNumber: string;
     configuration: string;
     garageType: string | null;
+    storeys?: number | null;
     houseType: { name: string; code: string | null; buildType: string | null };
   } | null;
 };
@@ -82,6 +83,7 @@ function pricedPlotsByBuildType(lineItems: QuoteLineItemForExcel[]): Map<MatrixB
         rate: num(li.rate),
         amount: num(li.amount),
         priced: true,
+        inclusion: isInclusionComponent(li.component),
         note: li.description ?? undefined,
       });
     }
@@ -89,7 +91,10 @@ function pricedPlotsByBuildType(lineItems: QuoteLineItemForExcel[]): Map<MatrixB
   const out = new Map<MatrixBuildType, PricedPlot[]>();
   for (const { plot, lines, stages } of byPlot.values()) {
     const bt: MatrixBuildType = plot.houseType.buildType === "TIMBER_FRAME" ? "TIMBER_FRAME" : "TRADITIONAL";
-    const subtotal = Math.round(lines.reduce((a, l) => a + l.amount * 100, 0)) / 100;
+    // Subtotal is the COLUMNED cost only — inclusions carry no column (they're
+    // listed separately), so they never enter the plot total or the stage split.
+    const subtotal =
+      Math.round(lines.filter((l) => !l.inclusion).reduce((a, l) => a + l.amount * 100, 0)) / 100;
     if (!out.has(bt)) out.set(bt, []);
     out.get(bt)!.push({
       plotId: plot.id,
@@ -97,6 +102,7 @@ function pricedPlotsByBuildType(lineItems: QuoteLineItemForExcel[]): Map<MatrixB
       houseTypeName: plot.houseType.name,
       houseTypeCode: plot.houseType.code,
       configuration: plot.configuration,
+      storeys: plot.storeys ?? null,
       status: "PRICED",
       subtotal,
       stages,
@@ -191,7 +197,7 @@ export async function buildQuoteWorkbook(quote: QuoteForExcel): Promise<Uint8Arr
         if (c.key === "plot") return safe(row.plotNumber);
         if (c.key === "code") return safe(row.houseTypeCode ?? row.houseTypeName);
         if (c.key === "config") return safe(CONFIG_LABEL[row.configuration] ?? row.configuration);
-        if (c.key === "storey") return "";
+        if (c.key === "storey") return row.storeys ?? "";
         if (c.key === "total") return row.costTotal;
         return row.cells[c.key] ?? 0;
       }),
@@ -226,6 +232,19 @@ export async function buildQuoteWorkbook(quote: QuoteForExcel): Promise<Uint8Arr
   g3.font = { bold: true };
   ws.getColumn(1).width = 26;
   ws.getColumn(2).width = 20;
+
+  // Standard inclusions — items covered by the rates, with no matrix column and
+  // no separate charge (docs/15 §3 P6). Listed once, informational only.
+  const inclusions = buildInclusions([...plotsByType.values()].flat());
+  if (inclusions.length > 0) {
+    ws.addRow([]);
+    const ih = ws.addRow(["Standard inclusions (included in the rates — no separate charge)"]);
+    ih.font = { bold: true };
+    ws.addRow(["Item", "Qty", "Plots"]).font = { bold: true };
+    for (const inc of inclusions) {
+      ws.addRow([safe(inc.label), inc.totalQty, safe(inc.plots.join(", "))]);
+    }
+  }
 
   // Line items — the true-cost audit backing.
   const detailRows = quote.lineItems.filter((li) => li.component && !li.stage);

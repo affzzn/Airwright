@@ -4,8 +4,10 @@ import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PrintButton } from "@/components/quote-actions";
 import { Button } from "@/components/ui/button";
+import { HoverAmount, type BreakdownRow } from "@/components/ui/hover-amount";
+import { isInclusionComponent } from "@/lib/pricing/engine";
+import { aggregateInclusions } from "@/lib/pricing/matrix";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +20,38 @@ const CONFIG_LABEL: Record<string, string> = {
 };
 const gbp = (n: number) =>
   n.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
+
+// Payment stages render in a fixed order (matches the Excel + the pricing page).
+const STAGE_SORT: Record<string, number> = { "Plot Erect": 0, "Birdcage Erect": 1, Dismantle: 2 };
+
+// Cost buckets for the hover breakdown — group the frozen detail lines into the
+// few headline numbers a reader wants behind a total. Inclusions are counted
+// separately (they're covered by the rates, not a separate charge).
+type Li = { component: string | null; action: string | null; amount: unknown };
+const BUCKETS: { label: string; match: (l: Li) => boolean }[] = [
+  { label: "External scaffold", match: (l) => (l.component === "LIFT" || l.component === "TF_EXTERNAL") && l.action === "ERECT" },
+  { label: "Adaptions", match: (l) => l.component === "ADAPTION" && l.action === "ERECT" },
+  { label: "Table lifts & gable rails", match: (l) => (l.component === "GABLE" || l.component === "GABLE_RAILS") && l.action === "ERECT" },
+  { label: "Render adaption", match: (l) => l.component === "RENDER_ADAPTION" },
+  { label: "Birdcage erect", match: (l) => !!l.component?.startsWith("BIRDCAGE_") && l.action === "ERECT" },
+  { label: "Birdcage strip", match: (l) => !!l.component?.startsWith("BIRDCAGE_") && l.action === "DISMANTLE" },
+  { label: "External dismantle", match: (l) => (l.component === "LIFT" || l.component === "TF_EXTERNAL") && l.action === "DISMANTLE" },
+];
+function breakdown(lines: Li[]): { rows: BreakdownRow[]; inclusionTotal: number } {
+  const rows: BreakdownRow[] = [];
+  for (const b of BUCKETS) {
+    const amt = lines.filter((l) => b.match(l)).reduce((a, l) => a + Number(l.amount), 0);
+    if (Math.round(amt * 100) !== 0) rows.push({ label: b.label, value: gbp(amt) });
+  }
+  const inclusionTotal = lines
+    .filter((l) => l.component && isInclusionComponent(l.component))
+    .reduce((a, l) => a + Number(l.amount), 0);
+  return { rows, inclusionTotal };
+}
+const inclusionNote = (total: number): string | undefined =>
+  total > 0
+    ? `Plus ${gbp(total)} standard inclusions (covered by the rates — not charged separately).`
+    : undefined;
 
 export default async function QuotePage({
   params,
@@ -48,11 +82,19 @@ export default async function QuotePage({
     .filter((li) => li.group === "GARAGE" && li.component && !li.stage)
     .reduce((a, li) => a + Number(li.amount), 0);
 
+  // True-cost detail lines grouped per plot — the backing for the hover breakdown.
+  const linesByPlot = new Map<string, Li[]>();
+  for (const li of detailRows) {
+    if (!li.plotId) continue;
+    (linesByPlot.get(li.plotId) ?? linesByPlot.set(li.plotId, []).get(li.plotId)!).push(li);
+  }
+
   // Per-plot stage matrix.
   const stageNames: string[] = [];
   const byPlot = new Map<
     string,
     {
+      plotId: string;
       plotNumber: string;
       houseTypeName: string;
       houseTypeCode: string | null;
@@ -66,6 +108,7 @@ export default async function QuotePage({
     const k = li.plot.id;
     if (!byPlot.has(k))
       byPlot.set(k, {
+        plotId: li.plot.id,
         plotNumber: li.plot.plotNumber,
         houseTypeName: li.plot.houseType.name,
         houseTypeCode: li.plot.houseType.code,
@@ -74,6 +117,7 @@ export default async function QuotePage({
       });
     byPlot.get(k)!.stages.set(li.stage, Number(li.amount));
   }
+  stageNames.sort((a, b) => (STAGE_SORT[a] ?? 9) - (STAGE_SORT[b] ?? 9));
   const plots = [...byPlot.values()].sort((a, b) => {
     const na = parseInt(a.plotNumber, 10);
     const nb = parseInt(b.plotNumber, 10);
@@ -81,17 +125,33 @@ export default async function QuotePage({
     return a.plotNumber.localeCompare(b.plotNumber);
   });
 
-  // Summary by house type (site totals from the true-cost lines).
-  const byHt = new Map<string, { code: string | null; plots: Set<string>; total: number }>();
+  // Summary by house type — the CHARGED total (columned lines only; inclusions
+  // are covered by the rates and listed separately, so excluded here).
+  const byHt = new Map<
+    string,
+    { code: string | null; plots: Set<string>; total: number; lines: Li[] }
+  >();
   for (const li of detailRows) {
     const name = li.plot?.houseType.name ?? "—";
     if (!byHt.has(name))
-      byHt.set(name, { code: li.plot?.houseType.code ?? null, plots: new Set(), total: 0 });
+      byHt.set(name, { code: li.plot?.houseType.code ?? null, plots: new Set(), total: 0, lines: [] });
     const e = byHt.get(name)!;
     if (li.plotId) e.plots.add(li.plotId);
-    e.total += Number(li.amount);
+    e.lines.push(li);
+    if (!(li.component && isInclusionComponent(li.component))) e.total += Number(li.amount);
   }
   const houseTypes = [...byHt.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  // Standard inclusions (P6) — listed once, informational, not in any total.
+  const inclusions = aggregateInclusions(
+    detailRows
+      .filter((li) => li.component && isInclusionComponent(li.component))
+      .map((li) => ({
+        component: li.component as string,
+        quantity: Number(li.quantity),
+        plotNumber: li.plot?.plotNumber ?? "—",
+      })),
+  );
 
   return (
     <AppShell>
@@ -123,7 +183,6 @@ export default async function QuotePage({
               Export Excel
             </Button>
           </a>
-          <PrintButton />
         </div>
       </div>
 
@@ -143,20 +202,28 @@ export default async function QuotePage({
                 </tr>
               </thead>
               <tbody>
-                {houseTypes.map(([name, e]) => (
-                  <tr key={name} className="border-b border-hairline last:border-0">
-                    <td className="px-5 py-2.5 text-ink">
-                      {name}
-                      {e.code && <span className="ml-1.5 text-ink-subtle">{e.code}</span>}
-                    </td>
-                    <td className="px-5 py-2.5 text-right tabular-nums text-ink-muted">
-                      {e.plots.size}
-                    </td>
-                    <td className="px-5 py-2.5 text-right font-medium tabular-nums text-ink">
-                      {gbp(e.total)}
-                    </td>
-                  </tr>
-                ))}
+                {houseTypes.map(([name, e]) => {
+                  const bd = breakdown(e.lines);
+                  return (
+                    <tr key={name} className="border-b border-hairline last:border-0">
+                      <td className="px-5 py-2.5 text-ink">
+                        {name}
+                        {e.code && <span className="ml-1.5 text-ink-subtle">{e.code}</span>}
+                      </td>
+                      <td className="px-5 py-2.5 text-right tabular-nums text-ink-muted">
+                        {e.plots.size}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-medium tabular-nums text-ink">
+                        <HoverAmount
+                          display={gbp(e.total)}
+                          title={`${name} — breakdown`}
+                          rows={bd.rows}
+                          note={inclusionNote(bd.inclusionTotal)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -188,6 +255,7 @@ export default async function QuotePage({
               <tbody>
                 {plots.map((p) => {
                   const total = [...p.stages.values()].reduce((a, v) => a + v, 0);
+                  const bd = breakdown(linesByPlot.get(p.plotId) ?? []);
                   return (
                     <tr key={p.plotNumber} className="border-b border-hairline last:border-0">
                       <td className="px-5 py-2.5 font-medium text-ink">{p.plotNumber}</td>
@@ -200,13 +268,25 @@ export default async function QuotePage({
                       <td className="px-5 py-2.5 text-ink-muted">
                         {CONFIG_LABEL[p.config] ?? p.config}
                       </td>
-                      {stageNames.map((n) => (
-                        <td key={n} className="px-3 py-2.5 text-right tabular-nums text-ink-muted">
-                          {gbp(p.stages.get(n) ?? 0)}
-                        </td>
-                      ))}
+                      {stageNames.map((n) => {
+                        const amount = p.stages.get(n) ?? 0;
+                        const pct = total > 0 ? Math.round((amount / total) * 100) : 0;
+                        return (
+                          <td key={n} className="px-3 py-2.5 text-right tabular-nums text-ink-muted">
+                            <HoverAmount
+                              display={gbp(amount)}
+                              note={`${n} — ${pct}% of the ${gbp(total)} plot total (a payment-stage share, not item cost).`}
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="px-5 py-2.5 text-right font-medium tabular-nums text-ink">
-                        {gbp(total)}
+                        <HoverAmount
+                          display={gbp(total)}
+                          title={`Plot ${p.plotNumber} — breakdown`}
+                          rows={bd.rows}
+                          note={inclusionNote(bd.inclusionTotal)}
+                        />
                       </td>
                     </tr>
                   );
@@ -243,9 +323,33 @@ export default async function QuotePage({
         </CardBody>
       </Card>
 
+      {inclusions.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <h2 className="text-sm font-semibold text-ink">Standard inclusions</h2>
+          </CardHeader>
+          <CardBody className="p-0">
+            <p className="border-b border-hairline px-5 py-2 text-[11px] text-ink-subtle">
+              Included in the rates — no separate charge.
+            </p>
+            <ul className="divide-y divide-hairline">
+              {inclusions.map((inc) => (
+                <li key={inc.component} className="flex items-center justify-between px-5 py-2.5 text-sm">
+                  <span className="text-ink">{inc.label}</span>
+                  <span className="text-xs text-ink-subtle">
+                    {inc.totalQty} · plot{inc.plots.length === 1 ? "" : "s"} {inc.plots.join(", ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       <p className="mt-3 text-[11px] text-ink-subtle">
         Immutable snapshot — quantities and rates are frozen at quote time. Stage columns are the
-        payment-stage split (a share of the total), not the true item cost.
+        payment-stage split (a share of the total), not the true item cost. Hover any figure for its
+        breakdown.
       </p>
     </AppShell>
   );

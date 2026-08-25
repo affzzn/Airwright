@@ -103,8 +103,9 @@ export function extractHouseTypeRef(raw: string): {
 export function classifyTitle(titleRaw: string): PageKind {
   const title = compact(titleRaw);
 
-  // Site plans win FIRST — a site layout often also says "foundations", which
-  // would otherwise be excluded below and lose us the plot list.
+  // Site / plot layouts are NOT used — plots come from confirming a take-off, not
+  // from reading a site plan. Named here so they fall straight to OTHER (not
+  // relevant) rather than being mistaken for a take-off sheet.
   if (
     title.includes("SITELAYOUT") ||
     title.includes("SITEPLAN") ||
@@ -112,7 +113,7 @@ export function classifyTitle(titleRaw: string): PageKind {
     title.includes("PLOTSCHEDULE") ||
     title.includes("PLANNINGLAYOUT")
   )
-    return "PLOT_LAYOUT";
+    return "OTHER";
 
   // Exclusions — sheets a take-off does NOT need.
   if (title.includes("CUSTOMEROPTION")) return "OTHER";
@@ -201,12 +202,6 @@ export function classifyByText(raw: string): { kind: PageKind; label: string } {
     !/\b(SITE|DRAINAGE|FOUNDATION|LEVELS?)\s+SETTING\s*OUT\b/.test(up)
   )
     return { kind: "FLOOR_PLAN", label: "SETTING OUT PLAN" };
-
-  // Only a page with no elevation/floor-plan label is treated as a plot layout.
-  if (/\b(SITE\s*(LAYOUT|PLAN)|PLOT\s*(LAYOUT|SCHEDULE)|PLANNING\s*LAYOUT)\b/.test(up)) {
-    const m = up.match(/\b(SITE|PLOT|PLANNING)\s*(LAYOUT|PLAN|SCHEDULE)\b/);
-    return { kind: "PLOT_LAYOUT", label: m ? m[0] : "SITE LAYOUT" };
-  }
 
   return none;
 }

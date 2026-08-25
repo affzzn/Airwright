@@ -60,6 +60,8 @@ export interface PricedPlot {
   houseTypeName: string;
   houseTypeCode: string | null;
   configuration: string;
+  /** Storeys (1 / 2 / 2.5 / 3) — populates the matrix's Storey column. */
+  storeys: number | null;
   status: PlotStatus;
   subtotal: number;
   stages: { name: string; percent: number; amount: number }[];
@@ -145,6 +147,7 @@ export function priceProject(input: {
       houseTypeName: ht?.name ?? "—",
       houseTypeCode: ht?.code ?? null,
       configuration: plot.configuration,
+      storeys: null as number | null,
       hasGarage: plot.hasGarage,
       unpricedCount: 0,
       subtotal: 0,
@@ -189,6 +192,7 @@ export function priceProject(input: {
     plots.push({
       ...shell,
       status: "PRICED",
+      storeys: engineInput.storeys,
       subtotal: result.subtotal,
       stages: result.stages,
       lines: result.lines,

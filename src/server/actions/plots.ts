@@ -3,35 +3,16 @@
 import { revalidatePath } from "next/cache";
 import type { Configuration } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { rematchProjectPlots } from "@/lib/extract/persistPlots";
 
 /**
- * Plot-schedule editing — the human-in-the-loop correction step for the plot
- * list. Extraction reads plot NUMBERS reliably but often can't read the
- * house-type or configuration per plot (they aren't always on the site drawing),
- * so a person assigns them here. Pricing runs off these corrected values, so a
- * plot pointing at the right CONFIRMED house type + the right config is what
- * unblocks the quote. See docs/11 §3.15 (configuration comes from the schedule).
+ * Plot editing — the human-in-the-loop step for the plot list. Plots are created
+ * automatically when a take-off is confirmed (one per house type); the estimator
+ * adds any extra plots by hand and sets each plot's configuration + render here.
+ * Pricing runs off these values, so a plot pointing at a CONFIRMED house type
+ * with the right config is what unblocks the quote.
  */
 
 const CONFIGS = new Set(["DETACHED", "SEMI_DETACHED", "END_TERRACE", "MID_TERRACE"]);
-
-/**
- * Re-link plot-list stubs to real house types from the stored site-plan refs
- * (no Claude calls). Useful after the drawings finish extracting / after a code
- * backfill. Leaves hand-assigned plots alone; clears emptied stubs.
- */
-export async function rematchPlots(
-  projectId: string,
-): Promise<{ ok: boolean; relinked?: number; cleaned?: number; hadData?: boolean; error?: string }> {
-  try {
-    const r = await rematchProjectPlots(projectId);
-    revalidatePath(`/projects/${projectId}`);
-    return { ok: true, ...r };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Re-match failed" };
-  }
-}
 
 /** The project a plot belongs to (for validation + revalidation). */
 async function projectOfPlot(plotId: string): Promise<string | null> {

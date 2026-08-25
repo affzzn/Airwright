@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { addPlot, bulkUpdatePlots, deletePlot, rematchPlots, updatePlot } from "@/server/actions/plots";
+import { addPlot, bulkUpdatePlots, deletePlot, updatePlot } from "@/server/actions/plots";
 import { cn } from "@/lib/utils";
 
 export interface PlotRow {
@@ -62,7 +62,7 @@ export function PlotEditor({
   const [bulkConfig, setBulkConfig] = useState("");
   const [bulkRender, setBulkRender] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
   // Add-plot form (default to the top house type — usually the confirmed one)
   const [addHt, setAddHt] = useState(
     () => [...houseTypes].sort(sortHouseTypes)[0]?.id ?? "",
@@ -73,15 +73,23 @@ export function PlotEditor({
 
   const options = [...houseTypes].sort(sortHouseTypes);
   const htStatusById = new Map(houseTypes.map((h) => [h.id, h.status]));
-  const htNameById = new Map(houseTypes.map((h) => [h.id, h.name]));
+  const htById = new Map(houseTypes.map((h) => [h.id, h]));
+
+  // "Simple" = every house type maps to at most one plot (no real site layout /
+  // no mixed-config blocks). Then the house-type dropdown, checkboxes and bulk
+  // bar are pure friction — collapse to a per-house-type strip. The full grid is
+  // reserved for a genuine multi-plot development, which is what it's for.
+  const perType = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of plots) m.set(p.houseTypeId, (m.get(p.houseTypeId) ?? 0) + 1);
+    return m;
+  }, [plots]);
+  const simple = ![...perType.values()].some((c) => c > 1);
 
   // Readiness for pricing: a plot prices only when its house type's take-off is
   // CONFIRMED. Surface exactly what's blocking a quote.
   const readyCount = plots.filter((p) => htStatusById.get(p.houseTypeId) === "CONFIRMED").length;
-  const unassignedCount = plots.filter(
-    (p) => (htNameById.get(p.houseTypeId) ?? "Unknown") === "Unknown",
-  ).length;
-  const notConfirmedCount = plots.length - readyCount - unassignedCount;
+  const notConfirmedCount = plots.length - readyCount;
 
   const allSelected = plots.length > 0 && selected.size === plots.length;
   const toggle = (id: string) =>
@@ -98,23 +106,6 @@ export function PlotEditor({
       setError(null);
       const res = await fn();
       if (!res.ok) setError(res.error ?? "Something went wrong.");
-      router.refresh();
-    });
-
-  const doRematch = () =>
-    start(async () => {
-      setError(null);
-      setInfo(null);
-      const res = await rematchPlots(projectId);
-      if (!res.ok) {
-        setError(res.error ?? "Re-match failed");
-        return;
-      }
-      setInfo(
-        !res.hadData
-          ? "No stored site-plan data to match from — assign house types manually below."
-          : `Re-matched ${res.relinked ?? 0} plot(s); cleared ${res.cleaned ?? 0} empty stub(s).`,
-      );
       router.refresh();
     });
 
@@ -155,6 +146,7 @@ export function PlotEditor({
       if (res.ok) {
         setAddNumber("");
         setAddCount("1");
+        setShowAdd(false);
       }
       return res;
     });
@@ -164,16 +156,64 @@ export function PlotEditor({
     "rounded-md border border-hairline-strong bg-canvas px-2 py-1 text-xs text-ink " +
     "focus:border-ink focus:outline-none disabled:opacity-50";
 
+  const readyDot = (priceable: boolean) => (
+    <span
+      title={priceable ? "Take-off confirmed — will price" : "Take-off not confirmed — won't price"}
+      className={cn(
+        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+        priceable ? "bg-ink" : "border border-hairline-strong",
+      )}
+    />
+  );
+
+  const configSelect = (p: PlotRow) => (
+    <select
+      aria-label={`Configuration for plot ${p.plotNumber}`}
+      value={p.configuration}
+      disabled={pending}
+      onChange={(e) => run(() => updatePlot(p.id, { configuration: e.target.value }))}
+      className={selectClass}
+    >
+      {CONFIGS.map((c) => (
+        <option key={c.value} value={c.value}>
+          {c.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  const renderToggle = (p: PlotRow) => (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => run(() => updatePlot(p.id, { isRendered: !p.isRendered }))}
+      className={cn(
+        "rounded border px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+        p.isRendered
+          ? "border-transparent bg-ink text-canvas hover:opacity-90"
+          : "border-hairline-strong bg-canvas text-ink-muted hover:bg-surface",
+      )}
+    >
+      {p.isRendered ? "Rendered" : "Render"}
+    </button>
+  );
+
+  const deleteBtn = (p: PlotRow) => (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => run(() => deletePlot(p.id))}
+      className="text-[11px] text-ink-subtle hover:text-ink disabled:opacity-50"
+    >
+      Delete
+    </button>
+  );
+
   return (
     <div>
       {error && (
         <p className="border-b border-hairline bg-surface px-5 py-2 text-xs text-ink-muted">
           {error}
-        </p>
-      )}
-      {info && (
-        <p className="border-b border-hairline bg-surface px-5 py-2 text-xs text-ink-muted">
-          {info}
         </p>
       )}
 
@@ -184,64 +224,209 @@ export function PlotEditor({
             <span className="font-medium text-ink">
               {readyCount} of {plots.length} plot{plots.length === 1 ? "" : "s"} ready to price
             </span>
-            {unassignedCount > 0 && (
-              <span className="text-ink-muted">
-                {unassignedCount} need a house type
-              </span>
-            )}
             {notConfirmedCount > 0 && (
               <span className="text-ink-muted">
                 {notConfirmedCount} awaiting a confirmed take-off
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {unassignedCount > 0 && (
-              <button
-                type="button"
-                onClick={doRematch}
-                disabled={pending}
-                title="Re-link unassigned plots to house types from the site plan"
-                className="rounded-md border border-hairline-strong px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface disabled:opacity-50"
-              >
-                {pending ? "Matching…" : "Re-match from site plan"}
-              </button>
+          <Link
+            href={`/projects/${projectId}/pricing`}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+              readyCount > 0
+                ? "bg-ink text-canvas hover:opacity-90"
+                : "border border-hairline-strong text-ink-muted hover:bg-surface",
             )}
-            <Link
-              href={`/projects/${projectId}/pricing`}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                readyCount > 0
-                  ? "bg-ink text-canvas hover:opacity-90"
-                  : "border border-hairline-strong text-ink-muted hover:bg-surface",
-              )}
-            >
-              Price →
-            </Link>
-          </div>
+          >
+            Price →
+          </Link>
         </div>
       )}
 
-      {(unassignedCount > 0 || notConfirmedCount > 0) && (
+      {notConfirmedCount > 0 && (
         <p className="border-b border-hairline bg-surface px-5 py-2 text-[11px] text-ink-subtle">
-          {unassignedCount > 0 ? (
-            <>Tick the plots below (or “select all”) and use the bar to assign a real house type. </>
-          ) : null}
-          {notConfirmedCount > 0 ? (
-            <>Confirm each assigned house type’s take-off on its Review screen to make its plots price. </>
-          ) : null}
+          Confirm each house type’s take-off on its Review screen to make its plots price.
         </p>
       )}
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-surface px-5 py-2.5">
-          <span className="text-xs font-medium text-ink">{selected.size} selected</span>
-          <span className="text-ink-subtle">→</span>
+      {simple ? (
+        /* ---- Compact per-house-type strip (one plot per type) ---- */
+        plots.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-ink-subtle">
+            No plots yet. Confirm a house type’s take-off to price it — or add one by hand below.
+          </p>
+        ) : (
+          <ul className="divide-y divide-hairline">
+            {plots.map((p) => {
+              const ht = htById.get(p.houseTypeId);
+              const priceable = (ht?.status ?? "NONE") === "CONFIRMED";
+              return (
+                <li
+                  key={p.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3"
+                >
+                  {readyDot(priceable)}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink">
+                      {ht?.name ?? "Unknown"}
+                      {ht?.code && (
+                        <span className="ml-2 text-xs text-ink-subtle">{ht.code}</span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-ink-subtle">Plot {p.plotNumber}</p>
+                  </div>
+                  {configSelect(p)}
+                  {renderToggle(p)}
+                  {deleteBtn(p)}
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+        /* ---- Full grid (a real multi-plot development) ---- */
+        <>
+          {/* Bulk action bar */}
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-surface px-5 py-2.5">
+              <span className="text-xs font-medium text-ink">{selected.size} selected</span>
+              <span className="text-ink-subtle">→</span>
+              <select
+                aria-label="Assign house type"
+                value={bulkHt}
+                onChange={(e) => setBulkHt(e.target.value)}
+                disabled={pending}
+                className={selectClass}
+              >
+                <option value="">House type…</option>
+                {options.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {htLabel(h)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Set configuration"
+                value={bulkConfig}
+                onChange={(e) => setBulkConfig(e.target.value)}
+                disabled={pending}
+                className={selectClass}
+              >
+                <option value="">Config…</option>
+                {CONFIGS.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Set render"
+                value={bulkRender}
+                onChange={(e) => setBulkRender(e.target.value)}
+                disabled={pending}
+                className={selectClass}
+              >
+                <option value="">Render…</option>
+                <option value="yes">Rendered</option>
+                <option value="no">Not rendered</option>
+              </select>
+              <button
+                type="button"
+                onClick={applyBulk}
+                disabled={pending}
+                className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-50"
+              >
+                {pending ? "Applying…" : "Apply"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                disabled={pending}
+                className="text-xs text-ink-muted hover:text-ink"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-hairline text-left">
+                  <th className="w-8 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all plots"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="accent-ink"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 font-medium text-ink-subtle">Plot</th>
+                  <th className="px-3 py-2.5 font-medium text-ink-subtle">House type</th>
+                  <th className="px-3 py-2.5 font-medium text-ink-subtle">Configuration</th>
+                  <th className="px-3 py-2.5 font-medium text-ink-subtle">Render</th>
+                  <th className="px-3 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {plots.map((p) => {
+                  const status = htStatusById.get(p.houseTypeId) ?? "NONE";
+                  const priceable = status === "CONFIRMED";
+                  return (
+                    <tr key={p.id} className="border-b border-hairline last:border-0">
+                      <td className="px-4 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select plot ${p.plotNumber}`}
+                          checked={selected.has(p.id)}
+                          onChange={() => toggle(p.id)}
+                          className="accent-ink"
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-medium text-ink">{p.plotNumber}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            aria-label={`House type for plot ${p.plotNumber}`}
+                            value={p.houseTypeId}
+                            disabled={pending}
+                            onChange={(e) =>
+                              run(() => updatePlot(p.id, { houseTypeId: e.target.value }))
+                            }
+                            className={cn(selectClass, "max-w-[220px]")}
+                          >
+                            {options.map((h) => (
+                              <option key={h.id} value={h.id}>
+                                {htLabel(h)}
+                              </option>
+                            ))}
+                          </select>
+                          {readyDot(priceable)}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">{configSelect(p)}</td>
+                      <td className="px-3 py-2">{renderToggle(p)}</td>
+                      <td className="px-3 py-2 text-right">{deleteBtn(p)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Add plot — always available, but tucked behind a disclosure in the
+          simple case (plots are auto-created on confirm, so it's rarely needed). */}
+      {showAdd || !simple ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-5 py-2.5">
+          <span className="text-xs font-medium text-ink">Add plot</span>
           <select
-            aria-label="Assign house type"
-            value={bulkHt}
-            onChange={(e) => setBulkHt(e.target.value)}
+            aria-label="House type for new plot"
+            value={addHt}
+            onChange={(e) => setAddHt(e.target.value)}
             disabled={pending}
             className={selectClass}
           >
@@ -253,236 +438,75 @@ export function PlotEditor({
             ))}
           </select>
           <select
-            aria-label="Set configuration"
-            value={bulkConfig}
-            onChange={(e) => setBulkConfig(e.target.value)}
+            aria-label="Configuration for new plot"
+            value={addConfig}
+            onChange={(e) => setAddConfig(e.target.value)}
             disabled={pending}
             className={selectClass}
           >
-            <option value="">Config…</option>
             {CONFIGS.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>
             ))}
           </select>
-          <select
-            aria-label="Set render"
-            value={bulkRender}
-            onChange={(e) => setBulkRender(e.target.value)}
+          <input
+            aria-label="Plot number (optional)"
+            value={addNumber}
+            onChange={(e) => setAddNumber(e.target.value)}
             disabled={pending}
-            className={selectClass}
-          >
-            <option value="">Render…</option>
-            <option value="yes">Rendered</option>
-            <option value="no">Not rendered</option>
-          </select>
+            placeholder="Plot no. (auto)"
+            className="w-28 rounded-md border border-hairline-strong bg-canvas px-2 py-1 text-xs text-ink placeholder:text-ink-subtle focus:border-ink focus:outline-none disabled:opacity-50"
+          />
+          {!addNumber.trim() && (
+            <>
+              <span className="text-xs text-ink-subtle">×</span>
+              <input
+                aria-label="How many plots to add"
+                type="number"
+                min={1}
+                max={100}
+                value={addCount}
+                onChange={(e) => setAddCount(e.target.value)}
+                disabled={pending}
+                className="w-16 rounded-md border border-hairline-strong bg-canvas px-2 py-1 text-xs text-ink focus:border-ink focus:outline-none disabled:opacity-50"
+              />
+            </>
+          )}
           <button
             type="button"
-            onClick={applyBulk}
+            onClick={submitAdd}
             disabled={pending}
             className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-50"
           >
-            {pending ? "Applying…" : "Apply"}
+            {pending ? "Adding…" : "Add"}
           </button>
+          {simple && (
+            <button
+              type="button"
+              onClick={() => setShowAdd(false)}
+              className="text-xs text-ink-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="border-t border-hairline px-5 py-2.5">
           <button
             type="button"
-            onClick={() => setSelected(new Set())}
-            disabled={pending}
-            className="text-xs text-ink-muted hover:text-ink"
+            onClick={() => setShowAdd(true)}
+            className="text-xs font-medium text-ink-muted hover:text-ink"
           >
-            Clear
+            + Add a plot manually
           </button>
         </div>
       )}
 
-      {/* Add plot */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-5 py-2.5">
-        <span className="text-xs font-medium text-ink">Add plot</span>
-        <select
-          aria-label="House type for new plot"
-          value={addHt}
-          onChange={(e) => setAddHt(e.target.value)}
-          disabled={pending}
-          className={selectClass}
-        >
-          <option value="">House type…</option>
-          {options.map((h) => (
-            <option key={h.id} value={h.id}>
-              {htLabel(h)}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Configuration for new plot"
-          value={addConfig}
-          onChange={(e) => setAddConfig(e.target.value)}
-          disabled={pending}
-          className={selectClass}
-        >
-          {CONFIGS.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="Plot number (optional)"
-          value={addNumber}
-          onChange={(e) => setAddNumber(e.target.value)}
-          disabled={pending}
-          placeholder="Plot no. (auto)"
-          className="w-28 rounded-md border border-hairline-strong bg-canvas px-2 py-1 text-xs text-ink placeholder:text-ink-subtle focus:border-ink focus:outline-none disabled:opacity-50"
-        />
-        {!addNumber.trim() && (
-          <>
-            <span className="text-xs text-ink-subtle">×</span>
-            <input
-              aria-label="How many plots to add"
-              type="number"
-              min={1}
-              max={100}
-              value={addCount}
-              onChange={(e) => setAddCount(e.target.value)}
-              disabled={pending}
-              className="w-16 rounded-md border border-hairline-strong bg-canvas px-2 py-1 text-xs text-ink focus:border-ink focus:outline-none disabled:opacity-50"
-            />
-          </>
-        )}
-        <button
-          type="button"
-          onClick={submitAdd}
-          disabled={pending}
-          className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-50"
-        >
-          {pending ? "Adding…" : "Add"}
-        </button>
-      </div>
-
-      {plots.length === 0 ? (
-        <p className="px-5 py-8 text-center text-sm text-ink-subtle">
-          No plots yet. Add one above to price this house type — or upload a site layout to read
-          the plot list automatically.
-        </p>
-      ) : (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-hairline text-left">
-              <th className="w-8 px-4 py-2.5">
-                <input
-                  type="checkbox"
-                  aria-label="Select all plots"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="accent-ink"
-                />
-              </th>
-              <th className="px-3 py-2.5 font-medium text-ink-subtle">Plot</th>
-              <th className="px-3 py-2.5 font-medium text-ink-subtle">House type</th>
-              <th className="px-3 py-2.5 font-medium text-ink-subtle">Configuration</th>
-              <th className="px-3 py-2.5 font-medium text-ink-subtle">Render</th>
-              <th className="px-3 py-2.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {plots.map((p) => {
-              const status = htStatusById.get(p.houseTypeId) ?? "NONE";
-              const priceable = status === "CONFIRMED";
-              return (
-                <tr key={p.id} className="border-b border-hairline last:border-0">
-                  <td className="px-4 py-2">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select plot ${p.plotNumber}`}
-                      checked={selected.has(p.id)}
-                      onChange={() => toggle(p.id)}
-                      className="accent-ink"
-                    />
-                  </td>
-                  <td className="px-3 py-2 font-medium text-ink">{p.plotNumber}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        aria-label={`House type for plot ${p.plotNumber}`}
-                        value={p.houseTypeId}
-                        disabled={pending}
-                        onChange={(e) =>
-                          run(() => updatePlot(p.id, { houseTypeId: e.target.value }))
-                        }
-                        className={cn(selectClass, "max-w-[220px]")}
-                      >
-                        {options.map((h) => (
-                          <option key={h.id} value={h.id}>
-                            {htLabel(h)}
-                          </option>
-                        ))}
-                      </select>
-                      <span
-                        title={priceable ? "Take-off confirmed — will price" : "Take-off not confirmed — won't price"}
-                        className={cn(
-                          "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                          priceable ? "bg-ink" : "border border-hairline-strong",
-                        )}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select
-                      aria-label={`Configuration for plot ${p.plotNumber}`}
-                      value={p.configuration}
-                      disabled={pending}
-                      onChange={(e) =>
-                        run(() => updatePlot(p.id, { configuration: e.target.value }))
-                      }
-                      className={selectClass}
-                    >
-                      {CONFIGS.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        run(() => updatePlot(p.id, { isRendered: !p.isRendered }))
-                      }
-                      className={cn(
-                        "rounded border px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
-                        p.isRendered
-                          ? "border-transparent bg-ink text-canvas hover:opacity-90"
-                          : "border-hairline-strong bg-canvas text-ink-muted hover:bg-surface",
-                      )}
-                    >
-                      {p.isRendered ? "Rendered" : "—"}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => run(() => deletePlot(p.id))}
-                      className="text-[11px] text-ink-subtle hover:text-ink disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      )}
-
       <p className="border-t border-hairline px-5 py-2.5 text-[11px] text-ink-subtle">
-        A filled dot means the plot’s house type has a <strong>confirmed</strong> take-off and will
-        price. Assign each plot its real house type (confirm its take-off on the Review screen), then
-        set the configuration. Changes save automatically.
+        A filled dot means the plot’s take-off is <strong>confirmed</strong> and will price.
+        Confirming a take-off on the Review screen creates its plot automatically; set the
+        configuration if it isn’t detached. Changes save automatically.
       </p>
     </div>
   );

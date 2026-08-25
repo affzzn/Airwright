@@ -51,8 +51,8 @@ describe("classifyByText — fallback for builders whose title block we can't pa
   it("excludes civils long-sections", () => {
     expect(classifyByText("LONG SECTIONS SHEET 3").kind).toBe("OTHER");
   });
-  it("still catches a genuine site layout with no drawing label", () => {
-    expect(classifyByText("PROPOSED SITE LAYOUT").kind).toBe("PLOT_LAYOUT");
+  it("treats a site layout as OTHER (plots come from confirmations, not the site plan)", () => {
+    expect(classifyByText("PROPOSED SITE LAYOUT").kind).toBe("OTHER");
   });
   it("includes a building setting-out plan (carries the gross-internal area)", () => {
     expect(
@@ -67,11 +67,11 @@ describe("classifyByText — fallback for builders whose title block we can't pa
   });
 });
 
-describe("classifyTitle — site layout wins over foundations", () => {
-  it("classifies a site layout that mentions foundations as PLOT_LAYOUT", () => {
+describe("classifyTitle — site layouts are not used", () => {
+  it("classifies a site layout (even one mentioning foundations) as OTHER", () => {
     expect(
       classifyTitle("SITE LAYOUT SHOWING STRIP-TRENCH FOUNDATIONS - SHT 2"),
-    ).toBe("PLOT_LAYOUT");
+    ).toBe("OTHER");
   });
   it("classifies proposed levels as OTHER", () => {
     expect(classifyTitle("POS AREA PROPOSED LEVELS")).toBe("OTHER");

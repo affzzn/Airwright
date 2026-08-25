@@ -55,6 +55,45 @@ describe("segmentByHouseType", () => {
     expect(wollaton.pageRange).toBe("4-5");
   });
 
+  it("keeps ONE house type when a digit is misread on some pages (same name)", () => {
+    // Chesterwood: most pages parse 1377, the ASHP variant pages parse 1337.
+    const groups = segmentByHouseType([
+      page(1, "1377", "CHESTERWOOD"),
+      page(2, "1377", "CHESTERWOOD"),
+      page(13, "1337", "CHESTERWOOD"), // one-digit misread
+      page(14, "1337", "CHESTERWOOD"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe("CHESTERWOOD");
+    expect(groups[0].code).toBe("1377"); // majority vote
+    expect(groups[0].pages).toEqual([1, 2, 13, 14]);
+  });
+
+  it("absorbs code-less relevant pages into the file's single house type", () => {
+    // Hampton: elevations carry the code; section/plan/elevation pages carry none.
+    const groups = segmentByHouseType([
+      page(1, "1069", "HAMPTON"),
+      page(9, "1069", "HAMPTON"),
+      page(12, null, null), // SECTION — no portfolio code
+      page(15, null, null), // FLOOR PLAN
+      page(20, null, null), // ELEVATIONS
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe("HAMPTON");
+    expect(groups[0].pages).toEqual([1, 9, 12, 15, 20]);
+  });
+
+  it("still splits a genuinely multi-type file, attaching code-less pages by code", () => {
+    const groups = segmentByHouseType([
+      page(1, "1337", "CHESTERWOOD"),
+      page(2, "1450", "WOLLATON"),
+      page(3, "1337", null), // code-less-name page → matches CHESTERWOOD by code
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups.find((g) => g.name === "CHESTERWOOD")!.pages).toEqual([1, 3]);
+    expect(groups.find((g) => g.name === "WOLLATON")!.pages).toEqual([2]);
+  });
+
   it("falls back to a single group when no code is present", () => {
     const groups = segmentByHouseType([
       page(1, null, null),

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/supabase/server";
+import { ensureDefaultPlot } from "@/server/plots";
 
 /**
  * Save Colin's corrections to an extracted take-off. Editing the OBSERVABLES
@@ -185,15 +186,19 @@ export async function confirmTakeoff(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const user = await getCurrentUser();
-    await prisma.takeoff.update({
+    const tk = await prisma.takeoff.update({
       where: { id: takeoffId },
       data: {
         status: "CONFIRMED",
         confirmedAt: new Date(),
         confirmedById: user?.id ?? null,
       },
+      select: { houseTypeId: true },
     });
     await writeAudit(takeoffId, "CONFIRM");
+    // Auto-create a plot to price if the house type has none yet (the common
+    // no-site-layout case), so pricing needs no manual plot-building.
+    await ensureDefaultPlot(tk.houseTypeId);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Confirm failed" };
   }

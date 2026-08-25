@@ -9,7 +9,7 @@ for the full schema see `prisma/schema.prisma`.
 Browser uploads PDF/ZIP directly to Supabase Storage (signed URL)
    → finalize: PackUpload row(s) → pg-boss "process-pack" job
    → Worker: unzip if needed → classify every page (free, text layer) → persist
-     DocumentPage rows → segment relevant pages by house-type code
+     DocumentPage rows → segment relevant pages by house-type name
        ├─ per house type → one HouseType + Extraction → "extract-drawing" job
        └─ per plot-layout sheet → "extract-plot-list" job
    → extract-drawing worker: Claude (tool-use) → Zod-validate → Extraction +
@@ -42,7 +42,9 @@ They share one Postgres DB (Supabase). The queue lives in that DB (pg-boss's own
      `DocumentPage` rows (kind: ELEVATION / FLOOR_PLAN / SECTION / PLOT_LAYOUT / SPEC /
      OTHER + relevance + house-type code/name). No text layer → `needsReview = true`,
      skipped (flagged for a human, not extracted).
-   - **Segments** the relevant (take-off) pages by house-type code (`segment.ts`) →
+   - **Segments** the relevant (take-off) pages by house-type NAME (`segment.ts` — a
+     combined file is one house type; grouping by name is robust to a misread digit or
+     a code-less section/plan page that used to split one file into phantom types) →
      creates one `HouseType` + one `Extraction` per code, enqueues an `extract-drawing`
      job per house type with its pre-selected (possibly non-contiguous) page range.
    - If a plot-layout sheet was found, enqueues one `extract-plot-list` job for it.
@@ -136,7 +138,7 @@ operation→component mapping are placeholders until Colin's rate sheet.
 | `src/lib/takeoff/engine.ts` | **Deterministic take-off engine (Layer 2, pure)** |
 | `src/lib/takeoff/fromStored.ts` | Persisted take-off → engine input |
 | `src/lib/extract/classify.ts` | **Free page classifier (worker-only, imports pdfjs)** — title-block parse + `classifyByText` fallback for unknown builders |
-| `src/lib/extract/segment.ts` | Group a document's pages into house types by code |
+| `src/lib/extract/segment.ts` | Group a document's pages into house types **by name** (robust to misread/absent codes; 1 name → 1 group) |
 | `src/lib/extract/claude.ts` | **Shared Claude tool-use call** (both extractors) |
 | `src/lib/extract/schema.ts` | Zod contract — drawing extraction |
 | `src/lib/extract/extractDrawing.ts` | Drawing extractor (uses `claude.ts`) |
