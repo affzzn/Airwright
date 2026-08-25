@@ -158,11 +158,16 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 - **What the model reports, per floor** (schema `floorAreas[]`):
   1. `statedGrossInternalM2` — the **gross internal footprint area per dwelling**: **Setting Out Plan** (`35.60m² (BEAM & BLOCK)`), or the title/reference sheet **masonry area** (a pair total, e.g. `Masonry 71.21m²` — report the **per-dwelling** figure). **This is Colin's number.**
   2. `statedNdssM2` — the **NDSS "Total Floor Area"** schedule (e.g. `35.00m²`): the smaller **usable/habitable** area (excludes voids). A fallback.
-  3. `rectangles[]` — the internal footprint as raw dims (one rectangle, or several for an L-shape). Per rectangle, whichever is printed: `internalWidthM`/`internalDepthM` (a **directly printed** internal dim — preferred), else `overallWidthM`/`overallDepthM` (the overall **external** dim, reported as-is) + `wallThicknessMm` (the printed wall build-up, e.g. `302`). **The model never subtracts or divides.**
+  3. `rectangles[]` — the internal footprint as raw dims (one rectangle, or several for an L-shape). **Identify each printed number by its mark** (docs re-synced 2026-08-25, prompt `2026-08-25.2`):
+     - `internalWidthM`/`internalDepthM` — the **directly printed internal span** (the MIDDLE number of an inner dimension line reading `[wall | span | wall]`, e.g. `328 | 5287 | 328` → 5287). **Preferred.**
+     - `overallWidthM`/`overallDepthM` — the **outermost** external dimension line (tick-to-tick at the outer brick faces), reported as-is (used to derive the internal when no internal span is printed, and always as a cross-check).
+     - `wallThicknessMm` — the **STRUCTURAL** wall thickness off the plan's dimension chain (the short end segment across the hatched wall, e.g. `328` Miller / `302` NSS / `392` Augusta). **Different on every drawing — read it, never assume.** The birdcage is measured to the **structural / blockwork** face (✅ confirmed 2026-08-25).
+     - `legendWallThicknessMm` — the **WALL LEGEND** cavity-wall value (e.g. `353`), the **finished-face** thickness. **Fallback only** — used to strip the overall only when the plan doesn't dimension the structural wall, and then the floor is capped and flagged.
+     **The model never subtracts or divides** — and the room/partition subdivision chain (numbers that sum to the overall but aren't flanked by wall zones) is **ignored**.
 - **Same footprint, every floor:** a plain house has the same footprint on each floor, so the model reports the stated area and dimensions on **GF *and* FF** (and SF) alike — so each floor can be cross-checked, not just GF.
-- **What the engine does** (`computeBirdcageFloor`): `depth = internalDepthM ?? (overallDepthM − 2·wall)`; `width = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide`; `derivedArea = Σ(width × depth)`; then **reconcile** against the stated gross-internal (within **2%**, ⚠️ a Colin sign-off tolerance): agree → use the stated area, **high** confidence; diverge → use the stated area but **flag**. **NDSS cross-check (C11, 2026-08-25):** when NO gross-internal is stated but NDSS is, the derived footprint is checked against the NDSS *usable* area — gross-internal should sit **0–12% ABOVE** usable (NDSS excludes voids) → **high** (medium if an assumed wall was used); outside that band → low + flag. Only derived, no NDSS → medium (low if the wall was assumed). The step-by-step working (width × depth, the reconciliation ✓/✗) is shown in the review tooltip.
+- **What the engine does** (`computeBirdcageFloor`) — the per-axis **ladder**: `depth = internalDepthM ?? (overallDepthM − 2·wall)`; `width = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide`, where `wall = wallThicknessMm (structural) ?? legendWallThicknessMm (finished)`; `derivedArea = Σ(width × depth)`; then **reconcile** against the stated gross-internal (within **2%**, ⚠️ a Colin sign-off tolerance): agree → use the stated area, **high** confidence; diverge → use the stated area but **flag**. **NDSS cross-check (C11):** when NO gross-internal is stated but NDSS is, the derived footprint is checked against the NDSS *usable* area — gross-internal should sit **0–12% ABOVE** usable (NDSS excludes voids) → **high** (medium if the finished-face legend wall was used); outside that band → low + flag. Only derived, no NDSS → **medium** (low if the legend wall was used). **There is NO default wall thickness:** an overall dimension with no internal span and no wall (plan or legend) leaves that floor **UNRESOLVED** (`m2 = null`, `source: none`) and flagged for a human — never guessed. The step-by-step working (width × depth, the reconciliation ✓/✗) is shown in the review tooltip.
 - **Layer:** the model **reads** the stated areas + raw dims; **`birdcage.ts` computes + reconciles**; `persist.ts` stores the final m² with the computed confidence and the derivation trail.
-- **Edge cases:** use the **internal** area, never the external footprint (bigger, over-reads). Irregular floor → **several rectangles** (the engine sums them). ⚠️ the cavity/wall-thickness default (600 vs 900 mm — `DEFAULT_WALL_MM`) and the reconciliation tolerance are open params, flagged when used, never silently guessed.
+- **Edge cases:** use the **internal** area, never the external footprint (bigger, over-reads). Irregular floor → **several rectangles** (the engine sums them). The wall thickness is **read off the drawing per-floor**, not defaulted; only the reconciliation **tolerance** remains an ⚠️ open param, flagged when used.
 - **Which area to prefer:** **gross internal (Setting Out / masonry), not NDSS usable.** They differ because NDSS excludes voids; Colin's take-off uses the gross internal footprint.
 
 ### 3.11 Low level (porch / bay)
@@ -241,9 +246,10 @@ cross-checks it deterministically.
 ## 6. Open questions that touch reading
 
 These stay **flags**, never guessed (full table: `docs/11 §8` / checklist §15):
-height **datum** (§3.4), corner **quantum** (§3.6), birdcage **cavity deduction**
-& no-dims **fallback** (§3.10), **render-lift** basis (§3.9), smart-roof
-**threshold** (§3.13), the two-lift-birdcage **client** (§3.10).
+height **datum** (§3.4), corner **quantum** (§3.6), the birdcage **reconciliation
+tolerance** (§3.10 — the wall thickness itself is now read per-drawing, not
+defaulted), **render-lift** basis (§3.9), smart-roof **threshold** (§3.13), the
+two-lift-birdcage **client** (§3.10).
 
 ---
 

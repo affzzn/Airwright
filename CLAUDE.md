@@ -147,10 +147,13 @@ pure, tested) = quantity × rate per operation, integer pence, reconciles to the
 ## ⚠ Correctness rules that must come from Colin, never inferred
 
 **The full open-questions table (16 items, with owners) is `docs/11 §8`** — corner
-allowance quantum, height datum for the lift rule, birdcage cavity deduction +
-apartment birdcage basis, the render lift table, the rate sheet, 4-plot
-apportionment, sign-off tolerances… Build hooks, flag in review, do not assume.
-Stage splits 50/25/25 (bungalow 65/10/25) are CONFIRMED from his matrices.
+allowance quantum, height datum for the lift rule, apartment birdcage basis, the
+render lift table, the rate sheet, 4-plot apportionment, sign-off tolerances…
+Build hooks, flag in review, do not assume. Stage splits 50/25/25 (bungalow
+65/10/25) are CONFIRMED from his matrices. **Birdcage wall thickness is RESOLVED
+(2026-08-25):** read the structural (blockwork) wall off each drawing — prefer a
+printed internal span, else `overall − 2·wall`, legend value as a flagged
+fallback, no default; unresolved → flag, never guess (`birdcage.ts`, docs/13 §3.10).
 
 Colin's data: `docs/08-colin-data.md` (matrices), `colin-data/` (handwritten
 take-off sheets + 4 matched drawings), `data/` (Oadby/Bloor golden set incl. a

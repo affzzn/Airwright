@@ -119,41 +119,50 @@ const elevation = z.object({
 /**
  * One rectangle of an internal floor footprint. Report ONLY raw printed numbers —
  * NEVER multiply or subtract. Prefer a direct internal dimension; otherwise give
- * the overall external dimension and the wall thickness and the engine derives it.
- * A plain floor is ONE rectangle; an L-shape / step is several (the engine sums them).
+ * the overall external dimension and the STRUCTURAL wall thickness and the engine
+ * derives it. A plain floor is ONE rectangle; an L-shape / step is several (the
+ * engine sums them). The wall thickness is DIFFERENT on every drawing — read it,
+ * never assume a number.
  */
 const birdcageRect = z.object({
   internalWidthM: z
     .number()
     .nullable()
     .describe(
-      "Clear INTERNAL width of ONE dwelling in metres, ONLY if a direct internal dimension is printed (e.g. 4877 → 4.877). Do NOT derive it. null otherwise.",
+      "Clear INTERNAL width of ONE dwelling in metres — the MIDDLE number of an inner dimension line reading [wall | span | wall] (e.g. 5287 → 5.287), ONLY if that internal span is printed. Prefer this over deriving. Do NOT compute it. null otherwise.",
     ),
   internalDepthM: z
     .number()
     .nullable()
     .describe(
-      "Clear INTERNAL depth (front-to-back) in metres, ONLY if printed directly. Do NOT subtract anything. null otherwise.",
+      "Clear INTERNAL depth (front-to-back) in metres — the internal span of the depth dimension line, ONLY if printed directly. Prefer this over deriving. Do NOT subtract anything. null otherwise.",
     ),
   overallWidthM: z
     .number()
     .nullable()
     .describe(
-      "Overall EXTERNAL width in metres, only when no internal width is printed. Report it as-is — do NOT subtract walls or divide for a pair; the engine does that.",
+      "Overall EXTERNAL width in metres — the OUTERMOST dimension line, tick-to-tick at the outer brick faces. Report it as-is — do NOT subtract walls or divide for a pair; the engine does that. Report it whenever visible (it cross-checks the internal read).",
     )
     .optional(),
   overallDepthM: z
     .number()
     .nullable()
     .describe(
-      "Overall EXTERNAL depth (front-to-back) in metres, only when no internal depth is printed (e.g. 7904 → 7.904). Report it as-is — do NOT subtract the wall thicknesses; the engine does.",
+      "Overall EXTERNAL depth (front-to-back) in metres — the outermost depth dimension line (e.g. 7904 → 7.904). Report it as-is — do NOT subtract the wall thicknesses; the engine does. Report it whenever visible.",
     )
     .optional(),
   wallThicknessMm: z
     .number()
     .nullable()
     .describe(
-      "Printed external wall build-up in millimetres, e.g. 302. The engine subtracts two of these from an overall dimension. null if not shown (the engine falls back to a flagged default).",
+      "STRUCTURAL wall thickness in mm read off THE PLAN's dimension chain — the short END segment across the hatched external wall (the gap between the overall tick and the internal tick), e.g. 328 / 302 / 392. This is DIFFERENT on every drawing — read it, never assume. The engine subtracts two of these from an overall dimension. Prefer this over the legend value. null if the plan does not dimension the wall.",
+    )
+    .optional(),
+  legendWallThicknessMm: z
+    .number()
+    .nullable()
+    .describe(
+      "FALLBACK ONLY: the cavity wall thickness quoted in the WALL LEGEND text (e.g. '353MM THICK CAVITY WALL' → 353). This is the FINISHED-face thickness (bigger than the structural one). Report it only when the plan does not dimension the structural wall; the engine uses it only if wallThicknessMm is missing. null if there is no legend value.",
     )
     .optional(),
   sourceDimension: z.string().nullable().optional(),

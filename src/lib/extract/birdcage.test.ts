@@ -1,15 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { computeBirdcageFloor, DEFAULT_WALL_MM } from "./birdcage";
+import { computeBirdcageFloor } from "./birdcage";
 
 /**
- * The birdcage geometry lives here (not in the model). These prove: derived
- * depth = overall − 2·wall; area = width × depth; compound floors sum; the
- * derived footprint reconciles against the stated gross-internal area; and the
- * confidence is COMPUTED from that agreement, not taken from the model.
+ * The birdcage geometry lives here (not in the model). These prove the per-axis
+ * LADDER (printed internal → overall − 2·structural wall → overall − 2·legend
+ * wall → UNRESOLVED); that there is NO default wall thickness; that a directly
+ * printed internal span wins over deriving; that compound floors sum; that the
+ * derived footprint reconciles against the stated gross-internal area; and that
+ * the confidence is COMPUTED from that agreement, not taken from the model.
  */
 
 describe("computeBirdcageFloor", () => {
-  it("Dekker: direct internal width + derived depth, reconciled to the stated GIA", () => {
+  it("Dekker: direct internal width + derived depth (plan wall 302), reconciled to the stated GIA", () => {
     const r = computeBirdcageFloor(
       {
         statedGrossInternalM2: 35.6,
@@ -28,20 +30,121 @@ describe("computeBirdcageFloor", () => {
     expect(r.source).toBe("stated");
     expect(r.reconciled).toBe(true);
     expect(r.confidence).toBe("high");
-    expect(r.usedDefaultWall).toBe(false);
+    expect(r.usedLegendWall).toBe(false);
   });
 
-  it("a reconciled cross-check reads high even if the model's read confidence was lower", () => {
+  it("Whitton: printed internal width + depth derived off the structural plan wall (328)", () => {
     const r = computeBirdcageFloor(
       {
-        statedGrossInternalM2: 35.6,
-        rectangles: [{ internalWidthM: 4.877, overallDepthM: 7.904, wallThicknessMm: 302 }],
-        readConfidence: "medium", // model understated itself…
+        statedGrossInternalM2: null,
+        rectangles: [
+          {
+            internalWidthM: 5.287, // printed directly — used as-is
+            overallWidthM: 5.942,
+            overallDepthM: 9.103,
+            wallThicknessMm: 328, // structural (plan), preferred
+            legendWallThicknessMm: 353, // finished (legend), ignored while a plan wall exists
+          },
+        ],
+        readConfidence: "high",
+      },
+      2,
+    );
+    const rc = r.rectangles[0];
+    expect(rc.widthBasis).toBe("internal");
+    expect(rc.widthM).toBe(5.287); // NOT divided (internal is per-dwelling)
+    expect(rc.depthBasis).toBe("overall");
+    expect(rc.depthM).toBe(8.447); // 9.103 − 2×0.328
+    expect(rc.wallSource).toBe("plan");
+    expect(r.usedLegendWall).toBe(false);
+    // area = 5.287 × 8.447 = 44.659; derived, no stated/NDSS → medium
+    expect(r.derivedM2).toBe(44.659);
+    expect(r.m2).toBe(44.659);
+    expect(r.source).toBe("derived");
+    expect(r.confidence).toBe("medium");
+  });
+
+  it("prefers a printed internal span over deriving from overall − 2·wall", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [
+          { internalWidthM: 5.287, internalDepthM: 8.448, overallWidthM: 5.942, overallDepthM: 9.103, wallThicknessMm: 328 },
+        ],
+        readConfidence: "high",
       },
       1,
     );
-    expect(r.reconciled).toBe(true);
-    expect(r.confidence).toBe("high"); // …but stated≈derived is its own strong evidence
+    expect(r.rectangles[0].widthBasis).toBe("internal");
+    expect(r.rectangles[0].depthBasis).toBe("internal");
+    expect(r.rectangles[0].wallSource).toBe("none"); // no wall needed
+    expect(r.m2).toBe(round3(5.287 * 8.448));
+  });
+
+  it("derives off the STRUCTURAL plan wall when no internal is printed", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [{ overallWidthM: 5.942, overallDepthM: 9.103, wallThicknessMm: 328, legendWallThicknessMm: 353 }],
+        readConfidence: "high",
+      },
+      1,
+    );
+    // width = 5.942 − 2×0.328 = 5.286 ; depth = 9.103 − 2×0.328 = 8.447
+    expect(r.rectangles[0].widthM).toBe(5.286);
+    expect(r.rectangles[0].wallSource).toBe("plan");
+    expect(r.usedLegendWall).toBe(false);
+    expect(r.confidence).toBe("medium");
+  });
+
+  it("falls back to the LEGEND (finished-face) wall only when no plan wall is printed → capped, flagged", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [{ overallWidthM: 5.942, overallDepthM: 9.103, wallThicknessMm: null, legendWallThicknessMm: 353 }],
+        readConfidence: "high",
+      },
+      1,
+    );
+    // width = 5.942 − 2×0.353 = 5.236 ; depth = 9.103 − 2×0.353 = 8.397
+    expect(r.rectangles[0].widthM).toBe(5.236);
+    expect(r.rectangles[0].wallSource).toBe("legend");
+    expect(r.usedLegendWall).toBe(true);
+    expect(r.confidence).toBe("low"); // wrong face + no cross-check
+    expect(r.note).toMatch(/legend/i);
+  });
+
+  it("legend-wall derive corroborated by NDSS → medium (not high)", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        statedNdssM2: 38,
+        rectangles: [{ overallWidthM: 5.606, overallDepthM: 8.606, legendWallThicknessMm: 300 }], // → 5.006×8.006 ≈ 40, +5.3% over 38
+        readConfidence: "high",
+      },
+      1,
+    );
+    expect(r.usedLegendWall).toBe(true);
+    expect(r.source).toBe("derived");
+    expect(r.confidence).toBe("medium");
+  });
+
+  it("NO wall anywhere (overall only, no internal, no plan or legend wall) → UNRESOLVED, never guessed", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [{ overallWidthM: 5.942, overallDepthM: 9.103 }], // no wall of any kind
+        readConfidence: "high",
+      },
+      1,
+    );
+    expect(r.rectangles[0].widthM).toBe(null);
+    expect(r.rectangles[0].incomplete).toBe(true);
+    expect(r.derivedM2).toBe(null);
+    expect(r.m2).toBe(null);
+    expect(r.source).toBe("none");
+    expect(r.confidence).toBe("unknown");
+    expect(r.note).toMatch(/no wall thickness|unresolved/i);
   });
 
   it("an UN-corroborated derived value is capped at the model's read confidence", () => {
@@ -98,27 +201,11 @@ describe("computeBirdcageFloor", () => {
     expect(r.derivedM2).toBe(26);
     expect(r.m2).toBe(26);
     expect(r.source).toBe("derived");
-    expect(r.usedDefaultWall).toBe(false);
+    expect(r.usedLegendWall).toBe(false);
     expect(r.confidence).toBe("medium");
   });
 
-  it("no printed wall thickness → uses the flagged default and drops confidence", () => {
-    const r = computeBirdcageFloor(
-      {
-        statedGrossInternalM2: null,
-        rectangles: [{ internalWidthM: 4.877, overallDepthM: 7.904 }], // no wallThicknessMm
-        readConfidence: "high",
-      },
-      1,
-    );
-    // depth = 7.904 − 2×(302/1000) = 7.300
-    expect(r.derivedM2).toBe(35.602);
-    expect(r.usedDefaultWall).toBe(true);
-    expect(r.confidence).toBe("low");
-    expect(r.note).toContain(`${DEFAULT_WALL_MM} mm`);
-  });
-
-  it("pair given only the full external frontage → strips walls then divides", () => {
+  it("pair given only the full external frontage → strips the structural wall then divides", () => {
     const r = computeBirdcageFloor(
       {
         statedGrossInternalM2: null,
@@ -165,21 +252,6 @@ describe("computeBirdcageFloor", () => {
     expect(r.confidence).toBe("low");
   });
 
-  it("NDSS cross-check within band but an assumed wall was used → medium (not high)", () => {
-    const r = computeBirdcageFloor(
-      {
-        statedGrossInternalM2: null,
-        statedNdssM2: 38,
-        rectangles: [{ internalWidthM: 5, overallDepthM: 8.604 }], // no wall → default 302 → depth 8.0 → 40
-        readConfidence: "high",
-      },
-      1,
-    );
-    expect(r.derivedM2).toBe(40);
-    expect(r.usedDefaultWall).toBe(true);
-    expect(r.confidence).toBe("medium");
-  });
-
   it("only NDSS available → uses it, notes it reads low", () => {
     const r = computeBirdcageFloor(
       { statedGrossInternalM2: null, statedNdssM2: 35.0, rectangles: [], readConfidence: "high" },
@@ -200,3 +272,5 @@ describe("computeBirdcageFloor", () => {
     expect(r.confidence).toBe("unknown");
   });
 });
+
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;

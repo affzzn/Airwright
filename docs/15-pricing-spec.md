@@ -47,7 +47,7 @@ type × configuration, the take-off produces:
 
 **Geometry (confirmed by the LM & Area Calculator — matches our engine exactly):**
 - Detached = `2 × (L + W)` (4 sides) · Semi/End = `L + 2W` (3 sides) · Mid = `2W` (2 sides).
-- Internal birdcage = `(L − 0.6) × (W − 0.6)` — **0.6 m deducted per dimension** (≈ our `2 × 302 mm = 604 mm`; ✅ our default is right).
+- Internal birdcage = `(L − 0.6) × (W − 0.6)` — Colin's calculator deducts **0.6 m per dimension** as a shortcut when only overalls are to hand. Our engine instead **reads the actual structural wall off each drawing** (e.g. Miller 328 → 0.656 m/dim, NSS 302 → 0.604 m/dim) and prefers a directly-printed internal span — no fixed default (docs/13 §3.10). His 0.6 m is a good cross-check on the result, not the method we use.
 - **"ADD CORNERS"** — the corner allowance is added on top of the wall LM (✅ our engine does this; quantum ⚠️ still to confirm).
 
 ---

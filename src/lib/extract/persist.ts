@@ -295,7 +295,7 @@ export async function persistExtraction(
         ndssM2: r.ndssM2,
         reconciled: r.reconciled,
         confidence: r.confidence,
-        usedDefaultWall: r.usedDefaultWall,
+        usedLegendWall: r.usedLegendWall,
         note: r.note,
       });
     }

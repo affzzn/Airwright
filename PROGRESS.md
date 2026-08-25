@@ -11,7 +11,41 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-08-20
+Last updated: 2026-08-25
+
+### 2026-08-25 — birdcage wall-thickness ladder (structural face, no default)
+
+Reworked how the birdcage internal footprint is derived, after auditing real
+drawings (Whitford Road + colin-data). Empirical finding: the wall thickness is
+**printed on ~17/18 house types** and is **different on every drawing** (Miller
+plan 328 / legend 353, NSS 302, Augusta 392) — the old `DEFAULT_WALL_MM = 302`
+was only ever "right" by coincidence.
+
+- **Decision (Colin to confirm at sign-off):** the birdcage is measured to the
+  **structural / blockwork** face — the short wall zone printed on the plan's
+  dimension chain (328), not the finished-face WALL LEGEND value (353).
+- **New per-axis ladder** (`birdcage.ts`, `computeRect`): printed **internal span**
+  wins → else `overall − 2·wallThicknessMm` (structural, plan) → else
+  `overall − 2·legendWallThicknessMm` (finished, **flagged**, capped) → else
+  **UNRESOLVED** (`m2 = null`, flagged for a human). **`DEFAULT_WALL_MM` removed** —
+  nothing is guessed.
+- **Schema** (`schema.ts` `birdcageRect`): split the wall field into
+  `wallThicknessMm` (structural/plan, preferred) + new `legendWallThicknessMm`
+  (finished/legend, fallback). Zod-only — **no Prisma migration**.
+- **Prompt** (`prompt.ts` → `PROMPT_VERSION 2026-08-25.2`): teaches the model to
+  identify each mark — outermost = overall; `[wall | span | wall]` inner line →
+  middle = internal, ends = structural wall; WALL LEGEND = finished fallback;
+  ignore the partition subdivision chain. Two worked examples (Whitton 328 /
+  Dekker 302) so it sees the wall value change per drawing.
+- **Provenance** shows the basis + the structural-face note; the finished-face
+  fallback is flagged "confirm". `persist.ts` trail carries `usedLegendWall`.
+- **Docs re-synced:** docs/13 §3.10 + §6, docs/11 §8 #3 (resolved) + field table +
+  C11, docs/03 glossary, docs/15 §2, CLAUDE.md.
+- **Tests:** `birdcage.test.ts` rewritten to the ladder (16 tests: internal-wins,
+  structural-derive, legend-fallback+flag, **no-wall → unresolved**, pair divide,
+  reconcile, NDSS band). **Full suite 160 green, typecheck clean.**
+- **Still open:** the reconciliation **tolerance** (Colin sign-off); the **pair
+  party-wall** division subtlety (middle wall not stripped) — noted, not changed.
 
 ### 2026-08-20 — deployed to Render; pricing + quote pipeline (Phases 0–5); UX + docs
 

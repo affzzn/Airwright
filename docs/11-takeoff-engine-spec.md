@@ -74,7 +74,7 @@ dimension string)**. Unreadable → `null` + `unknown`, never a guess.
 | 7 | **Wall segments** (building line) | Outside of the **ground-floor plan** | ✅ each external wall length + face + dim string |
 | 8 | **Corner count** | Plan | ✅ count returns; ⚠️ external-only vs internal, and the +metre quantum, are open (§8) |
 | 9 | **Render sections + length (LM)** | Elevation render hatching / "R" variant | ✅ only the rendered section; per elevation |
-| 10 | **Internal floor dims per floor** (GF/FF/SF/roof-room) | **Floor plans**, internal measurement | ✅ L×W → birdcage m²; ⚠️ cavity deduction open |
+| 10 | **Internal floor dims per floor** (GF/FF/SF/roof-room) | **Floor plans**, internal measurement | ✅ L×W → birdcage m²; wall read per-drawing (structural face), no default (docs/13 §3.10) |
 | 11 | **Chimney present?** | Elevation / roof plan | ✅ spot it (unit-priced later); flag spec-vs-drawing mismatch |
 | 12 | **Low-level features** (porch, bay) | Elevation / plan | ✅ count (each = 1 low level) |
 | 13 | **Smart-roof peak height** | Elevation peak | ✅ read peak; ⚠️ threshold open |
@@ -253,7 +253,11 @@ Build the hook, leave configurable, flag in review. From the call + sheets:
 
 1. **Height datum** for lifts — soffit / eaves / wall plate / ridge (Colin).
 2. **Corner allowance quantum** — 1 m/corner vs Laura's 5 m; internal vs external returns (Colin).
-3. **Birdcage cavity deduction** — 600 vs 900 mm (Colin).
+3. ~~**Birdcage cavity deduction** — 600 vs 900 mm~~ **RESOLVED 2026-08-25**: no fixed
+   deduction — the wall thickness is **read off each drawing** (structural/blockwork
+   face, e.g. Miller 328, NSS 302, Augusta 392); the legend (finished-face, e.g. 353)
+   is a flagged fallback; nothing is defaulted (docs/13 §3.10). *Colin to confirm the
+   structural-face choice at sign-off; still open: the reconciliation tolerance (#11).*
 4. **Full render/cladding go-to table** — confirm Colin's vs Laura's 3-lift default (Colin).
 5. **Party-wall count per config** — sheets show semi ×1 and ×2; mid ×2 (Colin).
 6. **Smart-roof peak threshold** number (Colin).
@@ -334,7 +338,7 @@ cross-checks, and flag contradictions instead of trusting one read.
   with dwellingsWide ≠ 1, or PAIR/TERRACE with < 2 (`warnings.structureDwellingsMismatch`).
 - **C11 — NDSS birdcage cross-check** (`birdcage.ts`): with no stated gross-internal,
   the derived footprint is checked against the NDSS *usable* area — gross-internal
-  should sit **0–12% above** usable → high (medium if an assumed wall was used);
+  should sit **0–12% above** usable → high (medium if the finished-face legend wall was used);
   outside the band → low + flag. ⚠️ band approximate, confirm with Colin.
 - **C9 — wall symmetry** (`persist`): front≈rear and gable_left≈gable_right;
   a >10% mismatch flags a likely role-swap/misread (`warnings.wallAsymmetry`).

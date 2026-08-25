@@ -3,16 +3,25 @@
  *
  * The model (Layer 1) reports only RAW printed observations per floor:
  *   - direct internal dims (internalWidthM / internalDepthM) if the drawing prints them,
- *   - OR overall external dims (overallWidthM / overallDepthM) + the wall build-up,
+ *   - OR overall external dims (overallWidthM / overallDepthM) + the wall thickness,
  *   - the stated GROSS-INTERNAL area (Setting Out / masonry) — Colin's number,
  *   - the NDSS usable "Total Floor Area" as a fallback.
  *
- * It NEVER multiplies or subtracts. This module does all the geometry:
- *   depth  = internalDepthM ?? (overallDepthM − 2·wallThickness)
- *   width  = internalWidthM ?? (overallWidthM − 2·wallThickness) ÷ dwellingsWide
+ * It NEVER multiplies or subtracts. This module does all the geometry, applying a
+ * per-axis LADDER (docs/13 §3.10) — printed internal wins, else derive from the
+ * overall minus the wall:
+ *   depth  = internalDepthM ?? (overallDepthM − 2·wall)
+ *   width  = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide
+ *   wall   = wallThicknessMm (STRUCTURAL, plan) ?? legendWallThicknessMm (finished, fallback)
  *   area   = Σ (width × depth) over the rectangles (compound / L-shaped floors)
  * then reconciles the derived area against the stated gross-internal area and
  * turns the agreement into a COMPUTED confidence — not a model guess.
+ *
+ * There is NO default wall thickness: the birdcage is measured to the STRUCTURAL
+ * (blockwork) face, and that value is read off THIS drawing (it differs on every
+ * drawing — Miller 328, NSS 302, Augusta 392). If no internal span and no wall
+ * thickness (plan or legend) are legible, the axis is left UNRESOLVED and flagged
+ * for a human — never guessed.
  *
  * Pure + unit-tested. Shared by persist.ts (storage), provenance.ts (the review
  * tooltip breakdown) and the offline runner, so they can never disagree.
@@ -24,15 +33,6 @@ const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3
 export function worseConf(a: Conf, b: Conf): Conf {
   return CONF_RANK[a] <= CONF_RANK[b] ? a : b;
 }
-
-/**
- * Default external wall build-up (mm) used ONLY when the drawing prints no wall
- * thickness and we must derive depth/width from an overall dimension.
- * ⚠ OPEN (docs/11 §8): the cavity deduction is unconfirmed (600 vs 900 mm was
- * discussed). 302 mm ≈ a standard brick+cavity+block skin. Any floor that falls
- * back to this is flagged and never rated "high".
- */
-export const DEFAULT_WALL_MM = 302;
 
 /**
  * How close the derived area must be to the stated gross-internal area to count
@@ -56,7 +56,10 @@ export interface BirdcageRectInput {
   internalDepthM?: number | null;
   overallWidthM?: number | null;
   overallDepthM?: number | null;
+  /** STRUCTURAL wall thickness off the plan's dimension chain (preferred). */
   wallThicknessMm?: number | null;
+  /** WALL LEGEND cavity-wall thickness (finished face) — fallback only. */
+  legendWallThicknessMm?: number | null;
 }
 export interface BirdcageFloorInput {
   statedGrossInternalM2?: number | null;
@@ -67,14 +70,21 @@ export interface BirdcageFloorInput {
 }
 
 export type Basis = "internal" | "overall" | "none";
+/** Which wall thickness a derived axis used (none = internal read, no wall needed). */
+export type WallSource = "plan" | "legend" | "none";
 export interface RectComputed {
   widthM: number | null;
   depthM: number | null;
   areaM2: number | null;
   widthBasis: Basis;
   depthBasis: Basis;
-  wallMm: number;
-  usedDefaultWall: boolean;
+  /** The wall thickness (mm) actually used to strip an overall dim, or null if none was needed. */
+  wallMm: number | null;
+  wallSource: WallSource;
+  /** True when a derived axis had to fall back to the finished-face legend wall. */
+  usedLegendWall: boolean;
+  /** True when an axis could not be resolved (no internal AND no wall to strip an overall). */
+  incomplete: boolean;
 }
 export type BirdcageSource = "stated" | "derived" | "ndss" | "none";
 export interface BirdcageResult {
@@ -87,16 +97,25 @@ export interface BirdcageResult {
   confidence: Conf; // COMPUTED (reconciliation ∧ read confidence)
   reconciled: boolean | null; // stated vs derived agree within tolerance? null if not comparable
   relDiff: number | null; // |derived − stated| / stated
-  usedDefaultWall: boolean; // any rectangle relied on the assumed wall thickness
+  usedLegendWall: boolean; // any rectangle derived an axis off the finished-face legend wall
   note: string; // one-line audit trail for the tooltip
 }
 
-/** Compute one rectangle's internal width × depth from whatever the model read. */
+/**
+ * Compute one rectangle's internal width × depth via the per-axis LADDER:
+ * a directly-printed internal span wins; otherwise strip the STRUCTURAL wall
+ * (plan value preferred, legend value as a fallback) off the overall dimension.
+ * There is NO default wall — an overall dimension with no wall thickness is left
+ * UNRESOLVED (that axis is null, so the area is null) and flagged upstream.
+ */
 function computeRect(r: BirdcageRectInput, dwellingsWide: number): RectComputed {
   const dw = dwellingsWide >= 1 ? dwellingsWide : 1;
-  const hasWall = r.wallThicknessMm != null && r.wallThicknessMm > 0;
-  const wallMm = hasWall ? (r.wallThicknessMm as number) : DEFAULT_WALL_MM;
-  const t = wallMm / 1000;
+  // Prefer the STRUCTURAL (plan) wall; fall back to the finished-face legend wall.
+  const planWall = r.wallThicknessMm != null && r.wallThicknessMm > 0 ? r.wallThicknessMm : null;
+  const legendWall =
+    r.legendWallThicknessMm != null && r.legendWallThicknessMm > 0 ? r.legendWallThicknessMm : null;
+  const wallMm = planWall ?? legendWall; // null when neither is printed
+  const t = wallMm != null ? wallMm / 1000 : null;
 
   let widthM: number | null = null;
   let widthBasis: Basis = "none";
@@ -104,7 +123,7 @@ function computeRect(r: BirdcageRectInput, dwellingsWide: number): RectComputed 
     // A directly-read INTERNAL span is already per-dwelling — no division.
     widthM = r.internalWidthM;
     widthBasis = "internal";
-  } else if (r.overallWidthM != null && r.overallWidthM > 0) {
+  } else if (r.overallWidthM != null && r.overallWidthM > 0 && t != null) {
     // External overall: strip the two external walls, then split across dwellings
     // (exact for a single dwelling; approximate for a pair — flagged downstream).
     widthM = round3((r.overallWidthM - 2 * t) / dw);
@@ -116,16 +135,32 @@ function computeRect(r: BirdcageRectInput, dwellingsWide: number): RectComputed 
   if (r.internalDepthM != null && r.internalDepthM > 0) {
     depthM = r.internalDepthM;
     depthBasis = "internal";
-  } else if (r.overallDepthM != null && r.overallDepthM > 0) {
+  } else if (r.overallDepthM != null && r.overallDepthM > 0 && t != null) {
     depthM = round3(r.overallDepthM - 2 * t);
     depthBasis = "overall";
   }
 
+  const derivedAxis = widthBasis === "overall" || depthBasis === "overall";
+  // Which wall we actually leant on (only meaningful when an axis was derived).
+  const wallSource: WallSource = !derivedAxis
+    ? "none"
+    : planWall != null
+      ? "plan"
+      : "legend";
   const areaM2 = widthM != null && depthM != null ? round3(widthM * depthM) : null;
-  // The default wall only actually mattered if we used an overall dimension.
-  const usedDefaultWall =
-    !hasWall && (widthBasis === "overall" || depthBasis === "overall");
-  return { widthM, depthM, areaM2, widthBasis, depthBasis, wallMm, usedDefaultWall };
+  // Incomplete: an axis wanted an overall but had no wall to strip it (or nothing legible).
+  const incomplete = widthM == null || depthM == null;
+  return {
+    widthM,
+    depthM,
+    areaM2,
+    widthBasis,
+    depthBasis,
+    wallMm: derivedAxis ? wallMm : null,
+    wallSource,
+    usedLegendWall: wallSource === "legend",
+    incomplete,
+  };
 }
 
 /**
@@ -145,7 +180,10 @@ export function computeBirdcageFloor(
     floor.statedNdssM2 != null && floor.statedNdssM2 > 0 ? round3(floor.statedNdssM2) : null;
 
   const rects = (floor.rectangles ?? []).map((r) => computeRect(r, dwellingsWide));
-  const usedDefaultWall = rects.some((r) => r.usedDefaultWall);
+  const usedLegendWall = rects.some((r) => r.usedLegendWall);
+  // A rectangle we were given but couldn't fully compute — e.g. an overall
+  // dimension with no wall thickness to strip. Never silently guessed a wall.
+  const hasUnresolvedRect = rects.length > 0 && rects.some((r) => r.incomplete);
   // Derived area is trustworthy only if EVERY rectangle computed fully.
   const allComplete = rects.length > 0 && rects.every((r) => r.areaM2 != null);
   const derivedM2 = allComplete
@@ -169,12 +207,12 @@ export function computeBirdcageFloor(
         : `Stated ${statedM2} m² vs derived ${derivedM2} m² DIVERGE (Δ ${pct(relDiff)}) — check the dimensions.`;
       return {
         m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2, rectangles: rects,
-        confidence: conf, reconciled, relDiff, usedDefaultWall, note,
+        confidence: conf, reconciled, relDiff, usedLegendWall, note,
       };
     }
     return {
       m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2: null, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedDefaultWall,
+      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedLegendWall,
       note: `Stated gross-internal ${statedM2} m² (no internal dimensions to cross-check).`,
     };
   }
@@ -191,37 +229,44 @@ export function computeBirdcageFloor(
       if (consistent)
         return {
           m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-          confidence: usedDefaultWall ? "medium" : "high",
-          reconciled: true, relDiff: over, usedDefaultWall,
-          note: `Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected — usable excludes voids).`,
+          // The finished-face legend wall is ~1% off the structural face, so a
+          // legend-derived footprint corroborated by NDSS is medium, not high.
+          confidence: usedLegendWall ? "medium" : "high",
+          reconciled: true, relDiff: over, usedLegendWall,
+          note: `Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected — usable excludes voids).${usedLegendWall ? " (Used the finished-face legend wall — confirm.)" : ""}`,
         };
       return {
         m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-        confidence: "low", reconciled: false, relDiff: over, usedDefaultWall,
+        confidence: "low", reconciled: false, relDiff: over, usedLegendWall,
         note: `Derived ${derivedM2} m² vs NDSS usable ${ndssM2} m² differ by ${pctOver} (expected gross-internal 0–12% ABOVE usable) — check the dimensions.`,
       };
     }
-    const base: Conf = usedDefaultWall ? "low" : "medium";
-    const note = usedDefaultWall
-      ? `Derived ${derivedM2} m² from dimensions, using an ASSUMED ${DEFAULT_WALL_MM} mm wall (none printed) — confirm. No stated area to cross-check.`
-      : `Derived ${derivedM2} m² from the printed dimensions. No stated gross-internal area to cross-check.`;
+    // No stated area, no NDSS — a bare derived footprint. Full confidence when it
+    // used the structural (plan) wall; capped to medium when it leant on the
+    // finished-face legend wall (the wrong face by ~1%, so flag to confirm).
+    const base: Conf = usedLegendWall ? "low" : "medium";
+    const note = usedLegendWall
+      ? `Derived ${derivedM2} m² using the finished-face legend wall (no structural wall dimensioned) — confirm. No stated area to cross-check.`
+      : `Derived ${derivedM2} m² from the printed dimensions (structural wall). No stated gross-internal area to cross-check.`;
     return {
       m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedDefaultWall, note,
+      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, note,
     };
   }
 
   if (ndssM2 != null) {
     return {
       m2: ndssM2, source: "ndss", statedM2: null, ndssM2, derivedM2: null, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedDefaultWall: false,
+      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedLegendWall: false,
       note: `NDSS usable area ${ndssM2} m² — no gross-internal available; usable area reads ~1–2% low.`,
     };
   }
 
   return {
     m2: null, source: "none", statedM2: null, ndssM2: null, derivedM2: null, rectangles: rects,
-    confidence: "unknown", reconciled: null, relDiff: null, usedDefaultWall: false,
-    note: "No legible internal area or dimensions — birdcage not computed.",
+    confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false,
+    note: hasUnresolvedRect
+      ? "Dimensions given but no wall thickness to derive the internal footprint (and no stated area) — birdcage unresolved, needs a human."
+      : "No legible internal area or dimensions — birdcage not computed.",
   };
 }

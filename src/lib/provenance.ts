@@ -304,14 +304,15 @@ export function buildProvenanceCards(
       const rc = r.rectangles[i];
       if (!rc || rc.areaM2 == null) return;
       const tag = multi ? `Rect ${i + 1}: ` : "";
+      const wallM = rc.wallMm != null ? rc.wallMm / 1000 : null;
       const w =
         rc.widthBasis === "internal"
           ? `internal width ${rc.widthM} m (read)`
-          : `width ${rc.widthM} m (${raw0.overallWidthM} − 2×${rc.wallMm / 1000}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
+          : `width ${rc.widthM} m (${raw0.overallWidthM} − 2×${wallM}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
       const d =
         rc.depthBasis === "internal"
           ? `internal depth ${rc.depthM} m (read)`
-          : `depth ${rc.depthM} m (${raw0.overallDepthM} − 2×${rc.wallMm / 1000})`;
+          : `depth ${rc.depthM} m (${raw0.overallDepthM} − 2×${wallM})`;
       steps.push({
         text: `${tag}${w} × ${d} = ${rc.areaM2} m²`,
         source: {
@@ -344,11 +345,11 @@ export function buildProvenanceCards(
             ? "Derived from the internal dimensions"
             : "NDSS usable area (fallback)";
     const footnotes = [
-      `${levelName} internal deck. Birdcage = internal area inside the external walls; one per floor, one lift each, summed for the total.`,
+      `${levelName} internal deck. Birdcage = internal area inside the external walls (structural / blockwork face); one per floor, one lift each, summed for the total.`,
     ];
-    if (r.usedDefaultWall)
+    if (r.usedLegendWall)
       footnotes.push(
-        `No wall thickness was printed — an assumed ${302} mm build-up was used to strip the overall dimension. Confirm.`,
+        "No structural wall was dimensioned on the plan — the finished-face WALL LEGEND thickness was used to strip the overall dimension. Confirm.",
       );
     if (r.reconciled === false)
       footnotes.push(
