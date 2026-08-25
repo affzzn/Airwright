@@ -304,15 +304,19 @@ export function buildProvenanceCards(
       const rc = r.rectangles[i];
       if (!rc || rc.areaM2 == null) return;
       const tag = multi ? `Rect ${i + 1}: ` : "";
-      const wallM = rc.wallMm != null ? rc.wallMm / 1000 : null;
+      // Per-side walls (mm→m); the engine subtracts each side, not 2× one wall.
+      const wa = rc.wallWidthAMm != null ? rc.wallWidthAMm / 1000 : null;
+      const wb = rc.wallWidthBMm != null ? rc.wallWidthBMm / 1000 : null;
+      const da = rc.wallDepthAMm != null ? rc.wallDepthAMm / 1000 : null;
+      const db = rc.wallDepthBMm != null ? rc.wallDepthBMm / 1000 : null;
       const w =
         rc.widthBasis === "internal"
           ? `internal width ${rc.widthM} m (read)`
-          : `width ${rc.widthM} m (${raw0.overallWidthM} − 2×${wallM}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
+          : `width ${rc.widthM} m (${raw0.overallWidthM} − ${wa} − ${wb}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
       const d =
         rc.depthBasis === "internal"
           ? `internal depth ${rc.depthM} m (read)`
-          : `depth ${rc.depthM} m (${raw0.overallDepthM} − 2×${wallM})`;
+          : `depth ${rc.depthM} m (${raw0.overallDepthM} − ${da} − ${db})`;
       steps.push({
         text: `${tag}${w} × ${d} = ${rc.areaM2} m²`,
         source: {
@@ -323,13 +327,16 @@ export function buildProvenanceCards(
       });
     });
     if (multi && r.derivedM2 != null)
-      steps.push({ text: `Rectangles sum = ${r.derivedM2} m² (derived)` });
+      steps.push({ text: `Rectangles sum = ${r.derivedM2} m²` });
 
     // 2) The stated numbers on the drawing.
     if (r.statedM2 != null)
       steps.push({ text: `Stated gross-internal = ${r.statedM2} m²`, source: floorSrc });
     if (r.ndssM2 != null)
       steps.push({ text: `NDSS usable area = ${r.ndssM2} m²`, source: floorSrc });
+    // 2b) The independent overall − walls cross-check of a printed internal footprint.
+    if (r.crossCheckM2 != null && r.crossCheckM2 !== r.derivedM2)
+      steps.push({ text: `Cross-check (overall − walls) = ${r.crossCheckM2} m²` });
 
     // 3) The reconciliation + the number that won.
     steps.push({ text: r.note });
@@ -351,9 +358,13 @@ export function buildProvenanceCards(
       footnotes.push(
         "No structural wall was dimensioned on the plan — the finished-face WALL LEGEND thickness was used to strip the overall dimension. Confirm.",
       );
+    if (r.assumedSymmetric)
+      footnotes.push(
+        "A wall was dimensioned on only one side of an axis — the other side was assumed equal. Confirm.",
+      );
     if (r.reconciled === false)
       footnotes.push(
-        "The derived footprint and the stated area disagree by more than the tolerance — check the dimensions before pricing.",
+        "The two independent reads disagree by more than the tolerance — the printed value was kept, but check the dimensions before pricing.",
       );
     cards[key] = {
       title: `Birdcage (${level})`,

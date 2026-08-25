@@ -291,11 +291,13 @@ export async function persistExtraction(
         m2: r.m2,
         source: r.source,
         derivedM2: r.derivedM2,
+        crossCheckM2: r.crossCheckM2,
         statedM2: r.statedM2,
         ndssM2: r.ndssM2,
         reconciled: r.reconciled,
         confidence: r.confidence,
         usedLegendWall: r.usedLegendWall,
+        assumedSymmetric: r.assumedSymmetric,
         note: r.note,
       });
     }

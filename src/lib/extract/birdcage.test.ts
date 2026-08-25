@@ -81,6 +81,81 @@ describe("computeBirdcageFloor", () => {
     expect(r.m2).toBe(round3(5.287 * 8.448));
   });
 
+  it("subtracts ASYMMETRIC per-side walls (never 2× one wall)", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [
+          {
+            overallWidthM: 5.5, // gable line: external 328 one side, party wall 215 the other
+            wallWidthLeftMm: 328,
+            wallWidthRightMm: 215,
+            internalDepthM: 9, // depth read directly
+          },
+        ],
+        readConfidence: "high",
+      },
+      1,
+    );
+    // width = 5.5 − 0.328 − 0.215 = 4.957 (NOT 5.5 − 2×0.328)
+    expect(r.rectangles[0].widthM).toBe(4.957);
+    expect(r.rectangles[0].wallWidthAMm).toBe(328);
+    expect(r.rectangles[0].wallWidthBMm).toBe(215);
+    expect(r.m2).toBe(round3(4.957 * 9));
+  });
+
+  it("one side dimensioned → assumes the other equal, flagged", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [{ overallWidthM: 5.942, wallWidthLeftMm: 328, internalDepthM: 8 }], // no right wall
+        readConfidence: "high",
+      },
+      1,
+    );
+    // width = 5.942 − 0.328 − 0.328 (assumed symmetric)
+    expect(r.rectangles[0].widthM).toBe(5.286);
+    expect(r.assumedSymmetric).toBe(true);
+    expect(r.confidence).toBe("low");
+    expect(r.note).toMatch(/symmetric/i);
+  });
+
+  it("printed internal corroborated by overall − walls (single dwelling) → high", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [
+          { internalWidthM: 5.287, internalDepthM: 8.447, overallWidthM: 5.942, overallDepthM: 9.103, wallThicknessMm: 328 },
+        ],
+        readConfidence: "high",
+      },
+      1,
+    );
+    // internal 5.287×8.447=44.659 ; derived (5.942−0.656)×(9.103−0.656)=5.286×8.447=44.65 → Δ<5% → corroborated
+    expect(r.source).toBe("derived");
+    expect(r.reconciled).toBe(true);
+    expect(r.confidence).toBe("high");
+    expect(r.note).toMatch(/cross-checked vs overall/i);
+  });
+
+  it("internal vs overall − walls DIVERGE (>5%) → keep internal, flag low", () => {
+    const r = computeBirdcageFloor(
+      {
+        statedGrossInternalM2: null,
+        rectangles: [
+          { internalWidthM: 6, internalDepthM: 8, overallWidthM: 5.942, overallDepthM: 9.103, wallThicknessMm: 328 },
+        ],
+        readConfidence: "high",
+      },
+      1,
+    );
+    // internal 48 vs derived 5.286×8.447=44.65 → ~7% → diverge; internal kept
+    expect(r.m2).toBe(48);
+    expect(r.reconciled).toBe(false);
+    expect(r.confidence).toBe("low");
+    expect(r.note).toMatch(/DIVERGE/);
+  });
+
   it("derives off the STRUCTURAL plan wall when no internal is printed", () => {
     const r = computeBirdcageFloor(
       {

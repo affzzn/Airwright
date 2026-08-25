@@ -13,6 +13,27 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-08-25
 
+### 2026-08-25 (b) — birdcage: internal-first, per-side walls, internal-vs-derived cross-check
+
+Follow-up to the ladder below, after Charford read an overall and halved it while
+its sibling Denton read the internal directly. Prompt `2026-08-25.3`.
+
+- **Internal dims are priority #1** — prompt hardened so the model reads the printed
+  internal span (the `[wall|span|wall]` middle number) and does NOT derive when it's
+  there. Validated on **Millfield: 57.447 m² [high] vs Colin bank 57 (+0.8%)** — read
+  internal 10.483 × 5.48 directly.
+- **Per-side walls, never `2×wall`** — schema adds `wallWidthLeftMm/RightMm` +
+  `wallDepthFrontMm/RearMm` (the two ends can differ: party wall vs gable, render vs
+  brick); `wallThicknessMm` kept as the uniform convenience. `birdcage.ts`
+  `resolveAxisWalls` subtracts each side; one side only → assume symmetric + flag.
+- **Internal-vs-derived cross-check** — the `overall − walls` derivation is computed
+  even when the internal is read, as an independent corroboration: internal ≈ derived
+  within **5%** (single-dwelling only, to dodge the pair-division ambiguity) → HIGH;
+  diverge → keep internal, flag. Millfield: internal 57.447 ✓ vs derived 55.565 (Δ3.3%).
+- **164 tests green** (+4: asymmetric walls, one-side-symmetric, corroborated→high,
+  diverge→low), typecheck + lint clean. Provenance/persist carry the cross-check +
+  `assumedSymmetric`. Docs 13 §3.10 updated. Still open: pair-division, tolerances.
+
 ### 2026-08-25 — birdcage wall-thickness ladder (structural face, no default)
 
 Reworked how the birdcage internal footprint is derived, after auditing real

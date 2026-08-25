@@ -151,18 +151,42 @@ const birdcageRect = z.object({
       "Overall EXTERNAL depth (front-to-back) in metres — the outermost depth dimension line (e.g. 7904 → 7.904). Report it as-is — do NOT subtract the wall thicknesses; the engine does. Report it whenever visible.",
     )
     .optional(),
+  wallWidthLeftMm: z
+    .number()
+    .nullable()
+    .describe(
+      "STRUCTURAL wall thickness (mm) at the LEFT END of the WIDTH dimension line — the short end segment across the hatched wall (e.g. 328 / 302 / 392). Read it off the plan; DIFFERENT on every drawing, never assume. The two ends can DIFFER (a party wall vs an external gable) — report each side.",
+    )
+    .optional(),
+  wallWidthRightMm: z
+    .number()
+    .nullable()
+    .describe("STRUCTURAL wall thickness (mm) at the RIGHT END of the WIDTH dimension line.")
+    .optional(),
+  wallDepthFrontMm: z
+    .number()
+    .nullable()
+    .describe(
+      "STRUCTURAL wall thickness (mm) at the FRONT END of the DEPTH dimension line. The two ends can differ (e.g. a rendered front wall 370 vs a brick rear 328) — report each side.",
+    )
+    .optional(),
+  wallDepthRearMm: z
+    .number()
+    .nullable()
+    .describe("STRUCTURAL wall thickness (mm) at the REAR END of the DEPTH dimension line.")
+    .optional(),
   wallThicknessMm: z
     .number()
     .nullable()
     .describe(
-      "STRUCTURAL wall thickness in mm read off THE PLAN's dimension chain — the short END segment across the hatched external wall (the gap between the overall tick and the internal tick), e.g. 328 / 302 / 392. This is DIFFERENT on every drawing — read it, never assume. The engine subtracts two of these from an overall dimension. Prefer this over the legend value. null if the plan does not dimension the wall.",
+      "Convenience: the UNIFORM structural wall thickness (mm) when every external wall on this plan is the same — e.g. 328 / 302 / 392. Use this INSTEAD of the four per-side fields when the walls are all equal (the common case); the engine applies it to any side you didn't give a per-side value for. null if the plan does not dimension the wall.",
     )
     .optional(),
   legendWallThicknessMm: z
     .number()
     .nullable()
     .describe(
-      "FALLBACK ONLY: the cavity wall thickness quoted in the WALL LEGEND text (e.g. '353MM THICK CAVITY WALL' → 353). This is the FINISHED-face thickness (bigger than the structural one). Report it only when the plan does not dimension the structural wall; the engine uses it only if wallThicknessMm is missing. null if there is no legend value.",
+      "FALLBACK ONLY: the cavity wall thickness quoted in the WALL LEGEND text (e.g. '353MM THICK CAVITY WALL' → 353). This is the FINISHED-face thickness (bigger than the structural one). Report it only when the plan does not dimension the structural wall; the engine uses it only if no plan wall is given. null if there is no legend value.",
     )
     .optional(),
   sourceDimension: z.string().nullable().optional(),

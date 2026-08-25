@@ -56,7 +56,15 @@ export interface BirdcageRectInput {
   internalDepthM?: number | null;
   overallWidthM?: number | null;
   overallDepthM?: number | null;
-  /** STRUCTURAL wall thickness off the plan's dimension chain (preferred). */
+  /** STRUCTURAL wall thickness on the WIDTH dimension, per side (they can differ:
+   *  a party wall vs an external gable, a rendered face vs a brick face). */
+  wallWidthLeftMm?: number | null;
+  wallWidthRightMm?: number | null;
+  /** STRUCTURAL wall thickness on the DEPTH dimension, per side (front/rear). */
+  wallDepthFrontMm?: number | null;
+  wallDepthRearMm?: number | null;
+  /** Legacy / uniform STRUCTURAL wall — used for a side when its per-side value
+   *  isn't given (a plan whose walls are all the same thickness). */
   wallThicknessMm?: number | null;
   /** WALL LEGEND cavity-wall thickness (finished face) — fallback only. */
   legendWallThicknessMm?: number | null;
@@ -73,17 +81,27 @@ export type Basis = "internal" | "overall" | "none";
 /** Which wall thickness a derived axis used (none = internal read, no wall needed). */
 export type WallSource = "plan" | "legend" | "none";
 export interface RectComputed {
-  widthM: number | null;
+  widthM: number | null; // the VALUE used (internal preferred)
   depthM: number | null;
   areaM2: number | null;
   widthBasis: Basis;
   depthBasis: Basis;
-  /** The wall thickness (mm) actually used to strip an overall dim, or null if none was needed. */
-  wallMm: number | null;
+  /** The purely-derived axis (overall − wallA − wallB), computed even when the
+   *  internal was used — for the internal-vs-derived cross-check. null if not derivable. */
+  derivedWidthM: number | null;
+  derivedDepthM: number | null;
+  derivedAreaM2: number | null;
+  /** The two structural walls actually used to strip each overall (mm), for the tooltip. */
+  wallWidthAMm: number | null;
+  wallWidthBMm: number | null;
+  wallDepthAMm: number | null;
+  wallDepthBMm: number | null;
   wallSource: WallSource;
-  /** True when a derived axis had to fall back to the finished-face legend wall. */
+  /** A derived axis fell back to the finished-face legend wall. */
   usedLegendWall: boolean;
-  /** True when an axis could not be resolved (no internal AND no wall to strip an overall). */
+  /** A derived axis had a wall on only one side and assumed the other equal. */
+  assumedSymmetric: boolean;
+  /** The value area could not be resolved (no internal AND no wall to strip an overall). */
   incomplete: boolean;
 }
 export type BirdcageSource = "stated" | "derived" | "ndss" | "none";
@@ -92,80 +110,156 @@ export interface BirdcageResult {
   source: BirdcageSource; // which number won
   statedM2: number | null;
   ndssM2: number | null;
-  derivedM2: number | null; // Σ rectangles, or null if any rectangle was incomplete
+  derivedM2: number | null; // Σ chosen rectangle areas (internal-preferred), or null if any incomplete
+  crossCheckM2: number | null; // Σ purely-derived areas (overall − walls), for the internal-vs-derived check
   rectangles: RectComputed[];
   confidence: Conf; // COMPUTED (reconciliation ∧ read confidence)
-  reconciled: boolean | null; // stated vs derived agree within tolerance? null if not comparable
-  relDiff: number | null; // |derived − stated| / stated
-  usedLegendWall: boolean; // any rectangle derived an axis off the finished-face legend wall
+  reconciled: boolean | null; // stated/derived (or internal/derived) agree within tolerance? null if N/A
+  relDiff: number | null; // the relative gap that drove `reconciled`
+  usedLegendWall: boolean; // a stored value derived an axis off the finished-face legend wall
+  assumedSymmetric: boolean; // a stored value assumed a one-sided wall was symmetric
   note: string; // one-line audit trail for the tooltip
 }
 
+const pos = (x: number | null | undefined): number | null => (x != null && x > 0 ? x : null);
+
+interface AxisWalls {
+  a: number | null;
+  b: number | null;
+  source: WallSource;
+  assumedSymmetric: boolean;
+}
 /**
- * Compute one rectangle's internal width × depth via the per-axis LADDER:
- * a directly-printed internal span wins; otherwise strip the STRUCTURAL wall
- * (plan value preferred, legend value as a fallback) off the overall dimension.
- * There is NO default wall — an overall dimension with no wall thickness is left
- * UNRESOLVED (that axis is null, so the area is null) and flagged upstream.
+ * Resolve the two structural walls flanking one axis. Prefer the two printed
+ * per-side values; if only ONE side is printed, assume the other equal (flagged);
+ * if a uniform legacy wall is given, use it both sides; else the finished-face
+ * legend wall (fallback); else nothing. NEVER a hard-coded default.
+ */
+function resolveAxisWalls(
+  side1: number | null | undefined,
+  side2: number | null | undefined,
+  legacy: number | null | undefined,
+  legend: number | null | undefined,
+): AxisWalls {
+  const s1 = pos(side1);
+  const s2 = pos(side2);
+  const lg = pos(legacy);
+  const leg = pos(legend);
+  if (s1 != null || s2 != null || lg != null) {
+    const a = s1 ?? s2 ?? lg;
+    const b = s2 ?? s1 ?? lg;
+    if (a != null && b != null) {
+      // We assumed symmetry only if exactly one per-side value was read (and we
+      // had to borrow it for the other side — not when a uniform legacy wall was given).
+      const assumedSymmetric = (s1 == null) !== (s2 == null) && lg == null;
+      return { a, b, source: "plan", assumedSymmetric };
+    }
+  }
+  if (leg != null) return { a: leg, b: leg, source: "legend", assumedSymmetric: false };
+  return { a: null, b: null, source: "none", assumedSymmetric: false };
+}
+
+/**
+ * Compute one rectangle. PRIORITY: a directly-printed internal span is the VALUE.
+ * The overall − wallA − wallB derivation is ALSO computed (when possible) as an
+ * independent cross-check, and becomes the value only when no internal is printed.
+ * Walls are subtracted PER SIDE (they can differ) — never `2 × wall` — and there
+ * is NO default: an overall with no wall on a side is left UNRESOLVED and flagged.
  */
 function computeRect(r: BirdcageRectInput, dwellingsWide: number): RectComputed {
   const dw = dwellingsWide >= 1 ? dwellingsWide : 1;
-  // Prefer the STRUCTURAL (plan) wall; fall back to the finished-face legend wall.
-  const planWall = r.wallThicknessMm != null && r.wallThicknessMm > 0 ? r.wallThicknessMm : null;
-  const legendWall =
-    r.legendWallThicknessMm != null && r.legendWallThicknessMm > 0 ? r.legendWallThicknessMm : null;
-  const wallMm = planWall ?? legendWall; // null when neither is printed
-  const t = wallMm != null ? wallMm / 1000 : null;
+  const wWall = resolveAxisWalls(r.wallWidthLeftMm, r.wallWidthRightMm, r.wallThicknessMm, r.legendWallThicknessMm);
+  const dWall = resolveAxisWalls(r.wallDepthFrontMm, r.wallDepthRearMm, r.wallThicknessMm, r.legendWallThicknessMm);
 
-  let widthM: number | null = null;
-  let widthBasis: Basis = "none";
-  if (r.internalWidthM != null && r.internalWidthM > 0) {
-    // A directly-read INTERNAL span is already per-dwelling — no division.
-    widthM = r.internalWidthM;
+  // --- WIDTH: derived (overall − both walls, ÷ dwellings) computed if possible ---
+  const overallW = pos(r.overallWidthM);
+  const derivedWidthM =
+    overallW != null && wWall.a != null && wWall.b != null
+      ? round3((overallW - wWall.a / 1000 - wWall.b / 1000) / dw)
+      : null;
+  let widthM: number | null;
+  let widthBasis: Basis;
+  if (pos(r.internalWidthM) != null) {
+    widthM = r.internalWidthM as number; // internal is already per-dwelling — no division
     widthBasis = "internal";
-  } else if (r.overallWidthM != null && r.overallWidthM > 0 && t != null) {
-    // External overall: strip the two external walls, then split across dwellings
-    // (exact for a single dwelling; approximate for a pair — flagged downstream).
-    widthM = round3((r.overallWidthM - 2 * t) / dw);
+  } else if (derivedWidthM != null) {
+    widthM = derivedWidthM;
     widthBasis = "overall";
+  } else {
+    widthM = null;
+    widthBasis = "none";
   }
 
-  let depthM: number | null = null;
-  let depthBasis: Basis = "none";
-  if (r.internalDepthM != null && r.internalDepthM > 0) {
-    depthM = r.internalDepthM;
+  // --- DEPTH: same, but never divided by dwellings ---
+  const overallD = pos(r.overallDepthM);
+  const derivedDepthM =
+    overallD != null && dWall.a != null && dWall.b != null
+      ? round3(overallD - dWall.a / 1000 - dWall.b / 1000)
+      : null;
+  let depthM: number | null;
+  let depthBasis: Basis;
+  if (pos(r.internalDepthM) != null) {
+    depthM = r.internalDepthM as number;
     depthBasis = "internal";
-  } else if (r.overallDepthM != null && r.overallDepthM > 0 && t != null) {
-    depthM = round3(r.overallDepthM - 2 * t);
+  } else if (derivedDepthM != null) {
+    depthM = derivedDepthM;
     depthBasis = "overall";
+  } else {
+    depthM = null;
+    depthBasis = "none";
   }
 
-  const derivedAxis = widthBasis === "overall" || depthBasis === "overall";
-  // Which wall we actually leant on (only meaningful when an axis was derived).
-  const wallSource: WallSource = !derivedAxis
-    ? "none"
-    : planWall != null
-      ? "plan"
-      : "legend";
   const areaM2 = widthM != null && depthM != null ? round3(widthM * depthM) : null;
-  // Incomplete: an axis wanted an overall but had no wall to strip it (or nothing legible).
-  const incomplete = widthM == null || depthM == null;
+  const derivedAreaM2 =
+    derivedWidthM != null && derivedDepthM != null ? round3(derivedWidthM * derivedDepthM) : null;
+
+  // Flags reflect only what the stored VALUE relied on (a derived axis) — not the cross-check.
+  const usedLegendWall =
+    (widthBasis === "overall" && wWall.source === "legend") ||
+    (depthBasis === "overall" && dWall.source === "legend");
+  const assumedSymmetric =
+    (widthBasis === "overall" && wWall.assumedSymmetric) ||
+    (depthBasis === "overall" && dWall.assumedSymmetric);
+  const wallSource: WallSource =
+    widthBasis !== "overall" && depthBasis !== "overall"
+      ? "none"
+      : usedLegendWall
+        ? "legend"
+        : "plan";
+
   return {
     widthM,
     depthM,
     areaM2,
     widthBasis,
     depthBasis,
-    wallMm: derivedAxis ? wallMm : null,
+    derivedWidthM,
+    derivedDepthM,
+    derivedAreaM2,
+    wallWidthAMm: wWall.a,
+    wallWidthBMm: wWall.b,
+    wallDepthAMm: dWall.a,
+    wallDepthBMm: dWall.b,
     wallSource,
-    usedLegendWall: wallSource === "legend",
-    incomplete,
+    usedLegendWall,
+    assumedSymmetric,
+    incomplete: widthM == null || depthM == null,
   };
 }
 
 /**
- * Resolve one floor's birdcage area + a computed confidence, reconciling the
- * derived footprint against the stated gross-internal area.
+ * Tolerance for the INTERNAL-vs-derived cross-check. Looser than the stated
+ * tolerance (2%) because the derived side leans on the noisier overall + wall
+ * reads (roof-overhang confusion etc.), whereas a stated area is authoritative.
+ * ⚠ Approximate — confirm the sign-off band with Colin (docs/11 §8 #11).
+ */
+export const BIRDCAGE_INTERNAL_XCHECK_TOLERANCE = 0.05; // 5%
+
+/**
+ * Resolve one floor's birdcage area + a computed confidence. PRIORITY of the
+ * VALUE: stated gross-internal → printed internal footprint → derived → NDSS.
+ * The overall − walls derivation is ALSO computed as an independent cross-check
+ * of a printed internal footprint (internal ≈ derived → corroborated).
  */
 export function computeBirdcageFloor(
   floor: BirdcageFloorInput,
@@ -181,90 +275,121 @@ export function computeBirdcageFloor(
 
   const rects = (floor.rectangles ?? []).map((r) => computeRect(r, dwellingsWide));
   const usedLegendWall = rects.some((r) => r.usedLegendWall);
+  const assumedSymmetric = rects.some((r) => r.assumedSymmetric);
+  const anyInternal = rects.some((r) => r.widthBasis === "internal" || r.depthBasis === "internal");
   // A rectangle we were given but couldn't fully compute — e.g. an overall
   // dimension with no wall thickness to strip. Never silently guessed a wall.
   const hasUnresolvedRect = rects.length > 0 && rects.some((r) => r.incomplete);
-  // Derived area is trustworthy only if EVERY rectangle computed fully.
+  // The stored VALUE area (internal-preferred): only if EVERY rectangle computed.
   const allComplete = rects.length > 0 && rects.every((r) => r.areaM2 != null);
   const derivedM2 = allComplete
     ? round3(rects.reduce((a, r) => a + (r.areaM2 as number), 0))
     : null;
+  // The independent overall − walls area, for the internal-vs-derived cross-check.
+  const allXCheck = rects.length > 0 && rects.every((r) => r.derivedAreaM2 != null);
+  const crossCheckM2 = allXCheck
+    ? round3(rects.reduce((a, r) => a + (r.derivedAreaM2 as number), 0))
+    : null;
 
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+  const flags = (extra = "") =>
+    `${extra}${assumedSymmetric ? " (One wall side not dimensioned — assumed symmetric.)" : ""}`;
 
-  // --- Pick the number and compute the confidence. Priority: stated → derived → NDSS. ---
+  // --- Priority 1: a stated gross-internal area always wins the VALUE. ---
   if (statedM2 != null) {
     if (derivedM2 != null) {
       const relDiff = Math.abs(derivedM2 - statedM2) / statedM2;
       const reconciled = relDiff <= BIRDCAGE_TOLERANCE;
-      // The stated number and an independently-derived footprint agreeing is
-      // strong corroboration in its own right — so a reconciled birdcage is HIGH
-      // regardless of the model's (often understated) per-floor read confidence.
-      // A divergence is LOW and flagged.
       const conf: Conf = reconciled ? "high" : "low";
       const note = reconciled
-        ? `Stated gross-internal ${statedM2} m² ✓ cross-checked (derived ${derivedM2} m², Δ ${pct(relDiff)}).`
-        : `Stated ${statedM2} m² vs derived ${derivedM2} m² DIVERGE (Δ ${pct(relDiff)}) — check the dimensions.`;
+        ? `Stated gross-internal ${statedM2} m² ✓ cross-checked (footprint ${derivedM2} m², Δ ${pct(relDiff)}).`
+        : `Stated ${statedM2} m² vs footprint ${derivedM2} m² DIVERGE (Δ ${pct(relDiff)}) — check the dimensions.`;
       return {
-        m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2, rectangles: rects,
-        confidence: conf, reconciled, relDiff, usedLegendWall, note,
+        m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+        confidence: conf, reconciled, relDiff, usedLegendWall, assumedSymmetric, note: flags(note),
       };
     }
     return {
-      m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2: null, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedLegendWall,
+      m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2: null, crossCheckM2, rectangles: rects,
+      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null,
+      usedLegendWall, assumedSymmetric,
       note: `Stated gross-internal ${statedM2} m² (no internal dimensions to cross-check).`,
     };
   }
 
   if (derivedM2 != null) {
-    // Cross-check the derived gross-internal footprint against the NDSS usable
-    // area when there's no stated gross-internal: gross-internal should sit
-    // slightly ABOVE usable. Within the band → corroborated (high, or medium if
-    // the derivation leaned on an assumed wall). Outside → flag.
+    // --- Priority 2: a printed internal footprint, corroborated by the independent
+    //     overall − walls derivation. Gated to a single dwelling — a pair's overall
+    //     may be per-dwelling OR the whole frontage (the division is ambiguous, an
+    //     open item), which would make the cross-check falsely diverge. ---
+    if (anyInternal && crossCheckM2 != null && crossCheckM2 !== derivedM2 && dwellingsWide <= 1) {
+      const relDiff = Math.abs(derivedM2 - crossCheckM2) / derivedM2;
+      const reconciled = relDiff <= BIRDCAGE_INTERNAL_XCHECK_TOLERANCE;
+      if (reconciled) {
+        // Symmetric assumption on a passed check is fine but not "high".
+        const conf: Conf = assumedSymmetric ? "medium" : "high";
+        return {
+          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+          confidence: conf, reconciled: true, relDiff, usedLegendWall, assumedSymmetric,
+          note: flags(`Internal footprint ${derivedM2} m² ✓ cross-checked vs overall − walls ${crossCheckM2} m² (Δ ${pct(relDiff)}).`),
+        };
+      }
+      // Keep the internal value (priority), but flag the disagreement.
+      return {
+        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+        confidence: "low", reconciled: false, relDiff, usedLegendWall, assumedSymmetric,
+        note: flags(`Internal footprint ${derivedM2} m² vs overall − walls ${crossCheckM2} m² DIVERGE (Δ ${pct(relDiff)}) — internal used, check the reads.`),
+      };
+    }
+
+    // --- Priority 3: cross-check the footprint (internal or derived) vs the NDSS
+    //     usable area — gross-internal should sit slightly ABOVE usable. ---
     if (ndssM2 != null) {
       const over = round3((derivedM2 - ndssM2) / ndssM2);
       const consistent = over >= BIRDCAGE_NDSS_MIN_OVER && over <= BIRDCAGE_NDSS_MAX_OVER;
       const pctOver = `${(over * 100).toFixed(1)}%`;
       if (consistent)
         return {
-          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-          // The finished-face legend wall is ~1% off the structural face, so a
-          // legend-derived footprint corroborated by NDSS is medium, not high.
-          confidence: usedLegendWall ? "medium" : "high",
-          reconciled: true, relDiff: over, usedLegendWall,
-          note: `Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected — usable excludes voids).${usedLegendWall ? " (Used the finished-face legend wall — confirm.)" : ""}`,
+          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+          confidence: usedLegendWall || assumedSymmetric ? "medium" : "high",
+          reconciled: true, relDiff: over, usedLegendWall, assumedSymmetric,
+          note: flags(`Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected).${usedLegendWall ? " (Used the finished-face legend wall — confirm.)" : ""}`),
         };
       return {
-        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-        confidence: "low", reconciled: false, relDiff: over, usedLegendWall,
-        note: `Derived ${derivedM2} m² vs NDSS usable ${ndssM2} m² differ by ${pctOver} (expected gross-internal 0–12% ABOVE usable) — check the dimensions.`,
+        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+        confidence: "low", reconciled: false, relDiff: over, usedLegendWall, assumedSymmetric,
+        note: flags(`Derived ${derivedM2} m² vs NDSS usable ${ndssM2} m² differ by ${pctOver} (expected 0–12% ABOVE usable) — check the dimensions.`),
       };
     }
-    // No stated area, no NDSS — a bare derived footprint. Full confidence when it
-    // used the structural (plan) wall; capped to medium when it leant on the
-    // finished-face legend wall (the wrong face by ~1%, so flag to confirm).
-    const base: Conf = usedLegendWall ? "low" : "medium";
-    const note = usedLegendWall
-      ? `Derived ${derivedM2} m² using the finished-face legend wall (no structural wall dimensioned) — confirm. No stated area to cross-check.`
-      : `Derived ${derivedM2} m² from the printed dimensions (structural wall). No stated gross-internal area to cross-check.`;
+
+    // Internal present but not cross-checkable here (pair, or no overall), OR a
+    // bare derived footprint with no NDSS. Structural wall → medium; a legend
+    // fallback or a one-sided (assumed-symmetric) wall → low; flagged.
+    const base: Conf = usedLegendWall || assumedSymmetric ? "low" : "medium";
+    const how = anyInternal
+      ? `Internal footprint ${derivedM2} m²`
+      : usedLegendWall
+        ? `Derived ${derivedM2} m² using the finished-face legend wall (no structural wall dimensioned) — confirm`
+        : `Derived ${derivedM2} m² from the printed dimensions (structural wall)`;
     return {
-      m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, rectangles: rects,
-      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, note,
+      m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, assumedSymmetric,
+      note: flags(`${how}. No stated area to cross-check.`),
     };
   }
 
   if (ndssM2 != null) {
     return {
-      m2: ndssM2, source: "ndss", statedM2: null, ndssM2, derivedM2: null, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null, usedLegendWall: false,
+      m2: ndssM2, source: "ndss", statedM2: null, ndssM2, derivedM2: null, crossCheckM2, rectangles: rects,
+      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null,
+      usedLegendWall: false, assumedSymmetric: false,
       note: `NDSS usable area ${ndssM2} m² — no gross-internal available; usable area reads ~1–2% low.`,
     };
   }
 
   return {
-    m2: null, source: "none", statedM2: null, ndssM2: null, derivedM2: null, rectangles: rects,
-    confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false,
+    m2: null, source: "none", statedM2: null, ndssM2: null, derivedM2: null, crossCheckM2: null, rectangles: rects,
+    confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false, assumedSymmetric: false,
     note: hasUnresolvedRect
       ? "Dimensions given but no wall thickness to derive the internal footprint (and no stated area) — birdcage unresolved, needs a human."
       : "No legible internal area or dimensions — birdcage not computed.",
