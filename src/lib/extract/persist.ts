@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
 import { computeHeight } from "./height";
 import { makeDimensionVerifier, dimRuns, type PageDims } from "./dimensions";
+import { resolveHouseTypeIdentity } from "./houseTypeIdentity";
 import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
@@ -122,12 +123,43 @@ export async function persistExtraction(
         where: { id: extractionId },
         data: { houseTypeId },
       });
-    } else if (result.buildType.value) {
-      // Fill in build type if segmentation didn't know it.
-      await tx.houseType.update({
+    } else {
+      // Pre-segmented path: adopt the REAL house-type identity the AI just read.
+      // Segmentation named this from the FILE (the classifier only parses
+      // Miller-style title blocks), so most house types arrive as a file name with
+      // no code. Overwrite name/code from the extraction (docs/16 · N).
+      const current = await tx.houseType.findUnique({
         where: { id: houseTypeId },
-        data: { buildType: result.buildType.value },
+        select: { name: true, code: true, projectId: true, buildType: true },
       });
+      if (current) {
+        const identity = resolveHouseTypeIdentity({
+          extractedName: result.houseType.name,
+          extractedConfidence: result.houseType.confidence,
+          extractedCode: result.houseType.code,
+          currentName: current.name,
+          currentCode: current.code,
+        });
+        // Guard @@unique([projectId, code]): never steal a code another house
+        // type in the project already holds (that would be the same real type
+        // across two files — a merge we don't do here; keep the existing code).
+        let code = identity.code;
+        if (code && code !== current.code) {
+          const clash = await tx.houseType.findFirst({
+            where: { projectId: current.projectId, code, NOT: { id: houseTypeId } },
+            select: { id: true },
+          });
+          if (clash) code = current.code;
+        }
+        await tx.houseType.update({
+          where: { id: houseTypeId },
+          data: {
+            name: identity.name,
+            code,
+            buildType: result.buildType.value ?? current.buildType ?? undefined,
+          },
+        });
+      }
     }
 
     // Ensure a Takeoff exists; seed it from this extraction if not already seeded.
