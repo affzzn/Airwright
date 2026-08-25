@@ -1,5 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import type { PlotListResult } from "./plotSchema";
+import { plotListResultSchema, type PlotListResult } from "./plotSchema";
 
 interface HouseTypeLite {
   id: string;
@@ -89,4 +90,73 @@ export async function persistPlots(
     created++;
   }
   return { created };
+}
+
+/**
+ * Re-match a project's plots to house types from the STORED plot-list refs
+ * (`Document.plotListData`). Fixes the ordering gap where the plot list was read
+ * before the drawings set their real codes, and lets a user re-link after the
+ * backfill. Only re-links plots currently on an UNMATCHED/"Unknown" stub — never
+ * overrides a real house type a person assigned by hand. Then deletes emptied
+ * "Unknown" stubs. No Claude calls.
+ */
+export async function rematchProjectPlots(
+  projectId: string,
+): Promise<{ relinked: number; cleaned: number; hadData: boolean }> {
+  const docs = await prisma.document.findMany({
+    where: { pack: { projectId }, plotListData: { not: Prisma.DbNull } },
+    select: { plotListData: true },
+  });
+  if (docs.length === 0) return { relinked: 0, cleaned: 0, hadData: false };
+
+  // A plot-list STUB is a house type with no drawing behind it (no extraction, no
+  // take-off) — created only to hang a plot on. Real (drawing-backed) house types
+  // are the re-link targets; a plot on a stub is re-linkable, a plot a person
+  // assigned to a real house type is left alone.
+  const houseTypes = await prisma.houseType.findMany({
+    where: { projectId },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      takeoff: { select: { id: true } },
+      _count: { select: { extractions: true } },
+    },
+  });
+  const isStub = (h: (typeof houseTypes)[number]) => !h.takeoff && h._count.extractions === 0;
+  const realHouseTypes = houseTypes.filter((h) => !isStub(h)).map((h) => ({ id: h.id, code: h.code, name: h.name }));
+  const stubIds = new Set(houseTypes.filter(isStub).map((h) => h.id));
+
+  const plots = await prisma.plot.findMany({
+    where: { projectId },
+    select: { id: true, plotNumber: true, houseTypeId: true },
+  });
+  const relinkableByNumber = new Map(
+    plots.filter((p) => stubIds.has(p.houseTypeId)).map((p) => [p.plotNumber, p.id]),
+  );
+
+  let relinked = 0;
+  for (const doc of docs) {
+    const parsed = plotListResultSchema.safeParse(doc.plotListData);
+    if (!parsed.success) continue;
+    for (const ref of parsed.data.plots) {
+      if (!ref.plotNumber) continue;
+      const plotId = relinkableByNumber.get(ref.plotNumber);
+      if (!plotId) continue;
+      const match = findHouseType(ref.houseTypeCode, ref.houseTypeName, realHouseTypes);
+      if (!match) continue;
+      await prisma.plot.update({ where: { id: plotId }, data: { houseTypeId: match.id } });
+      relinked++;
+    }
+  }
+
+  // Drop stubs that now have no plots (and, by definition, no drawing).
+  const emptyStubs = await prisma.houseType.findMany({
+    where: { id: { in: [...stubIds] }, plots: { none: {} } },
+    select: { id: true },
+  });
+  if (emptyStubs.length > 0) {
+    await prisma.houseType.deleteMany({ where: { id: { in: emptyStubs.map((h) => h.id) } } });
+  }
+  return { relinked, cleaned: emptyStubs.length, hadData: true };
 }

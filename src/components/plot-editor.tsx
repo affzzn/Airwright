@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addPlot, bulkUpdatePlots, deletePlot, updatePlot } from "@/server/actions/plots";
+import Link from "next/link";
+import { addPlot, bulkUpdatePlots, deletePlot, rematchPlots, updatePlot } from "@/server/actions/plots";
 import { cn } from "@/lib/utils";
 
 export interface PlotRow {
@@ -61,6 +62,7 @@ export function PlotEditor({
   const [bulkConfig, setBulkConfig] = useState("");
   const [bulkRender, setBulkRender] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   // Add-plot form (default to the top house type — usually the confirmed one)
   const [addHt, setAddHt] = useState(
     () => [...houseTypes].sort(sortHouseTypes)[0]?.id ?? "",
@@ -71,6 +73,15 @@ export function PlotEditor({
 
   const options = [...houseTypes].sort(sortHouseTypes);
   const htStatusById = new Map(houseTypes.map((h) => [h.id, h.status]));
+  const htNameById = new Map(houseTypes.map((h) => [h.id, h.name]));
+
+  // Readiness for pricing: a plot prices only when its house type's take-off is
+  // CONFIRMED. Surface exactly what's blocking a quote.
+  const readyCount = plots.filter((p) => htStatusById.get(p.houseTypeId) === "CONFIRMED").length;
+  const unassignedCount = plots.filter(
+    (p) => (htNameById.get(p.houseTypeId) ?? "Unknown") === "Unknown",
+  ).length;
+  const notConfirmedCount = plots.length - readyCount - unassignedCount;
 
   const allSelected = plots.length > 0 && selected.size === plots.length;
   const toggle = (id: string) =>
@@ -87,6 +98,23 @@ export function PlotEditor({
       setError(null);
       const res = await fn();
       if (!res.ok) setError(res.error ?? "Something went wrong.");
+      router.refresh();
+    });
+
+  const doRematch = () =>
+    start(async () => {
+      setError(null);
+      setInfo(null);
+      const res = await rematchPlots(projectId);
+      if (!res.ok) {
+        setError(res.error ?? "Re-match failed");
+        return;
+      }
+      setInfo(
+        !res.hadData
+          ? "No stored site-plan data to match from — assign house types manually below."
+          : `Re-matched ${res.relinked ?? 0} plot(s); cleared ${res.cleaned ?? 0} empty stub(s).`,
+      );
       router.refresh();
     });
 
@@ -141,6 +169,67 @@ export function PlotEditor({
       {error && (
         <p className="border-b border-hairline bg-surface px-5 py-2 text-xs text-ink-muted">
           {error}
+        </p>
+      )}
+      {info && (
+        <p className="border-b border-hairline bg-surface px-5 py-2 text-xs text-ink-muted">
+          {info}
+        </p>
+      )}
+
+      {/* Readiness + path to pricing */}
+      {plots.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-5 py-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className="font-medium text-ink">
+              {readyCount} of {plots.length} plot{plots.length === 1 ? "" : "s"} ready to price
+            </span>
+            {unassignedCount > 0 && (
+              <span className="text-ink-muted">
+                {unassignedCount} need a house type
+              </span>
+            )}
+            {notConfirmedCount > 0 && (
+              <span className="text-ink-muted">
+                {notConfirmedCount} awaiting a confirmed take-off
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {unassignedCount > 0 && (
+              <button
+                type="button"
+                onClick={doRematch}
+                disabled={pending}
+                title="Re-link unassigned plots to house types from the site plan"
+                className="rounded-md border border-hairline-strong px-3 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface disabled:opacity-50"
+              >
+                {pending ? "Matching…" : "Re-match from site plan"}
+              </button>
+            )}
+            <Link
+              href={`/projects/${projectId}/pricing`}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                readyCount > 0
+                  ? "bg-ink text-canvas hover:opacity-90"
+                  : "border border-hairline-strong text-ink-muted hover:bg-surface",
+              )}
+            >
+              Price →
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {(unassignedCount > 0 || notConfirmedCount > 0) && (
+        <p className="border-b border-hairline bg-surface px-5 py-2 text-[11px] text-ink-subtle">
+          {unassignedCount > 0 ? (
+            <>Tick the plots below (or “select all”) and use the bar to assign a real house type. </>
+          ) : null}
+          {notConfirmedCount > 0 ? (
+            <>Confirm each assigned house type’s take-off on its Review screen to make its plots price. </>
+          ) : null}
         </p>
       )}
 

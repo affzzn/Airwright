@@ -23,7 +23,7 @@ import { extractDrawing } from "@/lib/extract/extractDrawing";
 import { extractionResultSchema } from "@/lib/extract/schema";
 import { extractPlotList } from "@/lib/extract/extractPlotList";
 import { persistExtraction } from "@/lib/extract/persist";
-import { persistPlots } from "@/lib/extract/persistPlots";
+import { persistPlots, rematchProjectPlots } from "@/lib/extract/persistPlots";
 import { processPack } from "./processPack";
 
 // --- process-pack: ingest + classify + segment + fan out ---------------------
@@ -41,9 +41,23 @@ async function handleExtract(raw: ExtractDrawingJob) {
 
   const extraction = await prisma.extraction.findUnique({
     where: { id: extractionId },
-    include: { document: true },
+    include: { document: { include: { pack: { select: { projectId: true } } } } },
   });
   if (!extraction) throw new Error(`Extraction ${extractionId} not found`);
+  const projectId = extraction.document.pack.projectId;
+
+  // After a drawing extraction sets a house type's real code, re-link any plot-
+  // list stubs that now match — so plots auto-connect regardless of the order the
+  // plot list vs the drawings were read. Never fails the extraction.
+  const rematch = async () => {
+    try {
+      const r = await rematchProjectPlots(projectId);
+      if (r.relinked || r.cleaned)
+        console.log(`[worker] re-matched ${r.relinked} plot(s), cleaned ${r.cleaned} stub(s)`);
+    } catch (err) {
+      console.error("[worker] plot re-match failed (non-fatal):", err);
+    }
+  };
 
   // If a previous attempt already got a valid result out of Claude but died
   // persisting it (or is being retried), reuse the stored rawOutput instead of
@@ -62,6 +76,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
           where: { id: extractionId },
           data: { status: "COMPLETED" },
         });
+        await rematch();
         console.log(
           `[worker] extraction ${extractionId}: reused stored output (no model call)`,
         );
@@ -114,6 +129,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
     });
 
     await persistExtraction(extractionId, data, dimensions);
+    await rematch();
 
     console.log(
       `[worker] extraction ${extractionId} completed in ${meta.latencyMs}ms ($${meta.costUsd.toFixed(4)})`,
@@ -148,6 +164,12 @@ async function handlePlotList(raw: ExtractPlotListJob) {
   const pdf = await slicePages(fullPdf, pageNumbers);
 
   const { data, meta } = await extractPlotList(pdf);
+  // Store the raw plot-list refs so plots can be re-matched for free later (e.g.
+  // once every drawing extraction has set the real house-type codes).
+  await prisma.document.update({
+    where: { id: documentId },
+    data: { plotListData: data as object },
+  });
   const { created } = await persistPlots(
     doc.pack.project.id,
     doc.pack.project.clientId,

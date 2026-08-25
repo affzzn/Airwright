@@ -342,6 +342,7 @@ model Document {
   categoryDetail String? // e.g. "Bar schedule", "Levels"
   included       Boolean          @default(true) // manual override: use this file?
   relevantPages  Int              @default(0) // denormalised (avoids heavy per-page queries)
+  plotListData   Json? // stored plot-list extraction (plot → house-type ref) for re-matching
   classifiedAt   DateTime?
   uploadedAt     DateTime         @default(now())
   extractions    Extraction[]
