@@ -4,7 +4,10 @@ Read this first, every session. Then read **`docs/11-takeoff-engine-spec.md`** (
 canonical take-off spec — Colin's confirmed rules, the extractor field set, the
 validation results, the 16 open questions that must NOT be guessed) and
 **`docs/13-extraction-playbook.md`** (how the model reads each measurement — the
-single source the prompt is generated from). For the priced side, **`docs/14-pricing-and-quote.md`**.
+single source the prompt is generated from). For the priced side, **`docs/15-pricing-spec.md`** (the canonical house-build
+pricing structure, decoded from Colin's real matrices in `data/pricing-data/` —
+per-lift columns, table+rails, birdcage per floor, stage splits, garages,
+Traditional vs Timber-Frame; supersedes the provisional `docs/14-pricing-and-quote.md`).
 For status + next steps: `PROGRESS.md` and `TODO.md`. For depth: `docs/02-prd-build1.md`,
 `docs/04-data-model.md`. (Docs 09/10 were pre-call drafts and were deleted — superseded
 by 11 + the call checklist `docs/Airwright-Estimator-Build-Checklist_from_call.docx`.)
