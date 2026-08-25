@@ -294,6 +294,10 @@ export function TakeoffEditor({
     }));
   }, [isApartment, engineMeasurements, engineWalls, engineWarnings, storeyLiftTemplate]);
   const engineFlags = takeoffLines[0]?.line.flags ?? [];
+  // Which configuration's take-off to show (dropdown); default to the first.
+  const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
+  const shownTakeoff =
+    takeoffLines.find((t) => t.label === selectedConfig) ?? takeoffLines[0];
 
   // Surface the live flags beside the drawing (the workspace renders them there).
   useEffect(() => {
@@ -615,9 +619,27 @@ export function TakeoffEditor({
 
         {/* Computed take-off (recomputed live from the edits) */}
         <div>
-          <p className="eyebrow mb-2">Computed take-off · by configuration</p>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="eyebrow">Computed take-off</p>
+            {takeoffLines.length > 1 && (
+              <select
+                aria-label="Configuration"
+                value={shownTakeoff?.label ?? ""}
+                onChange={(e) => setSelectedConfig(e.target.value)}
+                className="rounded-md border border-hairline bg-surface px-2.5 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-ink/15"
+              >
+                {takeoffLines.map((t) => (
+                  <option key={t.label} value={t.label}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <div className="space-y-2">
-            {takeoffLines.map(({ label, line }) => (
+            {takeoffLines
+              .filter((t) => t.label === shownTakeoff?.label)
+              .map(({ label, line }) => (
               <div
                 key={label}
                 className="rounded-md border border-hairline bg-surface px-3 py-2.5"
