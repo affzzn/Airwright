@@ -92,7 +92,10 @@ enum ReviewStatus {
 enum StageScenario {
   STANDARD // 50 / 25 / 25 (confirmed)
   BUNGALOW // 65 / 10 / 25 (confirmed)
-  NO_BIRDCAGE // 75 / … (⚠ rest to confirm with Laura)
+  NO_BIRDCAGE // 75 / 0 / 25 (confirmed from the matrix column header — docs/15 §5)
+  GARAGE // 65 / 10 / 25 (garage section — docs/15 §6)
+  GARAGE_NO_BCAGE // 75 / 0 / 25 (garage, no birdcage — docs/15 §6)
+  TIMBER_FRAME // 80 / 20 (two-stage — docs/15 §7)
 }
 
 enum QuoteType {
@@ -155,6 +158,8 @@ enum ScaffoldComponent {
   RENDER_ADAPTION
   BIRDCAGE_GF
   BIRDCAGE_FF
+  BIRDCAGE_SF
+  BIRDCAGE_TF
   LOADING_BAY
   HAKI
   LADDER_TOWER
@@ -532,11 +537,15 @@ model RateItem {
   component  ScaffoldComponent
   action     OperationAction   @default(ERECT)
   band       RateBand
+  // Per-lift-level pricing (docs/15 §3, P2): the client matrix prices each lift
+  // level separately and the 1st lift is dearer. liftLevel 0 = the BASE/default
+  // rate (upper lifts + every non-lift component); 1..8 = a specific lift level.
+  liftLevel  Int               @default(0)
   unit       Unit
   rate       Decimal           @db.Decimal(10, 2)
   payPercent Decimal?          @db.Decimal(5, 2)
 
-  @@unique([rateCardId, component, action, band])
+  @@unique([rateCardId, component, action, band, liftLevel])
   @@index([rateCardId])
 }
 

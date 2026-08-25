@@ -48,20 +48,46 @@ export interface PriceResult {
   unpriced: { component: string; action: Action }[];
 }
 
-/** Resolve the £/unit rate for a component + action (already scoped to a band). */
-export type RateResolver = (component: string, action: Action) => number | null;
+/**
+ * Resolve the £/unit rate for a component + action (already scoped to a band),
+ * optionally for a specific lift level. `liftLevel` 1..8 asks for that level's
+ * rate; null/0/undefined asks for the base rate (upper lifts + non-lift items).
+ */
+export type RateResolver = (
+  component: string,
+  action: Action,
+  liftLevel?: number | null,
+) => number | null;
 
-/** Build a rate resolver from a rate card's items, scoped to one band. */
+/**
+ * Build a rate resolver from a rate card's items, scoped to one band. Per-lift
+ * pricing (docs/15 P2): an item's `liftLevel` (default 0) is the level it prices;
+ * 0 is the BASE rate. Lookup for a given level tries the exact level, then the
+ * base — so a sparse card (just a base rate, or base + a dearer 1st lift) prices.
+ */
 export function buildRateResolver(
-  items: { component: string; action: string; band: string; rate: number }[],
+  items: {
+    component: string;
+    action: string;
+    band: string;
+    rate: number;
+    liftLevel?: number | null;
+  }[],
   band: string,
 ): RateResolver {
-  const map = new Map<string, number>();
+  const map = new Map<string, number>(); // `component|action|level` → rate
   for (const it of items) {
     if (it.band !== band) continue;
-    map.set(`${it.component}|${it.action}`, it.rate);
+    map.set(`${it.component}|${it.action}|${it.liftLevel ?? 0}`, it.rate);
   }
-  return (component, action) => map.get(`${component}|${action}`) ?? null;
+  return (component, action, liftLevel) => {
+    const lvl = liftLevel ?? 0;
+    if (lvl > 0) {
+      const exact = map.get(`${component}|${action}|${lvl}`);
+      if (exact !== undefined) return exact;
+    }
+    return map.get(`${component}|${action}|0`) ?? null;
+  };
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -89,7 +115,7 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
     note?: string,
   ) => {
     if (quantity <= 0) return;
-    const rate = opts.resolveRate(component, action);
+    const rate = opts.resolveRate(component, action, liftLevel);
     const priced = rate !== null;
     const pence = priced ? Math.round(quantity * (rate as number) * 100) : 0;
     if (!priced) unpriced.push({ component, action });
@@ -116,17 +142,20 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
   }
   if (lifts > 0) add("LIFT", "DISMANTLE", round2(perLift * lifts), "LM", null, "external dismantle");
 
-  // --- Birdcage: erect + strip per floor ---
+  // --- Birdcage: erect + strip per floor (GF / FF / SF / TF — matrix cols O–V) ---
   for (const f of line.birdcage.floors) {
-    const component = f.level === "GF" ? "BIRDCAGE_GF" : "BIRDCAGE_FF"; // ⚠ SF+ maps to FF (no enum)
+    const component = `BIRDCAGE_${f.level}`; // BIRDCAGE_GF | _FF | _SF | _TF
     add(component, "ERECT", f.m2, "M2", null, `${f.level} birdcage`);
     add(component, "DISMANTLE", f.m2, "M2", null, `strip ${f.level} birdcage`);
   }
 
-  // --- Apex: table lift + apex handrail, per apex (counts) ---
+  // --- Apex: ONE combined client item (table lift + guard rails to gables) ---
+  // Colin's client matrix has ONE column M "Table Lifts & Guard Rails to Gables"
+  // (docs/15 §3, P4). tableLifts == handrails == apex count, so price one item per
+  // apex via the GABLE rate. (The GANG matrix — Build 2 — splits TABLE_LIFT +
+  // GABLE_RAILS; keep that separation for the operatives self-bill, not here.)
   if (line.apex.count > 0) {
-    add("GABLE", "ERECT", line.apex.tableLifts, "EACH", null, "table lift to gable"); // ⚠ table lift priced as GABLE
-    add("GABLE_RAILS", "ERECT", line.apex.handrails, "EACH", null, "apex handrail");
+    add("GABLE", "ERECT", line.apex.count, "EACH", null, "table lift + gable rails");
   }
 
   // --- Render adaption: rendered LM × render lifts ---

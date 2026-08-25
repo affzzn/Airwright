@@ -72,7 +72,8 @@ export async function deleteRateCard(
 }
 
 const COMPONENTS = new Set([
-  "LIFT", "GABLE", "GABLE_RAILS", "RENDER_ADAPTION", "BIRDCAGE_GF", "BIRDCAGE_FF",
+  "LIFT", "GABLE", "GABLE_RAILS", "RENDER_ADAPTION",
+  "BIRDCAGE_GF", "BIRDCAGE_FF", "BIRDCAGE_SF", "BIRDCAGE_TF",
   "LOADING_BAY", "HAKI", "LADDER_TOWER", "RUBBISH_CHUTE", "TABLE_LIFT",
   "JOIST_SUPPORT", "FOOT_SCAFFOLD", "LOW_LEVEL", "PARTY_WALL", "CONSTRUCTION_LINE", "OTHER",
 ]);
@@ -80,7 +81,11 @@ const ACTIONS = new Set(["ERECT", "DISMANTLE"]);
 const BANDS = new Set(["SUPER_COMPETITIVE", "COMPETITIVE", "MEDIUM", "HIGH", "CUSTOM"]);
 const UNITS = new Set(["LM", "M2", "EACH", "LIFT", "WEEK"]);
 
-/** Add or update one rate (keyed by rate card + component + action + band). */
+/**
+ * Add or update one rate, keyed by rate card + component + action + band +
+ * liftLevel. liftLevel 0 = the base rate (upper lifts + non-lift components);
+ * 1..8 = a specific lift level's rate (docs/15 P2).
+ */
 export async function saveRateItem(input: {
   rateCardId: string;
   component: string;
@@ -88,6 +93,7 @@ export async function saveRateItem(input: {
   band: string;
   unit: string;
   rate: number;
+  liftLevel?: number;
 }): Promise<{ ok: boolean; error?: string }> {
   if (
     !COMPONENTS.has(input.component) ||
@@ -98,15 +104,19 @@ export async function saveRateItem(input: {
     return { ok: false, error: "Invalid rate item." };
   if (!Number.isFinite(input.rate) || input.rate < 0)
     return { ok: false, error: "Rate must be a positive number." };
+  const liftLevel = Math.trunc(input.liftLevel ?? 0);
+  if (liftLevel < 0 || liftLevel > 8)
+    return { ok: false, error: "Lift level must be 0–8 (0 = base)." };
 
   const key = {
     rateCardId: input.rateCardId,
     component: input.component as Component,
     action: input.action as Action,
     band: input.band as Band,
+    liftLevel,
   };
   await prisma.rateItem.upsert({
-    where: { rateCardId_component_action_band: key },
+    where: { rateCardId_component_action_band_liftLevel: key },
     create: { ...key, unit: input.unit as Unit, rate: input.rate },
     update: { unit: input.unit as Unit, rate: input.rate },
   });

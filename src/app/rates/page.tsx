@@ -9,7 +9,14 @@ export default async function RatesPage() {
     orderBy: [{ isActive: "desc" }, { effectiveFrom: "desc" }],
     relationLoadStrategy: "join",
     include: {
-      items: { orderBy: [{ component: "asc" }, { band: "asc" }, { action: "asc" }] },
+      items: {
+        orderBy: [
+          { component: "asc" },
+          { band: "asc" },
+          { action: "asc" },
+          { liftLevel: "asc" },
+        ],
+      },
       stageSplits: { orderBy: [{ scenario: "asc" }, { sortOrder: "asc" }] },
     },
   });
@@ -28,6 +35,7 @@ export default async function RatesPage() {
       band: i.band,
       unit: i.unit,
       rate: Number(i.rate),
+      liftLevel: i.liftLevel,
     })),
     stageSplits: c.stageSplits.map((s) => ({
       id: s.id,

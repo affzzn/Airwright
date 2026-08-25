@@ -62,7 +62,8 @@ export default async function PricingPage({
       {(!rateCard ||
         pricing.confirmedCount < pricing.plots.length ||
         pricing.unpricedComponents.length > 0 ||
-        pricing.garageCount > 0) && (
+        pricing.garageCount > 0 ||
+        pricing.missingScenarios.length > 0) && (
         <div className="mb-6 space-y-1.5 rounded-lg border border-hairline bg-surface px-4 py-3 text-xs text-ink-muted">
           {!rateCard && (
             <p>⚠ No active house-build rate card — prices are £0. Create one under Rates.</p>
@@ -82,6 +83,12 @@ export default async function PricingPage({
           {pricing.garageCount > 0 && (
             <p>
               ⚠ {pricing.garageCount} plot(s) have a garage — garage pricing is not applied yet.
+            </p>
+          )}
+          {pricing.missingScenarios.length > 0 && (
+            <p>
+              ⚠ No stage split defined for: {pricing.missingScenarios.join(", ")} — those plots
+              fell back to the STANDARD 50/25/25 split. Add the split under Rates.
             </p>
           )}
           <p>

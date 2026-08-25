@@ -35,6 +35,7 @@ export interface RateItemLite {
   action: string;
   band: string;
   rate: number;
+  liftLevel?: number | null;
 }
 export interface StageSplitLite {
   scenario: string;
@@ -68,6 +69,8 @@ export interface ProjectPricing {
   unpricedComponents: string[];
   confirmedCount: number;
   garageCount: number;
+  /** Scenarios a plot needed but the rate card didn't define — fell back to STANDARD. */
+  missingScenarios: string[];
 }
 
 function scenarioFor(storeys: number | null, floorCount: number): string {
@@ -98,8 +101,10 @@ export function priceProject(input: {
     ...DEFAULT_PARAMS,
     storeyLiftTemplate: input.storeyLiftTemplate ?? DEFAULT_PARAMS.storeyLiftTemplate,
   };
+  const missingScenarios = new Set<string>();
   const splitsFor = (scenario: string) => {
     const s = input.stageSplits.filter((x) => x.scenario === scenario);
+    if (!s.length && scenario !== "STANDARD") missingScenarios.add(scenario);
     const use = s.length ? s : input.stageSplits.filter((x) => x.scenario === "STANDARD");
     return use.map((x) => ({ name: x.name, percent: x.percent }));
   };
@@ -173,5 +178,6 @@ export function priceProject(input: {
     unpricedComponents: [...unpriced].sort(),
     confirmedCount,
     garageCount,
+    missingScenarios: [...missingScenarios].sort(),
   };
 }

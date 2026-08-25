@@ -28,6 +28,7 @@ export interface RateItemVM {
   band: string;
   unit: string;
   rate: number;
+  liftLevel: number; // 0 = base rate; 1..8 = a specific lift level
 }
 export interface StageSplitVM {
   id: string;
@@ -53,6 +54,8 @@ const COMPONENT_OPTS: { value: string; label: string }[] = [
   { value: "RENDER_ADAPTION", label: "Render adaption" },
   { value: "BIRDCAGE_GF", label: "Birdcage (GF)" },
   { value: "BIRDCAGE_FF", label: "Birdcage (FF)" },
+  { value: "BIRDCAGE_SF", label: "Birdcage (SF)" },
+  { value: "BIRDCAGE_TF", label: "Birdcage (TF)" },
   { value: "LOADING_BAY", label: "Loading bay" },
   { value: "RUBBISH_CHUTE", label: "Rubbish chute" },
   { value: "HAKI", label: "Haki stair" },
@@ -88,7 +91,14 @@ const SCENARIO_LABEL: Record<string, string> = {
   STANDARD: "Standard",
   BUNGALOW: "Bungalow",
   NO_BIRDCAGE: "No birdcage",
+  GARAGE: "Garage",
+  GARAGE_NO_BCAGE: "Garage (no birdcage)",
+  TIMBER_FRAME: "Timber frame",
 };
+// A lift level 1..8 only means something for the LIFT component; everything else
+// is priced at the base rate (level 0), shown as "—".
+const liftLevelLabel = (component: string, level: number) =>
+  component === "LIFT" && level > 0 ? `${level}` : "—";
 
 export function RatesManager({ cards }: { cards: RateCardVM[] }) {
   const [newOpen, setNewOpen] = useState(false);
@@ -189,6 +199,7 @@ function RateCardBlock({ card, onDelete }: { card: RateCardVM; onDelete: () => v
                   <th className="py-2 pr-3 font-medium">Component</th>
                   <th className="py-2 pr-3 font-medium">Action</th>
                   <th className="py-2 pr-3 font-medium">Band</th>
+                  <th className="py-2 pr-3 font-medium">Lift</th>
                   <th className="py-2 pr-3 font-medium">Unit</th>
                   <th className="py-2 pr-3 text-right font-medium">Rate (£)</th>
                   <th className="py-2" />
@@ -197,7 +208,7 @@ function RateCardBlock({ card, onDelete }: { card: RateCardVM; onDelete: () => v
               <tbody>
                 {card.items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-4 text-center text-sm text-ink-subtle">
+                    <td colSpan={7} className="py-4 text-center text-sm text-ink-subtle">
                       No rates yet — add one below.
                     </td>
                   </tr>
@@ -266,6 +277,7 @@ function RateRow({ item }: { item: RateItemVM }) {
         band: item.band,
         unit: item.unit,
         rate: n,
+        liftLevel: item.liftLevel,
       });
       router.refresh();
     });
@@ -281,6 +293,9 @@ function RateRow({ item }: { item: RateItemVM }) {
       <td className="py-1.5 pr-3 text-ink">{label(COMPONENT_OPTS, item.component)}</td>
       <td className="py-1.5 pr-3 text-ink-muted">{label(ACTION_OPTS, item.action)}</td>
       <td className="py-1.5 pr-3 text-ink-muted">{label(BAND_OPTS, item.band)}</td>
+      <td className="py-1.5 pr-3 tabular-nums text-ink-muted">
+        {liftLevelLabel(item.component, item.liftLevel)}
+      </td>
       <td className="py-1.5 pr-3 text-ink-muted">{label(UNIT_OPTS, item.unit)}</td>
       <td className="py-1.5 pr-3 text-right">
         <span className="inline-flex items-center gap-1">
@@ -317,16 +332,28 @@ function AddRateRow({ rateCardId }: { rateCardId: string }) {
   const [action, setAction] = useState("ERECT");
   const [band, setBand] = useState("MEDIUM");
   const [unit, setUnit] = useState("LM");
+  const [liftLevel, setLiftLevel] = useState(0);
   const [rate, setRate] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  // Lift level only applies to the LIFT component; force base (0) otherwise.
+  const effectiveLevel = component === "LIFT" ? liftLevel : 0;
 
   const add = () => {
     const n = Number(rate);
     if (!Number.isFinite(n) || n < 0) return setErr("Enter a rate.");
     setErr(null);
     start(async () => {
-      const res = await saveRateItem({ rateCardId, component, action, band, unit, rate: n });
+      const res = await saveRateItem({
+        rateCardId,
+        component,
+        action,
+        band,
+        unit,
+        rate: n,
+        liftLevel: effectiveLevel,
+      });
       if (res?.ok) {
         setRate("");
         router.refresh();
@@ -354,6 +381,18 @@ function AddRateRow({ rateCardId }: { rateCardId: string }) {
       <select className={sel} value={band} onChange={(e) => setBand(e.target.value)}>
         {BAND_OPTS.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <select
+        className={sel}
+        value={effectiveLevel}
+        disabled={component !== "LIFT"}
+        title="Lift level (LIFT only): base rate, or a specific lift"
+        onChange={(e) => setLiftLevel(Number(e.target.value))}
+      >
+        <option value={0}>Base lift</option>
+        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+          <option key={n} value={n}>{`${n} lift`}</option>
         ))}
       </select>
       <select className={sel} value={unit} onChange={(e) => setUnit(e.target.value)}>

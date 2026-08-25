@@ -70,6 +70,7 @@ export async function loadProjectPricing(
       action: i.action,
       band: i.band,
       rate: Number(i.rate),
+      liftLevel: i.liftLevel,
     })),
     stageSplits: (rateCard?.stageSplits ?? []).map((s) => ({
       scenario: s.scenario,

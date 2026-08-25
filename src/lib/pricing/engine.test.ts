@@ -74,9 +74,11 @@ describe("priceTakeoffLine", () => {
     expect(gfErect?.amount).toBe(360); // 40 × 9
   });
 
-  it("prices apex as a table lift + apex handrail", () => {
+  it("prices apex as ONE combined client item (table lift + gable rails)", () => {
+    // Client matrix column M combines them (docs/15 §3, P4) — one GABLE line,
+    // quantity = apex count. No separate GABLE_RAILS line for the client quote.
     expect(result.lines.find((l) => l.component === "GABLE")?.quantity).toBe(2);
-    expect(result.lines.find((l) => l.component === "GABLE_RAILS")?.quantity).toBe(2);
+    expect(result.lines.find((l) => l.component === "GABLE_RAILS")).toBeUndefined();
   });
 
   it("stages always reconcile back to the subtotal (to the penny)", () => {
@@ -111,5 +113,40 @@ describe("priceTakeoffLine", () => {
       stageSplits: SPLITS,
     });
     expect(semi.subtotal).toBeLessThan(result.subtotal);
+  });
+
+  it("prices the 1st lift at its own (dearer) rate; upper lifts at the base", () => {
+    // Base LIFT ERECT 18.25 + a dearer 1st-lift rate at level 1 (docs/15 P2).
+    const perLift = buildRateResolver(
+      [
+        { component: "LIFT", action: "ERECT", band: "MEDIUM", rate: 18.25, liftLevel: 0 },
+        { component: "LIFT", action: "ERECT", band: "MEDIUM", rate: 21.0, liftLevel: 1 },
+      ],
+      "MEDIUM",
+    );
+    const r = priceTakeoffLine(line, { resolveRate: perLift, stageSplits: SPLITS });
+    const erects = r.lines.filter((l) => l.component === "LIFT" && l.action === "ERECT");
+    expect(erects[0].liftLevel).toBe(1);
+    expect(erects[0].rate).toBe(21.0); // 1st lift → level-1 rate
+    expect(erects[1].rate).toBe(18.25); // 2nd lift → base rate
+    expect(erects[3].rate).toBe(18.25); // 4th lift → base rate (no level-4 entry)
+  });
+
+  it("prices birdcage per floor beyond FF (SF/TF get their own component)", () => {
+    // A 3-storey with GF/FF/SF floors — SF must map to BIRDCAGE_SF, not fold into FF.
+    const line3 = buildTakeoff({
+      ...base,
+      storeys: 3,
+      floors: [
+        { level: "GF", m2: 40 },
+        { level: "FF", m2: 40 },
+        { level: "SF", m2: 40 },
+      ],
+    });
+    const r = priceTakeoffLine(line3, { resolveRate: resolve, stageSplits: SPLITS });
+    const sfErect = r.lines.find((l) => l.component === "BIRDCAGE_SF" && l.action === "ERECT");
+    expect(sfErect?.quantity).toBe(40);
+    // erect + strip for each of the 3 floors = 6 birdcage lines.
+    expect(r.lines.filter((l) => l.component.startsWith("BIRDCAGE"))).toHaveLength(6);
   });
 });

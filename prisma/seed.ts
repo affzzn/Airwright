@@ -32,8 +32,7 @@ async function main() {
       effectiveFrom: new Date("2026-07-01"),
       isActive: true,
       stageSplits: {
-        // Standard 50/25/25 (confirmed) + bungalow 65/10/25 (confirmed).
-        // NO_BIRDCAGE (75/…) is left for Laura to confirm.
+        // All ✅ CONFIRMED from Colin's matrix column headers (docs/15 §5).
         create: [
           { scenario: "STANDARD", name: "Plot Erect", percent: 50, sortOrder: 0 },
           { scenario: "STANDARD", name: "Birdcage Erect", percent: 25, sortOrder: 1 },
@@ -41,12 +40,27 @@ async function main() {
           { scenario: "BUNGALOW", name: "Plot Erect", percent: 65, sortOrder: 0 },
           { scenario: "BUNGALOW", name: "Birdcage Erect", percent: 10, sortOrder: 1 },
           { scenario: "BUNGALOW", name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "NO_BIRDCAGE", name: "Plot Erect", percent: 75, sortOrder: 0 },
+          { scenario: "NO_BIRDCAGE", name: "Birdcage Erect", percent: 0, sortOrder: 1 },
+          { scenario: "NO_BIRDCAGE", name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "GARAGE", name: "Gar Erect", percent: 65, sortOrder: 0 },
+          { scenario: "GARAGE", name: "Birdcage Erect", percent: 10, sortOrder: 1 },
+          { scenario: "GARAGE", name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "GARAGE_NO_BCAGE", name: "Gar Erect", percent: 75, sortOrder: 0 },
+          { scenario: "GARAGE_NO_BCAGE", name: "Birdcage Erect", percent: 0, sortOrder: 1 },
+          { scenario: "GARAGE_NO_BCAGE", name: "Dismantle", percent: 25, sortOrder: 2 },
+          { scenario: "TIMBER_FRAME", name: "Plot Erect", percent: 80, sortOrder: 0 },
+          { scenario: "TIMBER_FRAME", name: "Dismantle", percent: 20, sortOrder: 1 },
         ],
       },
       items: {
+        // liftLevel 0 = base rate (upper lifts); 1 = the (dearer) 1st lift (docs/15 P2).
         create: [
-          { component: "LIFT", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 18.25 },
+          { component: "LIFT", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 18.25, liftLevel: 0 },
+          { component: "LIFT", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 21.0, liftLevel: 1 },
+          { component: "LIFT", action: "DISMANTLE", band: "MEDIUM", unit: "LM", rate: 6.0, liftLevel: 0 },
           { component: "BIRDCAGE_GF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
+          { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
           { component: "GABLE", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 120.0 },
         ],
       },
