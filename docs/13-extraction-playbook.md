@@ -129,7 +129,7 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 - **Where:** the footprint on the ground-floor / setting-out plan.
 - **How:** count **external returns only** (a plain rectangle = 4). An L-shape adds returns (a real Dekker-type plot "technically got five corners").
 - **Layer:** reads (engine adds the corner allowance).
-- **Edge cases:** ⚠️ the allowance **quantum** (1 m/corner vs a 5 m allowance) is open — the model only counts corners; it never adds metres.
+- **Edge cases:** the allowance is **1 m per external corner** (✅ CONFIRMED) — the model only counts EXTERNAL returns; it never adds metres.
 
 ### 3.7 Roof type
 - **What:** PITCHED / HIPPED / MIXED.
@@ -246,9 +246,9 @@ cross-checks it deterministically.
 ## 6. Open questions that touch reading
 
 These stay **flags**, never guessed (full table: `docs/11 §8` / checklist §15):
-height **datum** (§3.4), corner **quantum** (§3.6), the birdcage **reconciliation
-tolerance** (§3.10 — the wall thickness itself is now read per-drawing, not
-defaulted), **render-lift** basis (§3.9), smart-roof **threshold** (§3.13), the
+the birdcage **reconciliation tolerance** (§3.10 — the wall thickness itself is
+now read per-drawing, not defaulted), **render-lift** basis (§3.9), smart-roof
+**threshold** (§3.13), the
 two-lift-birdcage **client** (§3.10).
 
 ---

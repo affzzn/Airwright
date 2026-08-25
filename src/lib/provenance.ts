@@ -219,7 +219,7 @@ export function buildProvenanceCards(
         },
       ],
       footnotes: [
-        "External returns only. Each corner adds a 1 m scaffold allowance (quantum being confirmed with Colin).",
+        "External returns only. Each external corner adds a 1 m scaffold allowance.",
       ],
       confidenceLabel: raw.cornerCount.confidence,
     };

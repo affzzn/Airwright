@@ -72,7 +72,7 @@ dimension string)**. Unreadable → `null` + `unknown`, never a guess.
 | 5 | **Roof type per elevation** (pitched / hipped) | Elevation shape | ✅ hipped → no apex/table |
 | 6 | **Apex count per elevation** | Count triangular apexes with brickwork | ✅ pitched only; hip = 0; ≤3 typical |
 | 7 | **Wall segments** (building line) | Outside of the **ground-floor plan** | ✅ each external wall length + face + dim string |
-| 8 | **Corner count** | Plan | ✅ count returns; ⚠️ external-only vs internal, and the +metre quantum, are open (§8) |
+| 8 | **Corner count** | Plan | ✅ count EXTERNAL returns only; allowance +1 m/corner (both CONFIRMED) |
 | 9 | **Render sections + length (LM)** | Elevation render hatching / "R" variant | ✅ only the rendered section; per elevation |
 | 10 | **Internal floor dims per floor** (GF/FF/SF/roof-room) | **Floor plans**, internal measurement | ✅ L×W → birdcage m²; wall read per-drawing (structural face), no default (docs/13 §3.10) |
 | 11 | **Chimney present?** | Elevation / roof plan | ✅ spot it (unit-priced later); flag spec-vs-drawing mismatch |
@@ -108,7 +108,7 @@ the height calc and **flag** (record both). ⚠️ datum for `height` is open.
 | 2.5-storey (room in roof) | 5 | Baildon, Gasburn ×5 |
 | 3-storey | 6 | Augusta ×6 |
 
-**Perimeter** ✅ (structure) / ⚠️ (quantum)
+**Perimeter** ✅ (corner allowance = 1 m per external corner, CONFIRMED)
 ```
 perimeter_per_lift = Σ(external wall lengths for the config) + corner_allowance
 total = perimeter_per_lift × lifts        (store BOTH; Strike wants the total)
@@ -155,7 +155,7 @@ apex_handrail_qty == apex_qty                  (Strike name: "apex scaffold")
 | Lifts | `ceil(height/1.5) + room_in_roof` | ✅ (datum ⚠️) |
 | Storey lifts | garage 2 · bung 2 · 2-st 4 · 2.5-st 5 · 3-st 6 | ✅ verified on sheets |
 | Config → walls | det 4 · semi 3 · mid 2 (front+rear) | ✅ |
-| Corner allowance | +1 m per corner | ✅ (quantum/internal ⚠️) |
+| Corner allowance | +1 m per external corner | ✅ CONFIRMED (external returns only) |
 | Birdcage | internal L×W × storeys-floors, 1 lift each | ✅ (cavity ⚠️) |
 | Birdcage floors | 2.5-storey = 3 floors | ✅ new from sheets |
 | Render lifts | 2-st→2 (+table) · 1-st→1 · 2 m lifts | ✅ (full table ⚠️) |
@@ -208,8 +208,7 @@ Fixes that got it there: model reports the printed frontage + `dwellingsWide` an
 the **engine halves front/rear** for a pair (not the model); birdcage prefers the
 stated **GIA**; porch canopy counts as a low level; conditional chimney → false;
 **apex reduced by config** (semi drops the party-wall gable, mid drops both).
-Residual gaps are within tolerance and tied to open params (corner quantum;
-Colin's exact birdcage-area basis).
+Residual gaps are within tolerance and tied to Colin's exact birdcage-area basis.
 
 **Augusta (3-storey apartment block) + Tyard (maisonette)** then drove two more
 rules:
@@ -252,7 +251,8 @@ fixtures.
 Build the hook, leave configurable, flag in review. From the call + sheets:
 
 1. **Height datum** for lifts — soffit / eaves / wall plate / ridge (Colin).
-2. **Corner allowance quantum** — 1 m/corner vs Laura's 5 m; internal vs external returns (Colin).
+2. ~~**Corner allowance quantum** — 1 m/corner vs Laura's 5 m; internal vs external returns~~
+   **RESOLVED**: **1 m per corner**, **external returns only** (both CONFIRMED). Not a param to hedge.
 3. ~~**Birdcage cavity deduction** — 600 vs 900 mm~~ **RESOLVED 2026-08-25**: no fixed
    deduction — the wall thickness is **read off each drawing** (structural/blockwork
    face, e.g. Miller 328, NSS 302, Augusta 392); the legend (finished-face, e.g. 353)
@@ -383,8 +383,8 @@ lifts (storey table), apex = table lift + handrail (hipped → 0), party walls b
 config — and emits Colin's take-off line. 16 tests reproduce his real sheet
 lines (Rosewood 48.5×2, Dekker semi 20.5 / mid 10.6, Baildon 2.5→5 lifts/3
 floors, garage 30.5×2, Kone render 9.23×2). Shown on the review screen per
-config. Open params (corner quantum, height datum, render table) are flagged, not
-guessed.
+config. Open params (render table) are flagged, not guessed. (Corner allowance = 1 m
+per external corner is CONFIRMED.)
 
 **Still NOT built:** builder-profile extras (loading bay / chute / access /
 propping apportionment) and the site-elevations/underbuild page type. Model:

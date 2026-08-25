@@ -13,6 +13,14 @@ Sources: `docs/15-pricing-spec.md` (the decode), the live pricing code
 (`src/lib/pricing/`), and a verbatim column extract of Colin's real templates
 (`data/pricing-data/`, gitignored) captured below.
 
+> **STATUS (2026-08-25): A1–A6 + B1–B2 all BUILT, deployed, verified.** The engine
+> emits Colin's real column set (per-lift, per-floor birdcage, combined table+rails,
+> Timber-Frame path, garages) and the Excel export is Colin's **single-sheet** matrix
+> (plots → garages → grand total). Running on **placeholder rates** (`scripts/fill-placeholder-rates.mts`
+> filled the active card). **Still open:** the P6 bundling switch (A-gate), the structural
+> golden test (C), and — the real gate — Colin's actual rate sheet (Track 3). Section
+> bodies below are annotated ✅/⬜ with the shipping commit.
+
 ---
 
 ## 0. Decisions taken (2026-08-25)
@@ -28,23 +36,32 @@ Sources: `docs/15-pricing-spec.md` (the decode), the live pricing code
 
 ---
 
-## 1. Current state (what exists in code)
+## 1. As-built (what exists in code now)
 
-- **`src/lib/pricing/engine.ts` → `priceTakeoffLine`** — turns a `TakeoffLine` into true-cost
-  `PricedLine[]`; `subtotal = Σ lines` (pence), `stages = subtotal × %`. Reconciles to the
-  penny. **Wrong shape vs the matrix:** one flat `LIFT` rate for every lift; `GABLE` +
-  `GABLE_RAILS` as two lines; birdcage only `GF`/`FF` (SF+ folded into FF); low-level /
-  party-wall / chimney priced as separate client lines.
+- **`src/lib/pricing/engine.ts`** — `priceTakeoffLine` (Traditional) + `priceTimberFrameLine`
+  (TF) + `priceGarageLine`; `subtotal = Σ lines` (pence), `stages = subtotal × %` via the shared
+  `allocateStages`. Reconciles to the penny. Now the **right shape**: per-lift `LIFT` erect by
+  `liftLevel` (1st dearer) + one `LIFT` dismantle; **one combined `GABLE`** (table+rails) for the
+  client; birdcage `GF/FF/SF/TF` erect + strip; TF = `TF_EXTERNAL` erect+dismantle + `ADAPTION`
+  per lift + `GABLE_RAILS`. ⬜ low-level / party-wall / chimney are **still** separate client
+  lines (P6, A-gate — needs Colin).
 - **`src/lib/pricing/priceProject.ts`** — per-plot pricing with the plot's own config/render;
-  `scenarioFor` → STANDARD/BUNGALOW/NO_BIRDCAGE; **`splitsFor` silently falls back to
-  STANDARD**; garages **counted, not priced**; **`buildType` never read**.
-- **Schema:** `RateItem` unique `[rateCardId, component, action, band]` (**no lift level**);
-  `StageScenario` = STANDARD/BUNGALOW/NO_BIRDCAGE (**no GARAGE/TIMBER_FRAME**);
-  `ScaffoldComponent` has `TABLE_LIFT` but **not** `BIRDCAGE_SF/TF` or `CHIMNEY`;
-  `HouseType.buildType` **is** persisted (`persist.ts`) but unused; `QuoteLineItem.liftLevel`
-  already exists.
-- **Export `src/app/quotes/[id]/export/route.ts`** + both on-screen matrices emit a **generic
-  stage matrix** (`Plot | House type | Config | <stages> | Total`) — **not** Colin's layout.
+  branches on `buildType` (TF → `priceTimberFrameLine`, TIMBER_FRAME split); prices each
+  `hasGarage` plot's garage into `pricing.garages[]` and folds it into `grandTotal`; a missing
+  scenario is surfaced in `pricing.missingScenarios` (still falls back to STANDARD so it never
+  breaks).
+- **`src/lib/pricing/matrix.ts`** — `buildClientMatrix` (Traditional/TF) + `buildGarageMatrix`
+  pivot priced lines → Colin's columns; stage columns render in a fixed order with the % in the
+  header (`Plot Erect 80%`).
+- **`src/lib/pricing/quoteExcel.ts`** — `buildQuoteWorkbook` renders the **single stacked sheet**
+  (plots per build type → garages → 3-line grand total) + a Line-items audit tab; shared by the
+  export route and `scripts/*` so both produce the identical file.
+- **Schema:** `RateItem` unique `[rateCardId, component, action, band, liftLevel]` (`liftLevel 0`
+  = base); `StageScenario` += GARAGE / GARAGE_NO_BCAGE / TIMBER_FRAME; `ScaffoldComponent` +=
+  `BIRDCAGE_SF/TF`, `TF_EXTERNAL`, `ADAPTION`; `GarageType` += `CAR_PORT`; `Document.plotListData`
+  added (plot re-matching). `HouseType.buildType` now drives pricing.
+- **Rates:** `scripts/fill-placeholder-rates.mts` populated the active card (band MEDIUM) with all
+  6 stage scenarios + 19 placeholder rate items. ⚠️ placeholders until Colin's sheet.
 
 ---
 
@@ -82,77 +99,81 @@ target only.
 
 ## 3. Workstream A — engine correctness (the priced lines)
 
-**A1 · Stage splits: NO_BIRDCAGE / Garage / Timber-Frame (P3)** — *small* 🔧
+**A1 · Stage splits: NO_BIRDCAGE / Garage / Timber-Frame (P3)** — ✅ BUILT (`93b3f7a`)
 - `StageScenario` += `GARAGE`, `GARAGE_NO_BCAGE`, `TIMBER_FRAME` (migration).
 - Seed the ✅ confirmed splits: NO_BIRDCAGE **75/0/25**, GARAGE **65/10/25**,
   GARAGE_NO_BCAGE **75/0/25**, TIMBER_FRAME **80/20**.
 - `priceProject.splitsFor`: a **missing** scenario becomes a flag, not a silent STANDARD.
 
-**A2 · Birdcage per floor GF→TF (P5)** — *small* 🔧
+**A2 · Birdcage per floor GF→TF (P5)** — ✅ BUILT (`93b3f7a`)
 - `ScaffoldComponent` += `BIRDCAGE_SF`, `BIRDCAGE_TF` (migration).
 - `engine.ts` birdcage loop maps each floor to its own component (GF/FF/SF/TF), erect + strip.
   Remove the `SF→FF` fold.
 
-**A3 · Combine table lift + gable rails for the client (P4)** — *small* 🔧
+**A3 · Combine table lift + gable rails for the client (P4)** — ✅ BUILT (`93b3f7a`)
 - Emit ONE client apex-access item (table lift + handrails) instead of `GABLE` + `GABLE_RAILS`.
   Keep the split noted for Build 2 (gang matrix separates them).
 
-**A4 · Per-lift-level rates (P2)** — *medium, schema change* 🔧
+**A4 · Per-lift-level rates (P2)** — ✅ BUILT (`93b3f7a`); `liftLevel 0` = base, exact-level → base fallback
 - Migration: `RateItem` += `liftLevel Int?`, unique `[rateCardId, component, action, band, liftLevel]`.
 - `buildRateResolver`/`RateResolver` resolve by `(component, action, liftLevel)` with a fallback
   ladder: exact level → upper-lift default → single rate (sparse cards still price).
 - `/rates` UI + `actions/rates.saveRateItem` accept a per-level rate (min: base vs upper).
 
-**A5 · `buildType` → Timber-Frame priced path (P1)** — *medium* 🔧
+**A5 · `buildType` → Timber-Frame priced path (P1)** — ✅ BUILT (`85ef4d4`)
 - Plumb `buildType` into the `houseTypes` select (`loadProjectPricing`) + `HouseTypeForPricing`.
 - `TRADITIONAL` = current path; `TIMBER_FRAME` = single external erect + per-lift adaptions +
   apex handrails, **no birdcage stage**, 80/20 — a `priceTimberFrameLine` selected by buildType.
 
-**A6 · Garages priced set (P7)** — *medium* 🔧
-- Garage take-off keyed on `Plot.garageType` → its priced set (1st/2nd lift, gable lift+rails,
-  GF birdcage, dismantle) + 65/10/25 (or 75/0/25), folded into the grand total as a section.
+**A6 · Garages priced set (P7)** — ✅ BUILT (`5e8b115`)
+- `src/lib/takeoff/garage.ts` (`GARAGE_TEMPLATES` + `buildGarageTakeoff`) — garages have **no
+  extracted geometry**, so quantities come from a **flagged placeholder template** per `garageType`
+  (⚠️ confirm with Colin). `priceGarageLine` → 65/10/25 (or 75/0/25), rendered as the Garages block.
 
-**A-gate · P6 bundling (low-level / party-wall / chimney)** — ⚠️ needs Colin
-- A rate-card / builder-profile **toggle** (`bundled` vs `itemised`), **default = flag for review**.
-  Don't silently keep pricing them as client lines (currently over-states the quote).
+**A-gate · P6 bundling (low-level / party-wall / chimney)** — ⬜ NOT DONE — ⚠️ needs Colin
+- Still priced as separate client lines (may over-state the quote). The toggle
+  (`bundled` vs `itemised`, default = flag for review) is not built yet.
 
 ---
 
 ## 4. Workstream B — the client matrix export (headline)
 
-**B1 · `src/lib/pricing/matrix.ts` (new, pure, tested)** 🔧
-- `buildClientMatrix(pricedPlots, buildType)` pivots each plot's `PricedLine[]` into the exact
-  columns in §2 (Traditional or Timber-Frame), plus a garages section + grand total.
-- Encodes the reconciliation: `Σ(cost columns) === plot total`; `stages === total × %`.
+**B1 · `src/lib/pricing/matrix.ts` (pure, tested)** — ✅ BUILT (`4728251`)
+- `buildClientMatrix(pricedPlots, buildType)` + `buildGarageMatrix` pivot priced lines into the
+  exact columns in §2. Encodes `Σ(cost columns) === plot total`; stage columns render in a fixed
+  order with the % in the header (`Plot Erect 80%`).
 
-**B2 · Rewrite `src/app/quotes/[id]/export/route.ts`** 🔧
-- Render `buildClientMatrix` into ExcelJS matching Colin's layout: a Traditional sheet (+ a
-  Timber-Frame sheet only if any TF plots), the garages block, the 3-line grand-total block.
-- Keep `safe()` formula-injection sanitising + the versioned filename. Optionally keep the
-  "Line items" sheet as the true-cost audit backing.
+**B2 · Excel export — Colin's SINGLE-SHEET layout** — ✅ BUILT (`4728251`, single-sheet `45bde80`, refactor `1f258c4`)
+- `src/lib/pricing/quoteExcel.ts` `buildQuoteWorkbook` renders ONE stacked sheet (plots per build
+  type → garages block → 3-line grand-total) + a Line-items audit tab; `safe()` sanitising +
+  versioned filename kept. The route (`quotes/[id]/export`) is now a thin query → `buildQuoteWorkbook`,
+  so a script produces the identical file (`scripts/*`). Verified on a regenerated quote:
+  Rosewood (Traditional bungalow) → full 27-col sheet, 1st lift dearer, 65/10/25, reconciles £3572.05.
 
-**B3 · On-screen** — unchanged for now (Excel-first decision). Simple stage matrix stays.
+**B3 · On-screen** — unchanged (Excel-first decision). Simple stage matrix stays.
 
 ---
 
 ## 5. Workstream C — tests & acceptance
-- Unit tests per A-item; `matrix.test.ts` (columns reconcile; Traditional vs TF; garages fold in).
-- **Structural golden test:** generated Traditional columns/reconciliation match the Windermere
-  layout (values validated later against real rates — Track 3's penny-exact test).
+- ✅ Unit tests per A/B item: `pricing/engine.test.ts` (per-lift, birdcage floors, combined apex),
+  `pricing/matrix.test.ts` (columns reconcile; Traditional vs TF), `pricing/garage.test.ts`,
+  `pricing/priceProject.test.ts`. 157 tests green.
+- ⬜ **Structural golden test** (generated Traditional columns/reconciliation vs the Windermere
+  layout) — NOT built yet.
 
 ---
 
-## 6. Build order
-1. **A1 + A2 + A3** (small, confirmed) → correct priced lines.
-2. **A4** (schema: per-lift rates) → the matrix's per-lift columns become meaningful.
-3. **B1 + B2** → **the deliverable: Colin's real matrix format**.
-4. **A5** (Timber-Frame) → **A6** (garages).
-5. **A-gate/P6** switch + **C** tests throughout.
+## 6. Build order — ✅ A1–A6 + B1–B2 DONE (in this order); ⬜ A-gate/P6 + the C golden test remain
 
 ---
 
 ## 7. Still needs Colin (do not guess — see `docs/15 §11`)
-Rate sheet (per lift level / band / birdcage erect+strip / table+rails / render LM); the P6
-bundling answer; per-builder lift templates; corner quantum; render-on-2-storey (+table lift,
-£/LM = perimeter?); garage rates + split; Timber-Frame rates. **Acceptance:** load the sheet →
-reproduce Windermere `£20,228.06` to the penny.
+The **real rate sheet** (per lift level / band / birdcage erect+strip / table+rails / render LM) —
+placeholders are filled but not real; the **P6 bundling answer**; per-builder lift templates;
+render-on-2-storey (+table lift, £/LM = perimeter?); real garage quantities + rates; Timber-Frame
+rates. **Acceptance:** load the sheet → reproduce Windermere `£20,228.06` to the penny.
+
+## 8. Related follow-ups shipped alongside (identity / plots)
+Not part of Track 2 but done in the same window (see `PROGRESS.md`): house-type identity backfill
+(real name+code, `houseTypeIdentity.ts` + `persist.ts`, `f8eed0b`), duplicate house-type merge
+(`bda6060`), plot→pricing flow + auto re-match (`persistPlots.rematchProjectPlots`, `9f66f28`).

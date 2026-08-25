@@ -3,8 +3,8 @@
  * OBSERVABLES the model extracted (Layer 1) into Colin's take-off line, applying
  * only rules confirmed on the 13 Aug call + his handwritten sheets (docs/11).
  *
- * Nothing here is a guess: every ⚠️ open value (corner allowance, lift height,
- * render lift basis) is a parameter with a documented default, and every
+ * Nothing here is a guess: every ⚠️ open value (lift height, render lift basis)
+ * is a parameter with a documented default, and every
  * cross-check that can't be resolved raises a flag rather than a silent number.
  *
  * It NEVER calls a model and touches no I/O — feed it facts, get a take-off.
@@ -78,7 +78,7 @@ export const STANDARD_STOREY_LIFTS: Record<string, number> = {
 /** Tunable rules. Defaults are the confirmed values; ⚠️ ones await Colin (docs/11 §8). */
 export interface EngineParams {
   liftHeightM: number; // ✅ 1.5 (called an "average" — ⚠️ constancy open)
-  cornerAllowanceM: number; // ⚠️ quantum open: 1 m/corner vs a 5 m allowance
+  cornerAllowanceM: number; // ✅ CONFIRMED 1 m per external corner
   storeyLiftTemplate: Record<string, number>; // per-builder; default STANDARD
   // render lift basis is the storey table below (⚠️ full table owed by Colin)
 }
@@ -364,9 +364,6 @@ export function buildTakeoff(
     );
   if (render && render.lifts === null)
     flags.push("Rendered, but no render-lift rule for this storey count.");
-  flags.push(
-    `Corner allowance = ${params.cornerAllowanceM} m/corner (⚠️ quantum to confirm with Colin).`,
-  );
 
   if (input.isApartmentBlock)
     flags.push("Apartment block — whole-building scaffold; birdcage should be the whole floor plate.");

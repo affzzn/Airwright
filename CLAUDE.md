@@ -146,9 +146,10 @@ pure, tested) = quantity × rate per operation, integer pence, reconciles to the
 
 ## ⚠ Correctness rules that must come from Colin, never inferred
 
-**The full open-questions table (16 items, with owners) is `docs/11 §8`** — corner
-allowance quantum, height datum for the lift rule, apartment birdcage basis, the
-render lift table, the rate sheet, 4-plot apportionment, sign-off tolerances…
+**The full open-questions table (with owners) is `docs/11 §8`** — apartment
+birdcage basis, the render lift table, the rate sheet, 4-plot apportionment,
+sign-off tolerances… (Resolved: **corner allowance = 1 m per external corner**;
+height datum = soffit; birdcage wall read per-drawing.)
 Build hooks, flag in review, do not assume. Stage splits 50/25/25 (bungalow
 65/10/25) are CONFIRMED from his matrices. **Birdcage wall thickness is RESOLVED
 (2026-08-25):** read the structural (blockwork) wall off each drawing — prefer a

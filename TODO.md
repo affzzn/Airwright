@@ -12,7 +12,7 @@ the Week-3 rules + open questions live in **`docs/11-takeoff-engine-spec.md`** (
 - [x] **All work committed + pushed** to `main`. `data/` + `colin-data/` gitignored (PII).
 - [x] **Delete / archive projects** — the tenders home is now a workspace (search,
       status, stat strip, per-row archive + delete). Clears test junk self-serve.
-- [ ] **Colin follow-up call** — the 16 open questions in `docs/11 §8` (corner quantum,
+- [ ] **Colin follow-up call** — the open questions in `docs/11 §8` (
       height datum, birdcage cavity + apartment basis, render table, **rate sheet**…).
       Do NOT encode any of them as assumptions. **The rate sheet now blocks real pricing.**
 - [ ] **Supabase for prod**: create Colin's login user; set Site URL +
@@ -88,7 +88,7 @@ Colin's handwritten take-off sheets + 4 matched drawings are in `colin-data/` (g
 - [ ] Add "Setting Out Plan" pages to the relevant set (they carry the true GIA, e.g.
       Dekker 35.60, and the "Run of Exterior Wall" figure).
 - [ ] **Get from Colin**: rate sheet (£/component/band) + the docs/11 §8 answers
-      (corner quantum, cavity, render table, apartment birdcage basis, Tyard/Whitgrove).
+      (render table, apartment birdcage basis, Tyard/Whitgrove). Corner allowance = 1 m/external corner is CONFIRMED.
 
 ## Week 4 — Pricing (both modes), review screen, exports  — BUILT (on placeholder rates)
 

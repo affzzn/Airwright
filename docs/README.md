@@ -34,9 +34,10 @@ questions are the one thing gating correct pricing. See [`PROGRESS.md`](../PROGR
 
 ## The golden rule
 
-**Nothing uncertain is guessed.** Doc 11 §8 lists the 16 open rule questions
-(corner allowance quantum, height datum, birdcage cavity, render table, rate
-sheet…) with owners — each is a configurable hook + review flag until Colin
-answers it. Stage splits (50/25/25; bungalow 65/10/25) are confirmed from his
+**Nothing uncertain is guessed.** Doc 11 §8 lists the open rule questions
+(render table, rate sheet, apartment birdcage basis…) with owners — each is a
+configurable hook + review flag until Colin answers it. (Resolved: corner
+allowance = 1 m per external corner; height datum = soffit; birdcage wall read
+per-drawing.) Stage splits (50/25/25; bungalow 65/10/25) are confirmed from his
 matrices. Do not harden pricing (Week 4) until the rate sheet lands. See
 [doc 11](./11-takeoff-engine-spec.md).

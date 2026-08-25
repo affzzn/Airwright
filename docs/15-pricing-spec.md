@@ -48,7 +48,7 @@ type × configuration, the take-off produces:
 **Geometry (confirmed by the LM & Area Calculator — matches our engine exactly):**
 - Detached = `2 × (L + W)` (4 sides) · Semi/End = `L + 2W` (3 sides) · Mid = `2W` (2 sides).
 - Internal birdcage = `(L − 0.6) × (W − 0.6)` — Colin's calculator deducts **0.6 m per dimension** as a shortcut when only overalls are to hand. Our engine instead **reads the actual structural wall off each drawing** (e.g. Miller 328 → 0.656 m/dim, NSS 302 → 0.604 m/dim) and prefers a directly-printed internal span — no fixed default (docs/13 §3.10). His 0.6 m is a good cross-check on the result, not the method we use.
-- **"ADD CORNERS"** — the corner allowance is added on top of the wall LM (✅ our engine does this; quantum ⚠️ still to confirm).
+- **"ADD CORNERS"** — the corner allowance is added on top of the wall LM (✅ our engine does this; **1 m per external corner, CONFIRMED**).
 
 ---
 
@@ -177,24 +177,27 @@ plot-dependent.)
 
 ## 10. Gap analysis — current app vs this spec
 
-| # | Finding | Status | Fix |
+**Update (2026-08-25): the structural gaps P1–P5, P7 are BUILT** (Track 2, see
+`docs/16`). What remains is P6 (needs Colin) + the data gate (P11, real rates).
+
+| # | Finding | Status | Fix / how it's done |
 |---|---|---|---|
-| P1 | **`buildType` must select Traditional vs Timber-Frame matrix** | 🔴 wrong | Add a mode switch keyed on `buildType`; build the Timber-Frame priced set + 80/20 split. |
-| P2 | **Per-lift-level rates (1st lift dearer)** | 🔴 wrong | Rate model needs a lift-level dimension (min: base-lift vs upper-lift, ideally 1st…8th). |
-| P3 | **NO_BIRDCAGE split = 75 / 0 / 25** | 🟠 missing | Seed it; today it falls back to 50/25/25. |
-| P4 | **Table lift + gable rails = ONE client column** | 🟠 wrong | Combine into one priced item for the client quote (keep separate for gang/Build 2). |
-| P5 | **Birdcage erect + strip per floor, GF→TF** | 🟠 partial | Add `BIRDCAGE_SF` (and TF); strip is per-floor. |
-| P6 | **Low-level / party-wall / chimney are NOT client columns** | 🟠 over-prices | Confirm bundling with Colin; stop pricing them as separate client lines (or move to inclusions). |
-| P7 | **Garages priced (own columns + 65/10/25)** | 🟠 missing | Build the garage take-off + priced set; add into grand total. |
+| P1 | **`buildType` selects Traditional vs Timber-Frame matrix** | ✅ done (`85ef4d4`) | `priceProject` branches on `buildType` → `priceTimberFrameLine` (single external erect + adaptions + apex handrails, no birdcage, 80/20). |
+| P2 | **Per-lift-level rates (1st lift dearer)** | ✅ done (`93b3f7a`) | `RateItem.liftLevel` (0 = base, 1..8); resolver = exact level → base fallback. |
+| P3 | **NO_BIRDCAGE split = 75 / 0 / 25** | ✅ done (`93b3f7a`) | `StageScenario` += NO_BIRDCAGE / GARAGE(_NO_BCAGE) / TIMBER_FRAME, seeded; missing scenario now flags instead of silently STANDARD. |
+| P4 | **Table lift + gable rails = ONE client column** | ✅ done (`93b3f7a`) | One combined `GABLE` client line; gang split kept for Build 2. |
+| P5 | **Birdcage erect + strip per floor, GF→TF** | ✅ done (`93b3f7a`) | `ScaffoldComponent` += `BIRDCAGE_SF/TF`; each floor priced to its own component, erect + strip. |
+| P6 | **Low-level / party-wall / chimney are NOT client columns** | 🟠 OPEN — over-prices | ⚠️ needs Colin: bundled into the rate / separate inclusions / absent? Build a toggle (default = flag). Still priced as separate lines today. |
+| P7 | **Garages priced (own columns + 65/10/25)** | ✅ done (`5e8b115`) | `takeoff/garage.ts` template + `priceGarageLine`; garages block in the matrix + folded into grand total. ⚠️ quantities are placeholders (no extracted geometry). |
 | P8 | **Access items (Haki/LB/chute) bundled for client, itemised + apportioned for gang** | 🟡 later | Build-1: fold into the rate. Build-2: itemise + apportion (JG rule). |
-| P9 | **Template = builder × storey × Render/Hipped/NO-BCAGE variants** | 🟡 partial | Ensure derived operations reconcile to the matching template row (Hipped → no table lift; NO-BCAGE → 75/0/25). |
+| P9 | **Template = builder × storey × Render/Hipped/NO-BCAGE variants** | 🟢 mostly | Derived ops reconcile to the matching template row (Hipped → no table lift; NO-BCAGE → 75/0/25 via scenario). |
 | P10 | **HOP UPS not extracted** | 🟡 minor | Add to the take-off if it's a client line. |
-| P11 | **Rates + the whole mapping are placeholders** | 🔴 gate | Enter Colin's rate sheet; **validate to the penny against a real priced site** (Windermere/Branston/Oadby). |
+| P11 | **Rates are placeholders** | 🔴 GATE | Placeholders filled (`scripts/fill-placeholder-rates.mts`) so the matrix prices; still must enter Colin's real sheet + **validate to the penny** (Windermere/Branston/Oadby). |
 
 The **arithmetic and reconciliation mechanics are sound** (pence, subtotal = Σ ops,
-stages = subtotal × %, immutable quote). The gaps are **structural** (mode switch,
-per-lift rates, garages, birdcage floors, the combined/omitted columns) and **data**
-(rates, per-builder templates, the confirmations below).
+stages = subtotal × %, immutable quote), and the **structural** gaps are now closed.
+What's left is **P6** (a Colin confirmation) and **data** (real rates, per-builder
+templates, the confirmations below).
 
 ---
 
@@ -203,7 +206,7 @@ per-lift rates, garages, birdcage floors, the combined/omitted columns) and **da
 1. **The rate sheet** — £ per lift level (1st vs upper), £/m² birdcage erect & strip, £ table+rails, £/LM render, per band.
 2. **Are low-level / party-wall / chimney bundled** into the lift rate, a separate inclusions list, or absent from the client quote?
 3. **Per-builder lift templates** (we have Barratt 2→3, Standard 2→4; need the rest).
-4. **The corner allowance quantum** (still open from docs/11 §8).
+4. ~~**The corner allowance quantum**~~ **RESOLVED**: 1 m per external corner (docs/11 §8 #2).
 5. **Render on 2-storey** — the "+1 table lift" rule (docs/11 §4), and whether the render £/LM equals the perimeter £/LM.
 6. **Garage rates + which stage split** (65/10/25 vs 75/0/25 by garage type).
 7. **Timber-Frame rates** for the 80/20 structure.

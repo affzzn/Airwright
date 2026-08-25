@@ -66,7 +66,7 @@ cross-check with flags), perimeter by configuration + corner allowance, birdcage
 per floor, render lifts, config-aware apex/table lifts, party walls, and an
 apartment whole-block mode. `fromStored.ts` maps a persisted take-off to the
 engine input; the review screen renders the computed line per configuration.
-Open rule values (corner quantum, height datum…) are `EngineParams` + flags —
+Open rule values (render table…) are `EngineParams` + flags —
 see `docs/11-takeoff-engine-spec.md` §8. Offline validation runner:
 `scripts/offline-extract.mts` (extractor + engine vs Colin's sheets).
 

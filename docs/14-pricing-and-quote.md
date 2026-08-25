@@ -5,6 +5,14 @@ and documents**. Built end to end on 2026-08-20, running on **placeholder rates*
 until Colin's real rate sheet arrives. Read `docs/11` first for the measurement
 side; this doc is the pricing side.
 
+> **Superseded in part — read `docs/16` for the current pricing engine.** Since this
+> doc was written, Track 2 (`docs/16`) rebuilt the priced side to Colin's real matrix:
+> **per-lift-level rates** (1st dearer), **combined table+rails**, **birdcage per floor
+> GF→TF**, a **Timber-Frame** path, **priced garages**, all stage scenarios (incl.
+> 75/0/25 and 80/20), and a **single-sheet Excel** in Colin's exact column layout
+> (`src/lib/pricing/quoteExcel.ts`). The "what's placeholder / not built" list below is
+> updated accordingly. `docs/15` is the canonical pricing spec; `docs/16` the buildout.
+
 ## The one idea
 
 The take-off gives **quantities** (LM of scaffold, m² birdcage, counts). Pricing
@@ -44,21 +52,24 @@ with *its own* configuration — not by baking operations onto the house type.
 
 ## The rules (mapping take-off → priced operations)
 
-`priceTakeoffLine` maps the take-off line to priced `LIFT / BIRDCAGE_* / GABLE /
-GABLE_RAILS / RENDER_ADAPTION / LOW_LEVEL / PARTY_WALL` operations (erect +
-dismantle). **⚠ Every mapping choice is Innate's reading of Colin's matrix and is
-marked in the code — confirm against his rate sheet** (e.g. external perimeter =
-LIFT × LM per lift; table lift priced as GABLE; chimney has no dedicated enum →
-OTHER). Nothing here is a settled rule.
+`priceTakeoffLine` (Traditional) maps to `LIFT` (erect **per lift level**, 1st dearer;
+one dismantle) / `BIRDCAGE_GF..TF` (erect + strip) / `GABLE` (combined table + rails) /
+`RENDER_ADAPTION` / `LOW_LEVEL` / `PARTY_WALL` / chimney→`OTHER`. `priceTimberFrameLine`
+maps to `TF_EXTERNAL` (erect + dismantle) / `GABLE_RAILS` (apex handrails) / `ADAPTION`
+(per lift) / `RENDER_ADAPTION`. `priceGarageLine` = per-lift + `GABLE` + `BIRDCAGE_GF`
+erect/strip + dismantle. **⚠ Every mapping is Innate's reading of Colin's matrix (marked
+in the code) — confirm against his rate sheet.**
 
 **Two concepts kept separate** (checklist §9 trap): the **true item cost**
 (`lines[].amount`, summing to `subtotal`) vs the **presented stage value**
 (`stages[].amount` = subtotal × stage %). The matrix shows the stage split; the
 real per-item cost is what actually adds up. The immutable Quote freezes **both**.
 
-**Stage splits** are confirmed 50/25/25 (standard) and 65/10/25 (bungalow); the
-no-birdcage split (75/…) is ⚠ open. Chosen per plot by house shape
-(`StageSplit.scenario` = STANDARD / BUNGALOW / NO_BIRDCAGE).
+**Stage splits** (all now seeded — `docs/16 A1`): STANDARD 50/25/25, BUNGALOW
+65/10/25, NO_BIRDCAGE 75/0/25, GARAGE 65/10/25, GARAGE_NO_BCAGE 75/0/25,
+TIMBER_FRAME 80/20. Chosen per plot by house shape + `buildType`
+(`StageSplit.scenario`); a missing scenario is surfaced (`pricing.missingScenarios`),
+not silently STANDARD.
 
 ## Data model (Phase-0 additions)
 
@@ -74,17 +85,21 @@ no-birdcage split (75/…) is ⚠ open. Chosen per plot by house shape
 
 ## What's placeholder / not built (flagged)
 
-- **Rates + bands are placeholders** — the whole engine works; the numbers swap
-  in from Colin's rate sheet, then validate against the Oadby matrix to the penny.
-- **Shared-item apportionment** (loading bay / chute / access across a block) and
-  **garages** (own staged set) — flagged in the matrix as "not yet applied";
-  need the builder-profile extras + the 4-plot rule (docs/11 §8).
+- **Rates + bands are placeholders** — the whole engine works and now *prices*
+  (placeholders filled by `scripts/fill-placeholder-rates.mts`); swap in Colin's real
+  sheet, then validate against a real priced site (Windermere £20,228.06) to the penny.
+- ✅ **Garages** are now priced (`docs/16 A6`) — own block + 65/10/25, into the grand
+  total; ⚠️ their *quantities* are a flagged placeholder template (no extracted geometry).
+- ⬜ **P6 — low-level / party-wall / chimney** still priced as separate client lines
+  (may over-state the quote); the bundled-vs-itemised toggle needs Colin (`docs/16 A-gate`).
+- **Shared-item apportionment** (loading bay / chute / access across a block) — Build-2;
+  needs the builder-profile extras + the 4-plot rule (docs/11 §8).
 - **Construction pricing path** — model exists, unused; imported rate sheet + hire weeks.
-- **Builder-profile screen** — model + placeholder Miller profile exist; needs a UI
-  and to feed the extras into the take-off/price.
-- **Client-specific matrix template** — *populate a housebuilder's OWN Excel template
-  and export it.* The fixed Airwright Excel matrix works for now; **implement the
-  client-specific version LATER — it needs a real client template to map against.**
+- **Builder-profile screen** — model + placeholder Miller/Barratt profiles exist; the
+  `storeyLiftTemplate` is used, but the "extras" have no UI yet.
+- **Client-specific matrix template** — the export now matches Colin's **fixed Airwright**
+  Traditional/Timber-Frame layout (`quoteExcel.ts`); populating a housebuilder's OWN Excel
+  template is still a LATER TODO (needs a real client template to map against).
 - **ScaffoldOperation table** is unused (we price the engine line → QuoteLineItems
   directly, per the per-plot decision). Wire it only if a persisted op-list is wanted.
 
