@@ -2,20 +2,28 @@
 
 **Strictly monochrome, light mode. No colour anywhere.** The character comes from
 restraint + generous whitespace, drawn from Notion (paper calm), Apple
-(recede-so-content-speaks) and Linear (density), with all colour removed.
+(recede-so-content-speaks) and Linear (density), with all colour removed. The
+ground is a **warm off-white paper**; **cards are pure white** and lift off it
+with a hairline — the depth is that page↔card surface change, never a shadow.
 
 ## Tokens (`src/app/globals.css`)
 
+The palette is warm-biased (no hue). **`--page` is the page ground only** (body,
+shell, login). **`--canvas` is the card / input / modal / badge surface** — kept
+pure white so cards lift off the warm page. Never use `--canvas` for a page
+background or `--page` for a card.
+
 | Token | Value | Use |
 |-------|-------|-----|
-| `--canvas` | `#ffffff` | Page background |
-| `--surface` | `#fafafa` | Cards / inset panels |
-| `--surface-2` | `#f4f4f5` | Muted fills, badges |
-| `--ink` | `#18181b` | Text, primary buttons |
-| `--ink-muted` | `#6b6b70` | Secondary text |
-| `--ink-subtle` | `#9b9ba1` | Meta, captions |
-| `--hairline` | `#e7e7e9` | Borders / dividers |
-| `--hairline-strong` | `#d6d6d9` | Inputs, emphasis borders |
+| `--page` | `#f7f6f3` | **Page background** (body / shell / login) |
+| `--canvas` | `#ffffff` | **Card / input / modal / badge surface** |
+| `--surface` | `#f3f1ed` | Inset panels, hover fills |
+| `--surface-2` | `#ebe8e2` | Muted fills, badges |
+| `--ink` | `#1b1a17` | Text, primary buttons |
+| `--ink-muted` | `#6b6862` | Secondary text |
+| `--ink-subtle` | `#9a978d` | Meta, captions |
+| `--hairline` | `#e8e5df` | Borders / dividers |
+| `--hairline-strong` | `#d8d4cc` | Inputs, emphasis borders |
 
 ## Rules
 
@@ -33,7 +41,15 @@ restraint + generous whitespace, drawn from Notion (paper calm), Apple
 - **Buttons:** `primary` = ink fill / white text; `secondary` = hairline border;
   `ghost` = text only. Focus ring is ink.
 - **Layout:** centred `max-w-content` (1180px), hairline top bar, `.eyebrow`
-  uppercase micro-labels for section headers.
+  uppercase micro-labels for section headers. `AppShell variant="workspace"`
+  drops the centred column for a viewport-height frame (desktop only) — used by
+  the **review screen**, where the drawing is fixed (PDF viewer `fit="contain"`)
+  and only the take-off pane scrolls, so there is one scrollbar, not two. Below
+  `lg` it reverts to page scroll. The **active nav item** carries a flush 2px ink
+  underline (`AppHeader`, from `usePathname`).
+- **Floating layers:** the modal and the provenance tooltip are the only
+  elevated surfaces (soft neutral `shadow-overlay`). The tooltip is **portaled to
+  `<body>`** so a scrolling pane never clips it.
 
 ## Primitives (`src/components/ui/`)
 

@@ -73,8 +73,8 @@ interface Props {
   relevantPages?: number[];
   /** Jump the drawing viewer to a page (wired to the workspace). */
   onGoToPage?: (page: number) => void;
-  /** Report the live engine flags up, so they render beside the drawing. */
-  onFlagsChange?: (flags: string[]) => void;
+  /** AI notes for this house type, shown with the live review flags. */
+  notes?: string | null;
   /** Per-builder storey→lifts template; falls back to the engine default. */
   storeyLiftTemplate?: Record<string, number>;
 }
@@ -142,7 +142,7 @@ export function TakeoffEditor({
   documentPages,
   relevantPages,
   onGoToPage,
-  onFlagsChange,
+  notes,
   storeyLiftTemplate,
 }: Props) {
   const router = useRouter();
@@ -299,12 +299,6 @@ export function TakeoffEditor({
   const shownTakeoff =
     takeoffLines.find((t) => t.label === selectedConfig) ?? takeoffLines[0];
 
-  // Surface the live flags beside the drawing (the workspace renders them there).
-  useEffect(() => {
-    onFlagsChange?.(engineFlags);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineFlags.join("|")]);
-
   // --- Auto-save (debounced) whenever the editable state differs from saved ---
   const serialise = (
     m: Record<string, string>,
@@ -367,8 +361,8 @@ export function TakeoffEditor({
   ].filter(Boolean) as string[];
 
   return (
-    <Card>
-      <CardHeader className="flex items-center justify-between gap-3">
+    <Card className="lg:flex lg:h-full lg:flex-col">
+      <CardHeader className="flex shrink-0 items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Extracted take-off</h2>
         {locked ? (
           <button
@@ -409,7 +403,7 @@ export function TakeoffEditor({
           </div>
         )}
       </CardHeader>
-      <CardBody className="space-y-6">
+      <CardBody className="space-y-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {locked && (
           <div className="flex items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-muted">
             <Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
@@ -419,6 +413,31 @@ export function TakeoffEditor({
             </span>
           </div>
         )}
+
+        {/* Review flags + AI notes (kept with the take-off, not the drawing) */}
+        {(engineFlags.length > 0 || notes) && (
+          <div className="space-y-4 rounded-md border border-hairline bg-surface px-3 py-3">
+            {engineFlags.length > 0 && (
+              <div>
+                <p className="eyebrow mb-1.5">Review flags</p>
+                <ul className="space-y-1">
+                  {engineFlags.map((f) => (
+                    <li key={f} className="text-[11px] leading-snug text-ink-muted">
+                      ⚠ {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {notes && (
+              <div>
+                <p className="eyebrow mb-1.5">AI notes</p>
+                <p className="text-xs leading-snug text-ink-muted">{notes}</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Measurements */}
         <div>
           <p className="eyebrow mb-2">Measurements</p>

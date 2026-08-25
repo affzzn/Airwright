@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { useState } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { PdfViewerClient } from "@/components/pdf-viewer-client";
+import { Badge } from "@/components/ui/badge";
 import {
   TakeoffEditor,
   type EditorCategoricals,
@@ -12,12 +14,24 @@ import {
 import type { ExtractionResult } from "@/lib/extract/schema";
 import type { PageRef } from "@/lib/provenance";
 
+const STATUS: Record<string, { label: string; variant: "solid" | "muted" | "outline" }> = {
+  CONFIRMED: { label: "Confirmed", variant: "solid" },
+  IN_REVIEW: { label: "In review", variant: "muted" },
+  DRAFT: { label: "Draft", variant: "outline" },
+};
+
 /**
- * The two-column review workspace. Owns the one piece of shared state between
- * the drawing (left) and the editable take-off (right): a "go to this page"
- * signal, so a provenance page link on the right jumps the viewer on the left.
+ * The review workspace — a single viewport-height frame (no page scroll on
+ * desktop): a slim toolbar, then two panes. The drawing (left) is fixed and
+ * fit-to-contain so it never needs its own scrollbar; the take-off (right) is
+ * the ONLY thing that scrolls. Below `lg` the panes stack and the page scrolls
+ * normally. Shares one piece of state: a "go to this page" signal so a
+ * provenance link on the right jumps the viewer on the left.
  */
 export function ReviewWorkspace({
+  backHref,
+  title,
+  subtitle,
   pdfUrl,
   relevantPages,
   takeoffId,
@@ -32,6 +46,9 @@ export function ReviewWorkspace({
   documentPages,
   storeyLiftTemplate,
 }: {
+  backHref: string;
+  title: string;
+  subtitle: string;
   pdfUrl: string | null;
   relevantPages?: number[];
   takeoffId: string;
@@ -47,17 +64,39 @@ export function ReviewWorkspace({
   storeyLiftTemplate?: Record<string, number>;
 }) {
   const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
-  const [flags, setFlags] = useState<string[]>([]);
   const onGoToPage = (page: number) =>
     setGoTo((g) => ({ page, nonce: (g?.nonce ?? 0) + 1 }));
-  const onFlagsChange = useCallback((f: string[]) => setFlags(f), []);
+  const st = STATUS[status] ?? { label: status, variant: "outline" as const };
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-2">
-      {/* Drawing — pinned so it stays in view while the take-off is reviewed */}
-      <div className="lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-88px)] lg:self-start lg:overflow-y-auto">
-        <Card>
-          <CardHeader className="flex items-center justify-between">
+    <div className="flex h-full flex-col">
+      {/* Slim toolbar */}
+      <div className="flex items-center justify-between gap-4 border-b border-hairline px-6 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href={backHref}
+            aria-label="Back to project"
+            className="shrink-0 text-ink-muted transition-colors hover:text-ink"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
+          </Link>
+          <h1 className="truncate text-base font-semibold tracking-tight text-ink">
+            {title}
+          </h1>
+          <Badge variant={st.variant} className="shrink-0">
+            {st.label}
+          </Badge>
+        </div>
+        <p className="hidden shrink-0 truncate text-xs text-ink-subtle sm:block">
+          {subtitle}
+        </p>
+      </div>
+
+      {/* Two panes */}
+      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-2">
+        {/* Drawing — fixed, fit-to-contain, no scrollbar of its own */}
+        <div className="flex h-[55vh] flex-col overflow-hidden border-b border-hairline p-4 lg:h-auto lg:border-b-0 lg:border-r">
+          <div className="flex shrink-0 items-center justify-between pb-3">
             <h2 className="text-sm font-semibold text-ink">Drawing</h2>
             {pdfUrl && (
               <a
@@ -69,63 +108,42 @@ export function ReviewWorkspace({
                 Open original ↗
               </a>
             )}
-          </CardHeader>
-          <CardBody>
+          </div>
+          <div className="min-h-0 flex-1">
             {pdfUrl ? (
-              <PdfViewerClient url={pdfUrl} pages={relevantPages} goTo={goTo} />
+              <PdfViewerClient
+                url={pdfUrl}
+                pages={relevantPages}
+                goTo={goTo}
+                fit="contain"
+              />
             ) : (
               <p className="py-10 text-center text-sm text-ink-subtle">
                 Drawing preview unavailable (Storage not configured).
               </p>
             )}
+          </div>
+        </div>
 
-            {(flags.length > 0 || notes) && (
-              <div className="mt-5 space-y-5 border-t border-hairline pt-5">
-                {flags.length > 0 && (
-                  <div>
-                    <p className="eyebrow mb-2">Review flags</p>
-                    <ul className="space-y-1.5">
-                      {flags.map((f) => (
-                        <li
-                          key={f}
-                          className="text-[11px] leading-snug text-ink-subtle"
-                        >
-                          ⚠ {f}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {notes && (
-                  <div>
-                    <p className="eyebrow mb-2">AI notes</p>
-                    <p className="rounded-md border border-hairline bg-surface px-3 py-2.5 text-sm text-ink-muted">
-                      {notes}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardBody>
-        </Card>
+        {/* Editable take-off — the only scrolling pane */}
+        <div className="flex min-h-0 flex-col p-4 lg:overflow-hidden">
+          <TakeoffEditor
+            takeoffId={takeoffId}
+            status={status}
+            confirmedAt={confirmedAt}
+            measurements={measurements}
+            walls={walls}
+            warnings={warnings}
+            categoricals={categoricals}
+            notes={notes}
+            raw={raw}
+            documentPages={documentPages}
+            relevantPages={relevantPages}
+            onGoToPage={onGoToPage}
+            storeyLiftTemplate={storeyLiftTemplate}
+          />
+        </div>
       </div>
-
-      {/* Editable take-off, with provenance on hover */}
-      <TakeoffEditor
-        takeoffId={takeoffId}
-        status={status}
-        confirmedAt={confirmedAt}
-        measurements={measurements}
-        walls={walls}
-        warnings={warnings}
-        categoricals={categoricals}
-        raw={raw}
-        documentPages={documentPages}
-        relevantPages={relevantPages}
-        onGoToPage={onGoToPage}
-        onFlagsChange={onFlagsChange}
-        storeyLiftTemplate={storeyLiftTemplate}
-      />
     </div>
   );
 }

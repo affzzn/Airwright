@@ -16,10 +16,12 @@ export function PdfViewerClient({
   url,
   pages,
   goTo,
+  fit,
 }: {
   url: string;
   pages?: number[];
   goTo?: { page: number; nonce: number } | null;
+  fit?: "width" | "contain";
 }) {
-  return <PdfViewer url={url} pages={pages} goTo={goTo} />;
+  return <PdfViewer url={url} pages={pages} goTo={goTo} fit={fit} />;
 }

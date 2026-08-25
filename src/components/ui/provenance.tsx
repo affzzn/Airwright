@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowUpRight } from "lucide-react";
 import type { ProvContent } from "@/lib/provenance";
 import { cn } from "@/lib/utils";
+
+const TOOLTIP_W = 300;
 
 /**
  * A quiet "how was this derived" affordance. The trigger (a term or a value)
  * gets a dotted underline; hover / focus / tap reveals an interactive card that
  * stays open while the pointer is inside it, so its page links are clickable.
+ *
+ * The card is PORTALED to <body> with fixed positioning (not an absolute child)
+ * so it is never clipped by a scrolling ancestor — the review take-off pane is
+ * `overflow-y-auto`, and an in-flow absolute tooltip would be cut at its edges.
+ * Position is recomputed on scroll/resize so the card tracks its trigger.
  */
 export function Provenance({
   content,
@@ -22,11 +30,18 @@ export function Provenance({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [placeAbove, setPlaceAbove] = useState(false);
-  const [placeRight, setPlaceRight] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [pos, setPos] = useState<{
+    top: number;
+    left: number;
+    placeAbove: boolean;
+  } | null>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
+
+  useEffect(() => setMounted(true), []);
 
   const cancelClose = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -36,31 +51,50 @@ export function Provenance({
     cancelClose();
     closeTimer.current = setTimeout(() => setOpen(false), 140);
   };
+
+  // Compute the fixed viewport coordinates for the card from the trigger's rect.
+  const computePos = () => {
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const placeAbove = window.innerHeight - r.bottom < 320 && r.top > 320;
+    let left = r.left;
+    if (left + TOOLTIP_W > window.innerWidth - 12)
+      left = window.innerWidth - 12 - TOOLTIP_W;
+    if (left < 12) left = 12;
+    const top = placeAbove ? r.top - 6 : r.bottom + 6;
+    setPos({ top, left, placeAbove });
+  };
+
   const openNow = () => {
     cancelClose();
-    // Flip above / to the left when there isn't room below / to the right.
-    const r = wrapRef.current?.getBoundingClientRect();
-    if (r) {
-      setPlaceAbove(window.innerHeight - r.bottom < 300 && r.top > 300);
-      setPlaceRight(r.left + 300 > window.innerWidth - 12);
-    }
+    computePos();
     setOpen(true);
   };
 
-  // Close on outside click (covers tap) and on Escape.
+  // While open: close on outside click / Escape, and keep the card glued to its
+  // trigger as the page (or the take-off pane) scrolls or the window resizes.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!wrapRef.current?.contains(t) && !tipRef.current?.contains(t))
+        setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    const onReflow = () => computePos();
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    // capture: scroll events don't bubble, so catch them on the way down (the
+    // take-off pane is a nested scroll container).
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
     };
   }, [open]);
 
@@ -69,7 +103,7 @@ export function Provenance({
   return (
     <span
       ref={wrapRef}
-      className="relative inline-flex"
+      className="inline-flex"
       onMouseEnter={openNow}
       onMouseLeave={scheduleClose}
     >
@@ -95,21 +129,29 @@ export function Provenance({
         {children}
       </span>
 
-      {open && (
-        <span
-          id={id}
-          role="tooltip"
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-          className={cn(
-            "absolute z-50 block w-[300px] cursor-default rounded-lg border border-hairline-strong bg-canvas p-3 text-left",
-            placeAbove ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]",
-            placeRight ? "right-0" : "left-0",
-          )}
-        >
-          <ProvCard content={content} onGoToPage={onGoToPage} />
-        </span>
-      )}
+      {open &&
+        mounted &&
+        pos &&
+        createPortal(
+          <div
+            ref={tipRef}
+            id={id}
+            role="tooltip"
+            onMouseEnter={cancelClose}
+            onMouseLeave={scheduleClose}
+            style={{
+              position: "fixed",
+              top: pos.top,
+              left: pos.left,
+              width: TOOLTIP_W,
+              transform: pos.placeAbove ? "translateY(-100%)" : undefined,
+            }}
+            className="shadow-overlay z-50 block cursor-default rounded-lg border border-hairline-strong bg-canvas p-3 text-left"
+          >
+            <ProvCard content={content} onGoToPage={onGoToPage} />
+          </div>,
+          document.body,
+        )}
     </span>
   );
 }

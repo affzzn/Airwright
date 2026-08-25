@@ -1,56 +1,33 @@
-import Link from "next/link";
-import { signOut } from "@/server/actions/auth";
-import { Button } from "@/components/ui/button";
+import { AppHeader } from "@/components/app-header";
 
-/** Minimal top bar + centred content column. Hairline divider, no shadow. */
+/**
+ * Minimal top bar + content area. Hairline divider, no shadow.
+ *
+ * `variant="default"` (the norm): a centred column that scrolls with the page.
+ * `variant="workspace"`: on desktop the main fills exactly the viewport below
+ * the 3.5rem header and does NOT scroll — its children own their own scrolling
+ * (the review screen: drawing fixed, take-off pane scrolls). Below `lg` it
+ * falls back to natural height + page scroll, so mobile is unaffected.
+ */
 export function AppShell({
   children,
   showSignOut = true,
+  variant = "default",
 }: {
   children: React.ReactNode;
   showSignOut?: boolean;
+  variant?: "default" | "workspace";
 }) {
   return (
-    <div className="min-h-screen bg-canvas">
-      <header className="sticky top-0 z-10 border-b border-hairline bg-canvas/90 backdrop-blur print:hidden">
-        <div className="mx-auto flex h-14 max-w-content items-center justify-between px-6">
-          <div className="flex items-center gap-8">
-            <Link href="/" className="text-sm font-semibold tracking-tight text-ink">
-              Airwright
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link
-                href="/"
-                className="text-sm font-medium text-ink"
-              >
-                Quote &amp; Take-off
-              </Link>
-              <span className="cursor-default text-sm text-ink-subtle">
-                Gang Pay &amp; Viability
-              </span>
-              <span className="cursor-default text-sm text-ink-subtle">
-                House-Type Bank
-              </span>
-            </nav>
-          </div>
-          {showSignOut && (
-            <div className="flex items-center gap-5">
-              <Link
-                href="/rates"
-                className="text-sm text-ink-subtle transition-colors hover:text-ink"
-              >
-                Rates
-              </Link>
-              <form action={signOut}>
-                <Button variant="ghost" size="sm" type="submit">
-                  Sign out
-                </Button>
-              </form>
-            </div>
-          )}
-        </div>
-      </header>
-      <main className="mx-auto max-w-content px-6 py-10">{children}</main>
+    <div className="min-h-screen bg-page">
+      <AppHeader showSignOut={showSignOut} />
+      {variant === "workspace" ? (
+        <main className="lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
+          {children}
+        </main>
+      ) : (
+        <main className="mx-auto max-w-content px-6 py-10">{children}</main>
+      )}
     </div>
   );
 }

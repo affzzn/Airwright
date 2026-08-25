@@ -37,13 +37,25 @@ export default function PdfViewer({
   url,
   pages,
   goTo,
+  fit = "width",
 }: {
   url: string;
   pages?: number[];
   goTo?: { page: number; nonce: number } | null;
+  /**
+   * "width" (default) fits the page to the container width — its height then
+   * flows freely. "contain" fits the page WITHIN the available area (width AND
+   * height) so it never overflows, and the pane needs no scrollbar of its own —
+   * used by the review workspace, where only the take-off pane scrolls.
+   */
+  fit?: "width" | "contain";
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(600);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [area, setArea] = useState({ w: 600, h: 420 });
+  // The page's intrinsic aspect ratio (height / width), captured on load — the
+  // "contain" math needs it to trade the pane's height for a render width.
+  const [aspect, setAspect] = useState<number | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState(false);
@@ -66,15 +78,27 @@ export default function PdfViewer({
   const currentPage = shownPages[safeIdx] ?? 1;
   const isFiltered = Boolean(pages && pages.length > 0);
 
+  // Measure the drawing AREA (width for "width" mode; width + height for
+  // "contain"). No feedback loop: in "contain" the area is sized by the flex
+  // pane, not by the drawing inside it.
   useEffect(() => {
-    const el = containerRef.current;
+    const el = areaRef.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
-      setWidth(Math.floor(entry.contentRect.width));
+      setArea({
+        w: Math.floor(entry.contentRect.width),
+        h: Math.floor(entry.contentRect.height),
+      });
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // The width to render the inline page at.
+  const renderWidth =
+    fit === "contain" && aspect
+      ? Math.max(120, Math.min(area.w, Math.floor(area.h / aspect)))
+      : area.w;
 
   // Jump to a specific document page when a provenance link asks for it, and
   // bring the viewer into view. Ignored if that page isn't in the shown set.
@@ -87,11 +111,17 @@ export default function PdfViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goTo?.nonce]);
 
+  const contain = fit === "contain";
+
   return (
-    <div ref={containerRef} className="w-full">
+    <div
+      ref={containerRef}
+      className={cn("w-full", contain && "flex h-full flex-col")}
+    >
       <Document
         file={url}
         onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+        className={cn(contain && "flex min-h-0 flex-1 flex-col")}
         loading={
           <div
             className="animate-pulse rounded-md bg-surface-2"
@@ -101,38 +131,55 @@ export default function PdfViewer({
         error={<ViewerMessage>Could not render this PDF.</ViewerMessage>}
       >
         <div
-          role="button"
-          tabIndex={0}
-          aria-label="Enlarge drawing"
-          onClick={() => setOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setOpen(true);
-            }
-          }}
-          className="group relative block cursor-zoom-in overflow-hidden rounded-md border border-hairline bg-surface outline-none focus-visible:ring-2 focus-visible:ring-ink"
+          ref={areaRef}
+          className={cn(
+            contain
+              ? "flex min-h-0 flex-1 items-center justify-center"
+              : "w-full",
+          )}
         >
-          <Page
-            pageNumber={currentPage}
-            width={width}
-            renderAnnotationLayer={false}
-            renderTextLayer={false}
-            loading={
-              <div
-                className="animate-pulse rounded-md bg-surface-2"
-                style={{ height: 420 }}
-              />
-            }
-          />
-          <span className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-md border border-hairline bg-canvas/90 px-2 py-1 text-[11px] text-ink-muted opacity-0 transition-opacity group-hover:opacity-100">
-            <Maximize2 className="h-3 w-3" strokeWidth={1.75} />
-            Click to enlarge
-          </span>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Enlarge drawing"
+            onClick={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen(true);
+              }
+            }}
+            className={cn(
+              "group relative cursor-zoom-in overflow-hidden rounded-md border border-hairline bg-surface outline-none focus-visible:ring-2 focus-visible:ring-ink",
+              contain ? "inline-block max-h-full" : "block",
+            )}
+          >
+            <Page
+              pageNumber={currentPage}
+              width={renderWidth}
+              onLoadSuccess={(page) => {
+                const w = page.originalWidth || page.width;
+                const h = page.originalHeight || page.height;
+                if (w) setAspect(h / w);
+              }}
+              renderAnnotationLayer={false}
+              renderTextLayer={false}
+              loading={
+                <div
+                  className="animate-pulse rounded-md bg-surface-2"
+                  style={{ height: 420 }}
+                />
+              }
+            />
+            <span className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-md border border-hairline bg-canvas/90 px-2 py-1 text-[11px] text-ink-muted opacity-0 transition-opacity group-hover:opacity-100">
+              <Maximize2 className="h-3 w-3" strokeWidth={1.75} />
+              Click to enlarge
+            </span>
+          </div>
         </div>
 
         {count > 1 && (
-          <div className="mt-3">
+          <div className={cn("mt-3", contain && "shrink-0")}>
             <p className="mb-2 text-xs text-ink-subtle">
               {isFiltered ? "Relevant pages" : "Pages"} · {safeIdx + 1} of {count}{" "}
               · p.{currentPage}

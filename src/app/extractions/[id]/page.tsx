@@ -114,43 +114,24 @@ export default async function ReviewPage({
     sheetTitle: p.sheetTitle,
   }));
 
-  return (
-    <AppShell>
-      <Link
-        href={`/projects/${extraction.document.pack.projectId}`}
-        className="text-sm text-ink-muted hover:text-ink"
-      >
-        ← Back to project
-      </Link>
+  const backHref = `/projects/${extraction.document.pack.projectId}`;
+  const title = extraction.houseType?.name ?? "Extraction";
+  const subtitle = `${extraction.document.fileName} · pages ${
+    extraction.pageRange ?? "all"
+  } of ${extraction.document.pageCount}`;
 
-      <div className="mt-4 mb-8">
-        <p className="eyebrow mb-2">Review</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          {extraction.houseType?.name ?? "Extraction"}
-        </h1>
-        <p className="mt-1 text-sm text-ink-subtle">
-          {extraction.document.fileName} · pages{" "}
-          {extraction.pageRange ?? "all"} of {extraction.document.pageCount}
-        </p>
-      </div>
-
-      {takeoff ? (
-        <ReviewWorkspace
-          pdfUrl={pdfUrl}
-          relevantPages={relevantPages}
-          takeoffId={takeoff.id}
-          status={takeoff.status}
-          confirmedAt={takeoff.confirmedAt ? takeoff.confirmedAt.toISOString() : null}
-          measurements={editorMeasurements}
-          walls={editorWalls}
-          warnings={rawWarnings}
-          categoricals={categoricals}
-          notes={notes}
-          raw={raw}
-          documentPages={documentPages}
-          storeyLiftTemplate={storeyLiftTemplate}
-        />
-      ) : (
+  // No take-off yet (extraction incomplete) → the plain centred layout.
+  if (!takeoff) {
+    return (
+      <AppShell>
+        <Link href={backHref} className="text-sm text-ink-muted hover:text-ink">
+          ← Back to project
+        </Link>
+        <div className="mt-4 mb-8">
+          <p className="eyebrow mb-2">Review</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+          <p className="mt-1 text-sm text-ink-subtle">{subtitle}</p>
+        </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
@@ -173,7 +154,30 @@ export default async function ReviewPage({
             </CardBody>
           </Card>
         </div>
-      )}
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell variant="workspace">
+      <ReviewWorkspace
+        backHref={backHref}
+        title={title}
+        subtitle={subtitle}
+        pdfUrl={pdfUrl}
+        relevantPages={relevantPages}
+        takeoffId={takeoff.id}
+        status={takeoff.status}
+        confirmedAt={takeoff.confirmedAt ? takeoff.confirmedAt.toISOString() : null}
+        measurements={editorMeasurements}
+        walls={editorWalls}
+        warnings={rawWarnings}
+        categoricals={categoricals}
+        notes={notes}
+        raw={raw}
+        documentPages={documentPages}
+        storeyLiftTemplate={storeyLiftTemplate}
+      />
     </AppShell>
   );
 }

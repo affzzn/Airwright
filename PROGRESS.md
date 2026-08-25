@@ -13,6 +13,38 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-08-25
 
+### 2026-08-25 (d) — UI/UX pass: warm paper palette, nav underline, one-scroll review
+
+A design refresh inside the strict monochrome / light-mode system. **No feature
+logic touched — 168 tests green, typecheck + lint clean.** UNCOMMITTED.
+
+- **Warm off-white ground (tokens).** Split the double-duty `--canvas`: new
+  **`--page` #f7f6f3** is the page ground (body / shell / login); `--canvas`
+  stays pure white for cards / inputs / modals / badges, so cards now LIFT off
+  the warm page instead of sinking. Ink + surface + hairline ramp nudged warm.
+  `page` added to Tailwind. Verified on login (only ~4 ground spots changed; all
+  30 `bg-canvas` surface usages untouched → nothing else moved).
+- **Active-nav underline.** Header extracted to a client `app-header.tsx`
+  (`usePathname`, hydration-safe) — the live section gets a flush 2px ink
+  underline; `/rates` now highlights correctly. `signOut` still works as the
+  form action. Quote "Summary by house type" got its missing count.
+- **Review screen — one scroll, not two.** `AppShell variant="workspace"`
+  (opt-in; every other page byte-identical): desktop main = `100vh − header`,
+  no page scroll. `ReviewWorkspace` rewritten to a slim toolbar (back · title ·
+  status chip) + two panes: **drawing fixed** (new PDF viewer `fit="contain"` —
+  render width from pane height × page aspect, no inner scrollbar) and
+  **take-off pane the only scroll** (`TakeoffEditor` card fills height, body
+  `overflow-y-auto`, confirm bar pinned at top). Flags + AI notes moved into the
+  take-off pane. Below `lg` → stacks + page-scrolls (mobile unaffected).
+- **Tooltip fix (the risk).** `Provenance` tooltip now **portals to `<body>`**
+  with fixed positioning (was `absolute`) so the scrolling take-off pane can't
+  clip it; repositions on scroll/resize, closes on outside-click/Esc. `mounted`
+  guard → no hydration mismatch.
+- Docs/07 re-synced (the `--page` token + the one-scroll workspace pattern).
+- **Still to eyeball (needs a logged-in session):** the review click-through —
+  scroll the take-off, a provenance tooltip near the pane's top AND bottom edge,
+  the lightbox, confirm/reopen, a mobile width, and the nav underline.
+
 ### 2026-08-25 (c) — segmentation by NAME (fix: one combined file was splitting into phantom house types)
 
 A single "Combined Working Drawings" file was producing 2+ house types (Chesterwood

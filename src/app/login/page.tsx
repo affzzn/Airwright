@@ -12,7 +12,7 @@ export default async function LoginPage({
   const isSignup = mode === "signup";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
+    <div className="flex min-h-screen items-center justify-center bg-page px-6">
       <div className="w-full max-w-sm">
         <div className="mb-8">
           <h1 className="text-lg font-semibold tracking-tight text-ink">

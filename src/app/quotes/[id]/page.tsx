@@ -188,8 +188,9 @@ export default async function QuotePage({
 
       {/* Summary by house type */}
       <Card className="mb-6">
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Summary by house type</h2>
+          <span className="text-xs text-ink-subtle">{houseTypes.length}</span>
         </CardHeader>
         <CardBody className="p-0">
           <div className="overflow-x-auto">

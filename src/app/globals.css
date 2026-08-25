@@ -4,18 +4,24 @@
 
 /*
   Airwright design tokens — strictly monochrome, light mode.
-  One near-black ink, a three-step neutral surface ladder, hairline borders.
-  No colour anywhere. Depth comes from surface + hairline, never shadow.
+  A warm off-white PAGE ground with pure-white CARDS on top, a warm-biased
+  neutral surface ladder, hairline borders. No hue anywhere. Depth comes from
+  the page↔card surface change + hairline, never shadow.
+
+  `--page` is the page background only (body, shell, login). `--canvas` stays
+  pure white and is the card / input / modal / badge surface, so cards lift off
+  the warm ground with just a hairline.
 */
 :root {
+  --page: #f7f6f3;
   --canvas: #ffffff;
-  --surface: #fafafa;
-  --surface-2: #f4f4f5;
-  --ink: #18181b;
-  --ink-muted: #6b6b70;
-  --ink-subtle: #9b9ba1;
-  --hairline: #e7e7e9;
-  --hairline-strong: #d6d6d9;
+  --surface: #f3f1ed;
+  --surface-2: #ebe8e2;
+  --ink: #1b1a17;
+  --ink-muted: #6b6862;
+  --ink-subtle: #9a978d;
+  --hairline: #e8e5df;
+  --hairline-strong: #d8d4cc;
 }
 
 @layer base {
@@ -31,7 +37,7 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    background: var(--canvas);
+    background: var(--page);
     color: var(--ink);
     font-feature-settings: "cv11", "ss01";
   }

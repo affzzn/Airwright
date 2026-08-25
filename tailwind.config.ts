@@ -11,6 +11,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        page: "var(--page)",
         canvas: "var(--canvas)",
         surface: "var(--surface)",
         "surface-2": "var(--surface-2)",
