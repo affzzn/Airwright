@@ -19,6 +19,7 @@
  */
 
 import type { TakeoffLine } from "@/lib/takeoff/engine";
+import type { GarageLine } from "@/lib/takeoff/garage";
 
 export type Action = "ERECT" | "DISMANTLE";
 
@@ -264,6 +265,64 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
     );
   // Single external dismantle (matrix col N). No birdcage in the TF plot matrix.
   if (totalExternal > 0) add("TF_EXTERNAL", "DISMANTLE", totalExternal, "LM", null, "dismantle");
+
+  const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
+  return {
+    lines,
+    subtotal: subtotalPence / 100,
+    stages: allocateStages(subtotalPence, opts.stageSplits),
+    unpriced,
+  };
+}
+
+/**
+ * Price one garage (docs/15 §6). Own section, own columns: per-lift erect (1st,
+ * 2nd), gable lift & rails, GF birdcage erect + strip, dismantle — and the garage
+ * stage split (65/10/25, or 75/0/25 with no birdcage). Quantities come from the
+ * garage template (flagged placeholders until Colin's real garage take-off).
+ */
+export function priceGarageLine(garage: GarageLine, opts: PriceOpts): PriceResult {
+  const lines: PricedLine[] = [];
+  const unpriced: { component: string; action: Action }[] = [];
+  const add = (
+    component: string,
+    action: Action,
+    quantity: number,
+    unit: string,
+    liftLevel: number | null = null,
+    note?: string,
+  ) => {
+    if (quantity <= 0) return;
+    const rate = opts.resolveRate(component, action, liftLevel);
+    const priced = rate !== null;
+    const pence = priced ? Math.round(quantity * (rate as number) * 100) : 0;
+    if (!priced) unpriced.push({ component, action });
+    lines.push({
+      component,
+      action,
+      liftLevel,
+      quantity: round2(quantity),
+      unit,
+      rate: rate ?? 0,
+      amount: pence / 100,
+      priced,
+      note,
+    });
+  };
+
+  // Per-lift erect (garage cols 1st/2nd lift) — reuses the LIFT rate + lift level.
+  for (let lvl = 1; lvl <= garage.lifts; lvl++)
+    add("LIFT", "ERECT", garage.perimeterPerLiftM, "LM", lvl, `garage lift ${lvl}`);
+  // Gable lift & rails (garage col G).
+  if (garage.gableCount > 0) add("GABLE", "ERECT", garage.gableCount, "EACH", null, "garage gable lift & rails");
+  // GF birdcage erect + strip (garage col H / strip).
+  if (garage.hasBirdcage && garage.gfBirdcageM2 > 0) {
+    add("BIRDCAGE_GF", "ERECT", garage.gfBirdcageM2, "M2", null, "garage GF birdcage");
+    add("BIRDCAGE_GF", "DISMANTLE", garage.gfBirdcageM2, "M2", null, "strip garage GF birdcage");
+  }
+  // Dismantle the garage external scaffold.
+  if (garage.lifts > 0)
+    add("LIFT", "DISMANTLE", round2(garage.perimeterPerLiftM * garage.lifts), "LM", null, "garage dismantle");
 
   const subtotalPence = lines.reduce((a, l) => a + Math.round(l.amount * 100), 0);
   return {

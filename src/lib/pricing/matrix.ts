@@ -18,7 +18,7 @@
  * NOT here: the granular Operatives / gang-pay matrix (Build 2). See docs/16 §0.
  */
 
-import type { PricedPlot } from "./priceProject";
+import type { PricedPlot, PricedGarage } from "./priceProject";
 import type { PricedLine } from "./engine";
 
 export type MatrixBuildType = "TRADITIONAL" | "TIMBER_FRAME";
@@ -192,4 +192,79 @@ export function buildClientMatrix(
   }
 
   return { buildType, columns, rows, grandTotal: round2(grandPence / 100) };
+}
+
+// --- Garages: a separate priced section (docs/15 §6, docs/16 §2) ---
+
+export interface GarageMatrixRow {
+  plotNumber: string;
+  garageType: string;
+  cells: Record<string, number>;
+  costTotal: number; // Σ cost columns = the garage Total Price
+}
+export interface GarageMatrix {
+  columns: MatrixColumn[];
+  rows: GarageMatrixRow[];
+  total: number;
+}
+
+const GARAGE_TYPE_LABEL: Record<string, string> = {
+  SINGLE: "Single",
+  TWIN: "Twin",
+  CAR_PORT: "Car Port",
+};
+
+function garageColumns(stageNames: string[]): MatrixColumn[] {
+  const cols: MatrixColumn[] = [
+    { key: "plot", header: "Garage", kind: "id" },
+    { key: "type", header: "Type", kind: "id" },
+    { key: "lift1", header: "1st Lift", kind: "cost" },
+    { key: "lift2", header: "2nd Lift", kind: "cost" },
+    { key: "gableRails", header: "Gable Lift & Rails", kind: "cost" },
+    { key: "gfBirdcage", header: "GF Birdcage", kind: "cost" },
+    { key: "dismantle", header: "Dismantle", kind: "cost" },
+  ];
+  for (const s of stageNames) cols.push({ key: `stage:${s}`, header: s, kind: "stage" });
+  cols.push({ key: "total", header: "Total Price", kind: "total" });
+  return cols;
+}
+
+/** One garage's cost cells. The Dismantle column folds the external dismantle AND
+ * the birdcage strip (Colin's garage block has a single Dismantle column). */
+function garageCells(lines: PricedLine[]): Record<string, number> {
+  const cells: Record<string, number> = {};
+  const put = (key: string, pence: number) => {
+    if (pence !== 0) cells[key] = round2(pence / 100);
+  };
+  put("lift1", sumPence(lines, (l) => l.component === "LIFT" && l.action === "ERECT" && l.liftLevel === 1));
+  put("lift2", sumPence(lines, (l) => l.component === "LIFT" && l.action === "ERECT" && l.liftLevel === 2));
+  put("gableRails", sumPence(lines, (l) => l.component === "GABLE" && l.action === "ERECT"));
+  put("gfBirdcage", sumPence(lines, (l) => l.component === "BIRDCAGE_GF" && l.action === "ERECT"));
+  put(
+    "dismantle",
+    sumPence(lines, (l) => l.action === "DISMANTLE" && (l.component === "LIFT" || l.component === "BIRDCAGE_GF")),
+  );
+  return cells;
+}
+
+/** Build the garages block. Reconciles the same way: total = Σ cost columns. */
+export function buildGarageMatrix(garages: PricedGarage[]): GarageMatrix {
+  const stageNames = garages.find((g) => g.stages.length)?.stages.map((s) => s.name) ?? [];
+  const columns = garageColumns(stageNames);
+  const rows: GarageMatrixRow[] = [];
+  let totalPence = 0;
+  for (const g of garages) {
+    const costCells = garageCells(g.lines);
+    const costTotalPence = Object.values(costCells).reduce((a, v) => a + penceOf(v), 0);
+    const cells: Record<string, number> = { ...costCells };
+    for (const s of g.stages) cells[`stage:${s.name}`] = s.amount;
+    rows.push({
+      plotNumber: g.plotNumber,
+      garageType: GARAGE_TYPE_LABEL[g.garageType] ?? g.garageType,
+      cells,
+      costTotal: round2(costTotalPence / 100),
+    });
+    totalPence += costTotalPence;
+  }
+  return { columns, rows, total: round2(totalPence / 100) };
 }

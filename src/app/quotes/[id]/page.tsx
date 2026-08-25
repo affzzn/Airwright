@@ -40,8 +40,13 @@ export default async function QuotePage({
   });
   if (!quote) notFound();
 
-  const stageRows = quote.lineItems.filter((li) => li.stage);
-  const detailRows = quote.lineItems.filter((li) => li.component && !li.stage);
+  // The plot matrix + house-type summary are the MAIN section only; garages are a
+  // separate section folded into the grand total (docs/15 §6).
+  const stageRows = quote.lineItems.filter((li) => li.stage && li.group !== "GARAGE");
+  const detailRows = quote.lineItems.filter((li) => li.component && !li.stage && li.group !== "GARAGE");
+  const garageTotal = quote.lineItems
+    .filter((li) => li.group === "GARAGE" && li.component && !li.stage)
+    .reduce((a, li) => a + Number(li.amount), 0);
 
   // Per-plot stage matrix.
   const stageNames: string[] = [];
@@ -208,6 +213,19 @@ export default async function QuotePage({
                 })}
               </tbody>
               <tfoot>
+                {garageTotal > 0 && (
+                  <tr className="border-t border-hairline">
+                    <td
+                      colSpan={3 + stageNames.length}
+                      className="px-5 py-2 text-right text-xs text-ink-subtle"
+                    >
+                      Garages (separate section)
+                    </td>
+                    <td className="px-5 py-2 text-right text-sm tabular-nums text-ink-muted">
+                      {gbp(garageTotal)}
+                    </td>
+                  </tr>
+                )}
                 <tr className="border-t border-hairline-strong">
                   <td
                     colSpan={3 + stageNames.length}

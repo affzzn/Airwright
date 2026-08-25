@@ -30,9 +30,9 @@ const confirmed: HouseTypeForPricing = {
 const draft: HouseTypeForPricing = { ...confirmed, id: "ht2", name: "Dekker", takeoffStatus: "IN_REVIEW" };
 
 const plots: PlotForPricing[] = [
-  { id: "p1", plotNumber: "1", houseTypeId: "ht1", configuration: "DETACHED", isRendered: false, hasGarage: false },
-  { id: "p2", plotNumber: "2", houseTypeId: "ht2", configuration: "DETACHED", isRendered: false, hasGarage: false },
-  { id: "p3", plotNumber: "3", houseTypeId: "ht1", configuration: "SEMI_DETACHED", isRendered: false, hasGarage: true },
+  { id: "p1", plotNumber: "1", houseTypeId: "ht1", configuration: "DETACHED", isRendered: false, hasGarage: false, garageType: null },
+  { id: "p2", plotNumber: "2", houseTypeId: "ht2", configuration: "DETACHED", isRendered: false, hasGarage: false, garageType: null },
+  { id: "p3", plotNumber: "3", houseTypeId: "ht1", configuration: "SEMI_DETACHED", isRendered: false, hasGarage: true, garageType: "SINGLE" },
 ];
 
 const rateItems = [
@@ -70,11 +70,12 @@ describe("priceProject", () => {
     expect(semi.subtotal).toBeLessThan(detached.subtotal);
   });
 
-  it("grand total = sum of priced plot subtotals (to the penny)", () => {
-    const sum = r.plots
+  it("grand total = sum of priced plot subtotals + garages (to the penny)", () => {
+    const plotSum = r.plots
       .filter((p) => p.status === "PRICED")
       .reduce((a, p) => a + Math.round(p.subtotal * 100), 0);
-    expect(Math.round(r.grandTotal * 100)).toBe(sum);
+    const garageSum = r.garages.reduce((a, g) => a + Math.round(g.subtotal * 100), 0);
+    expect(Math.round(r.grandTotal * 100)).toBe(plotSum + garageSum);
   });
 
   it("each priced plot's stages reconcile to its subtotal", () => {
@@ -84,7 +85,15 @@ describe("priceProject", () => {
     }
   });
 
-  it("counts garages (pricing pending)", () => {
+  it("prices garages as their own section (folded into the grand total)", () => {
     expect(r.garageCount).toBe(1);
+    expect(r.garages).toHaveLength(1);
+    const g = r.garages[0];
+    expect(g.plotNumber).toBe("3");
+    expect(g.garageType).toBe("SINGLE");
+    expect(g.subtotal).toBeGreaterThan(0);
+    // Garage subtotal reconciles to its own stage split.
+    const s = g.stages.reduce((a, x) => a + Math.round(x.amount * 100), 0);
+    expect(s).toBe(Math.round(g.subtotal * 100));
   });
 });

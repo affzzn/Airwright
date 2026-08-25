@@ -82,7 +82,8 @@ export default async function PricingPage({
           )}
           {pricing.garageCount > 0 && (
             <p>
-              ⚠ {pricing.garageCount} plot(s) have a garage — garage pricing is not applied yet.
+              ⚠ {pricing.garageCount} plot(s) have a garage — priced on PLACEHOLDER standard
+              garage quantities (confirm the real garage take-off with Colin).
             </p>
           )}
           {pricing.missingScenarios.length > 0 && (

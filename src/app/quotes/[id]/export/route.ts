@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/db";
-import { buildClientMatrix, type MatrixBuildType } from "@/lib/pricing/matrix";
-import type { PricedPlot } from "@/lib/pricing/priceProject";
+import { buildClientMatrix, buildGarageMatrix, type MatrixBuildType } from "@/lib/pricing/matrix";
+import type { PricedPlot, PricedGarage } from "@/lib/pricing/priceProject";
 import type { PricedLine, Action } from "@/lib/pricing/engine";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +38,7 @@ type QuoteLineItem = {
   component: string | null;
   action: string | null;
   liftLevel: number | null;
+  group: string;
   description: string | null;
   quantity: unknown;
   unit: string | null;
@@ -48,6 +49,7 @@ type QuoteLineItem = {
     id: string;
     plotNumber: string;
     configuration: string;
+    garageType: string | null;
     houseType: { name: string; code: string | null; buildType: string | null };
   } | null;
 };
@@ -60,7 +62,7 @@ type QuoteLineItem = {
 function pricedPlotsByBuildType(lineItems: QuoteLineItem[]): Map<MatrixBuildType, PricedPlot[]> {
   const byPlot = new Map<string, { plot: NonNullable<QuoteLineItem["plot"]>; lines: PricedLine[]; stages: { name: string; percent: number; amount: number }[] }>();
   for (const li of lineItems) {
-    if (!li.plot) continue;
+    if (!li.plot || li.group === "GARAGE") continue; // garages handled separately
     const e =
       byPlot.get(li.plot.id) ??
       byPlot.set(li.plot.id, { plot: li.plot, lines: [], stages: [] }).get(li.plot.id)!;
@@ -102,6 +104,44 @@ function pricedPlotsByBuildType(lineItems: QuoteLineItem[]): Map<MatrixBuildType
     out.get(bt)!.push(priced);
   }
   return out;
+}
+
+/** Reconstruct the priced garages from the frozen GARAGE line items. */
+function pricedGarages(lineItems: QuoteLineItem[]): PricedGarage[] {
+  const byPlot = new Map<string, PricedGarage>();
+  for (const li of lineItems) {
+    if (li.group !== "GARAGE" || !li.plot) continue;
+    const g =
+      byPlot.get(li.plot.id) ??
+      byPlot
+        .set(li.plot.id, {
+          plotId: li.plot.id,
+          plotNumber: li.plot.plotNumber,
+          garageType: li.plot.garageType ?? "SINGLE",
+          subtotal: 0,
+          stages: [],
+          lines: [],
+          unpricedCount: 0,
+        })
+        .get(li.plot.id)!;
+    if (li.stage) {
+      g.stages.push({ name: li.stage, percent: 0, amount: num(li.amount) });
+    } else if (li.component) {
+      g.lines.push({
+        component: li.component,
+        action: (li.action as Action) ?? "ERECT",
+        liftLevel: li.liftLevel,
+        quantity: num(li.quantity),
+        unit: li.unit ?? "",
+        rate: num(li.rate),
+        amount: num(li.amount),
+        priced: true,
+        note: li.description ?? undefined,
+      });
+      g.subtotal = Math.round((g.subtotal + num(li.amount)) * 100) / 100;
+    }
+  }
+  return [...byPlot.values()];
 }
 
 const BUILD_LABEL: Record<MatrixBuildType, string> = {
@@ -170,13 +210,41 @@ export async function GET(
     ws.getColumn(2).width = 22;
   }
 
-  // Grand total (plots across build types). Garages are not priced yet (A6) — noted.
-  if (plotsByType.size > 0) {
+  // Garages — their own section (Colin's garage block; docs/15 §6).
+  const garages = pricedGarages(quote.lineItems as unknown as QuoteLineItem[]);
+  let garageTotal = 0;
+  if (garages.length > 0) {
+    const gm = buildGarageMatrix(garages);
+    garageTotal = gm.total;
+    const ws = wb.addWorksheet("Garages");
+    ws.addRow(gm.columns.map((c) => c.header));
+    ws.getRow(1).font = { bold: true };
+    for (const row of gm.rows) {
+      ws.addRow(
+        gm.columns.map((c) => {
+          if (c.key === "plot") return safe(row.plotNumber);
+          if (c.key === "type") return safe(row.garageType);
+          if (c.key === "total") return row.costTotal;
+          return row.cells[c.key] ?? 0;
+        }),
+      );
+    }
+    const totalColIndex = gm.columns.findIndex((c) => c.key === "total") + 1;
+    ws.addRow([]);
+    const totalRow = ws.addRow([]);
+    totalRow.getCell(1).value = "Garages";
+    totalRow.getCell(totalColIndex).value = gm.total;
+    totalRow.font = { bold: true };
+    ws.getColumn(2).width = 14;
+  }
+
+  // Grand total = plots (across build types) + garages.
+  if (plotsByType.size > 0 || garages.length > 0) {
     const summary = wb.addWorksheet("Summary");
     summary.addRow(["", "Amount (£)"]);
     summary.getRow(1).font = { bold: true };
     summary.addRow(["Erect & Dismantle (plots)", round2(grandTotal)]);
-    summary.addRow(["Garages", "not yet priced"]);
+    summary.addRow(["Garages", round2(garageTotal)]);
     const gt = summary.addRow(["Grand Total", num(quote.total)]);
     gt.font = { bold: true };
     summary.getColumn(1).width = 28;
@@ -185,12 +253,13 @@ export async function GET(
   // Line items — the true-cost audit backing (unchanged).
   const detailRows = quote.lineItems.filter((li) => li.component && !li.stage);
   const items = wb.addWorksheet("Line items");
-  items.addRow(["Plot", "House type", "Description", "Component", "Action", "Lift", "Qty", "Unit", "Rate", "Amount"]);
+  items.addRow(["Plot", "House type", "Group", "Description", "Component", "Action", "Lift", "Qty", "Unit", "Rate", "Amount"]);
   items.getRow(1).font = { bold: true };
   for (const li of detailRows) {
     items.addRow([
       safe(li.plot?.plotNumber),
       safe(li.plot?.houseType.name),
+      safe(li.group),
       safe(li.description),
       safe(li.component),
       safe(li.action),
@@ -201,7 +270,7 @@ export async function GET(
       num(li.amount),
     ]);
   }
-  items.getColumn(3).width = 34;
+  items.getColumn(4).width = 34;
 
   const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
   return new NextResponse(bytes, {

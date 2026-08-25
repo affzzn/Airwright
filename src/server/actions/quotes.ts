@@ -66,6 +66,39 @@ export async function generateQuote(
     }
   }
 
+  // Garages — frozen as their own section (group GARAGE), so the client matrix
+  // can render the garages block + fold them into the grand total (docs/15 §6).
+  for (const g of loaded.pricing.garages) {
+    for (const l of g.lines) {
+      lineItems.push({
+        plot: { connect: { id: g.plotId } },
+        description: `${l.note ?? l.component} — ${l.action === "ERECT" ? "erect" : "dismantle"}${
+          l.liftLevel ? ` (lift ${l.liftLevel})` : ""
+        }`,
+        component: l.component as Prisma.QuoteLineItemCreateInput["component"],
+        action: l.action as Prisma.QuoteLineItemCreateInput["action"],
+        liftLevel: l.liftLevel,
+        group: "GARAGE",
+        quantity: l.quantity,
+        unit: l.unit as Prisma.QuoteLineItemCreateInput["unit"],
+        rate: l.rate,
+        amount: l.amount,
+      });
+    }
+    for (const s of g.stages) {
+      lineItems.push({
+        plot: { connect: { id: g.plotId } },
+        description: s.name,
+        stage: s.name,
+        group: "GARAGE",
+        quantity: 1,
+        unit: "EACH",
+        rate: s.amount,
+        amount: s.amount,
+      });
+    }
+  }
+
   const quote = await prisma.quote.create({
     data: {
       projectId,

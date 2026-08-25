@@ -64,6 +64,7 @@ enum AccessType {
 enum GarageType {
   SINGLE
   TWIN
+  CAR_PORT
 }
 
 enum DocumentKind {

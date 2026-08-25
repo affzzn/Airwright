@@ -11,10 +11,12 @@
 
 import { buildTakeoff, DEFAULT_PARAMS, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
+import { buildGarageTakeoff, type GarageType } from "@/lib/takeoff/garage";
 import {
   buildRateResolver,
   priceTakeoffLine,
   priceTimberFrameLine,
+  priceGarageLine,
   type PricedLine,
 } from "./engine";
 
@@ -35,6 +37,7 @@ export interface PlotForPricing {
   configuration: string;
   isRendered: boolean;
   hasGarage: boolean;
+  garageType: string | null;
 }
 export interface RateItemLite {
   component: string;
@@ -66,10 +69,22 @@ export interface PricedPlot {
   hasGarage: boolean;
 }
 
+export interface PricedGarage {
+  plotId: string;
+  plotNumber: string;
+  garageType: string;
+  subtotal: number;
+  stages: { name: string; percent: number; amount: number }[];
+  lines: PricedLine[];
+  unpricedCount: number;
+}
+
 export interface ProjectPricing {
   band: string;
   hasRateCard: boolean;
   plots: PricedPlot[];
+  /** Priced garages (own section; docs/15 §6) — folded into the grand total. */
+  garages: PricedGarage[];
   grandTotal: number;
   /** Distinct "COMPONENT ACTION" strings that had no rate — surfaced for review. */
   unpricedComponents: string[];
@@ -116,6 +131,7 @@ export function priceProject(input: {
   };
 
   const plots: PricedPlot[] = [];
+  const garages: PricedGarage[] = [];
   const unpriced = new Set<string>();
   let grandTotalPence = 0;
   let confirmedCount = 0;
@@ -178,12 +194,35 @@ export function priceProject(input: {
       lines: result.lines,
       unpricedCount: result.unpriced.length,
     });
+
+    // Garage — priced as its own section, own split (docs/15 §6). Quantities from
+    // the flagged placeholder garage template until Colin's real take-off lands.
+    if (plot.hasGarage && plot.garageType) {
+      const garageLine = buildGarageTakeoff(plot.garageType as GarageType);
+      const garageScenario = garageLine.hasBirdcage ? "GARAGE" : "GARAGE_NO_BCAGE";
+      const gResult = priceGarageLine(garageLine, {
+        resolveRate: resolve,
+        stageSplits: splitsFor(garageScenario),
+      });
+      gResult.unpriced.forEach((u) => unpriced.add(`${u.component} ${u.action}`));
+      grandTotalPence += Math.round(gResult.subtotal * 100);
+      garages.push({
+        plotId: plot.id,
+        plotNumber: plot.plotNumber,
+        garageType: plot.garageType,
+        subtotal: gResult.subtotal,
+        stages: gResult.stages,
+        lines: gResult.lines,
+        unpricedCount: gResult.unpriced.length,
+      });
+    }
   }
 
   return {
     band: input.band,
     hasRateCard: input.rateItems.length > 0,
     plots,
+    garages,
     grandTotal: grandTotalPence / 100,
     unpricedComponents: [...unpriced].sort(),
     confirmedCount,

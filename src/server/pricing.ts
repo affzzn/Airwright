@@ -65,6 +65,7 @@ export async function loadProjectPricing(
       configuration: p.configuration,
       isRendered: p.isRendered,
       hasGarage: p.hasGarage,
+      garageType: p.garageType,
     })),
     rateItems: (rateCard?.items ?? []).map((i) => ({
       component: i.component,
