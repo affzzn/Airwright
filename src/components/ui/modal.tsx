@@ -48,10 +48,14 @@ export function Modal({
       aria-label={label}
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
     >
-      <div className="absolute inset-0 bg-ink/70" onClick={onClose} aria-hidden />
+      <div
+        className="animate-modal-scrim absolute inset-0 bg-ink/50 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
       <div
         className={cn(
-          "relative z-10 flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-hairline bg-canvas",
+          "shadow-overlay animate-modal-panel relative z-10 flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-hairline-strong bg-canvas",
           className,
         )}
       >

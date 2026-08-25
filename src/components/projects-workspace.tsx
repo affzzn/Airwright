@@ -7,6 +7,7 @@ import { useFormStatus } from "react-dom";
 import {
   Archive,
   ArchiveRestore,
+  FilePlus2,
   Loader2,
   Plus,
   Search,
@@ -203,33 +204,43 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
         open={newOpen}
         onClose={() => setNewOpen(false)}
         label="New tender"
-        className="max-w-md"
+        className="max-w-lg"
       >
-        <div className="border-b border-hairline px-5 py-4">
-          <h2 className="text-sm font-semibold text-ink">New tender</h2>
+        <div className="flex items-start gap-3.5 border-b border-hairline px-6 py-5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-hairline bg-surface">
+            <FilePlus2 className="h-[18px] w-[18px] text-ink" strokeWidth={1.75} />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">New tender</h2>
+            <p className="mt-0.5 text-xs text-ink-subtle">
+              Start a new estimate — you can add the drawing pack next.
+            </p>
+          </div>
         </div>
-        <form action={createProject} className="space-y-4 px-5 py-4">
-          <div>
-            <Label htmlFor="clientName">House builder</Label>
-            <Input id="clientName" name="clientName" required placeholder="Miller Homes" />
+        <form action={createProject}>
+          <div className="space-y-5 px-6 py-5">
+            <div>
+              <Label htmlFor="clientName">House builder</Label>
+              <Input id="clientName" name="clientName" required placeholder="Miller Homes" />
+            </div>
+            <div>
+              <Label htmlFor="projectName">Project / development</Label>
+              <Input
+                id="projectName"
+                name="projectName"
+                required
+                placeholder="Chesterwood Phase 2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="mode">Estimating mode</Label>
+              <Select id="mode" name="mode" defaultValue="HOUSE_BUILD">
+                <option value="HOUSE_BUILD">House build</option>
+                <option value="CONSTRUCTION">Construction</option>
+              </Select>
+            </div>
           </div>
-          <div>
-            <Label htmlFor="projectName">Project / development</Label>
-            <Input
-              id="projectName"
-              name="projectName"
-              required
-              placeholder="Chesterwood Phase 2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="mode">Estimating mode</Label>
-            <Select id="mode" name="mode" defaultValue="HOUSE_BUILD">
-              <option value="HOUSE_BUILD">House build</option>
-              <option value="CONSTRUCTION">Construction</option>
-            </Select>
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex justify-end gap-2 border-t border-hairline bg-surface px-6 py-4">
             <Button type="button" variant="secondary" onClick={() => setNewOpen(false)}>
               Cancel
             </Button>

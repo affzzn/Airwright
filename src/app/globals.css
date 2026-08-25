@@ -60,6 +60,41 @@
   .step-active {
     animation: ring-pulse 1.8s ease-out infinite;
   }
+
+  /* Modal entrance — a floating overlay is the one sanctioned place for elevation
+     (like the ConfidenceDot is the one sanctioned colour). The scrim fades, the
+     panel rises + settles. Elevation is a soft, neutral shadow, never a coloured one. */
+  .animate-modal-scrim {
+    animation: modal-scrim-in 140ms ease-out;
+  }
+  .animate-modal-panel {
+    animation: modal-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .shadow-overlay {
+    box-shadow:
+      0 1px 1px rgba(24, 24, 27, 0.04),
+      0 24px 56px -20px rgba(24, 24, 27, 0.28);
+  }
+}
+
+@keyframes modal-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @keyframes ring-pulse {
