@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
-import { buildTakeoff, type Configuration } from "@/lib/takeoff/engine";
+import { buildTakeoff, DEFAULT_PARAMS, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
 import {
   confirmTakeoff,
@@ -75,6 +75,8 @@ interface Props {
   onGoToPage?: (page: number) => void;
   /** Report the live engine flags up, so they render beside the drawing. */
   onFlagsChange?: (flags: string[]) => void;
+  /** Per-builder storey→lifts template; falls back to the engine default. */
+  storeyLiftTemplate?: Record<string, number>;
 }
 
 // The canonical, always-shown measurement rows (a blank one is fillable).
@@ -141,6 +143,7 @@ export function TakeoffEditor({
   relevantPages,
   onGoToPage,
   onFlagsChange,
+  storeyLiftTemplate,
 }: Props) {
   const router = useRouter();
   const locked = status === "CONFIRMED";
@@ -279,13 +282,17 @@ export function TakeoffEditor({
           { label: "Semi / End", config: "SEMI_DETACHED" },
           { label: "Mid-terrace", config: "MID_TERRACE" },
         ];
+    const params = storeyLiftTemplate
+      ? { ...DEFAULT_PARAMS, storeyLiftTemplate }
+      : DEFAULT_PARAMS;
     return options.map(({ label, config }) => ({
       label,
       line: buildTakeoff(
         takeoffInputFromStored(engineMeasurements, engineWalls, engineWarnings, config),
+        params,
       ),
     }));
-  }, [isApartment, engineMeasurements, engineWalls, engineWarnings]);
+  }, [isApartment, engineMeasurements, engineWalls, engineWarnings, storeyLiftTemplate]);
   const engineFlags = takeoffLines[0]?.line.flags ?? [];
 
   // Surface the live flags beside the drawing (the workspace renders them there).

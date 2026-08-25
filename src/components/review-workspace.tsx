@@ -30,6 +30,7 @@ export function ReviewWorkspace({
   notes,
   raw,
   documentPages,
+  storeyLiftTemplate,
 }: {
   pdfUrl: string | null;
   relevantPages?: number[];
@@ -43,6 +44,7 @@ export function ReviewWorkspace({
   notes: string | null;
   raw: ExtractionResult | null;
   documentPages: PageRef[];
+  storeyLiftTemplate?: Record<string, number>;
 }) {
   const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
   const [flags, setFlags] = useState<string[]>([]);
@@ -122,6 +124,7 @@ export function ReviewWorkspace({
         relevantPages={relevantPages}
         onGoToPage={onGoToPage}
         onFlagsChange={onFlagsChange}
+        storeyLiftTemplate={storeyLiftTemplate}
       />
     </div>
   );

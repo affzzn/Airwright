@@ -62,24 +62,41 @@ export interface TakeoffInput {
   config: Configuration;
 }
 
+/**
+ * The default (Miller/"Standard") storey → lifts template. ⚠️ BUILDER-SPECIFIC:
+ * docs/08 records e.g. Barratt 2-storey = 3 lifts, not 4 — so the real template
+ * comes from the builder profile (params.storeyLiftTemplate); this is the fallback.
+ */
+export const STANDARD_STOREY_LIFTS: Record<string, number> = {
+  "1": 2,
+  "2": 4,
+  "2.5": 5,
+  "3": 6,
+  "4": 8,
+};
+
 /** Tunable rules. Defaults are the confirmed values; ⚠️ ones await Colin (docs/11 §8). */
 export interface EngineParams {
   liftHeightM: number; // ✅ 1.5 (called an "average" — ⚠️ constancy open)
   cornerAllowanceM: number; // ⚠️ quantum open: 1 m/corner vs a 5 m allowance
+  storeyLiftTemplate: Record<string, number>; // per-builder; default STANDARD
   // render lift basis is the storey table below (⚠️ full table owed by Colin)
 }
 export const DEFAULT_PARAMS: EngineParams = {
   liftHeightM: 1.5,
   cornerAllowanceM: 1.0,
+  storeyLiftTemplate: STANDARD_STOREY_LIFTS,
 };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-/** Storey → lifts template (cross-check). Verified on Colin's sheets. */
-export function storeyLifts(storeys: number | null): number | null {
+/** Storey → lifts template (cross-check). Builder-specific; defaults to Standard. */
+export function storeyLifts(
+  storeys: number | null,
+  template: Record<string, number> = STANDARD_STOREY_LIFTS,
+): number | null {
   if (storeys === null) return null;
-  const map: Record<string, number> = { "1": 2, "2": 4, "2.5": 5, "3": 6, "4": 8 };
-  return map[String(storeys)] ?? null;
+  return template[String(storeys)] ?? null;
 }
 
 /** Render lifts by storey (2 m boarded lifts). From Colin's sheets; full table owed. */
@@ -123,7 +140,7 @@ export function computeLifts(
     input.heightToSoffitM !== null && input.heightToSoffitM > 0
       ? Math.ceil(input.heightToSoffitM / params.liftHeightM) + (hasRoom ? 1 : 0)
       : null;
-  const sLifts = storeyLifts(input.storeys);
+  const sLifts = storeyLifts(input.storeys, params.storeyLiftTemplate);
   const disagree = heightLifts !== null && sLifts !== null && heightLifts !== sLifts;
 
   let lifts: number | null;
@@ -194,14 +211,17 @@ export function computePerimeter(
       case "SEMI_DETACHED":
       case "END_TERRACE":
         // 3 sides: front + rear + the one exposed gable end (the other is the party wall).
+        // A plain rectangle wraps 2 corners; an L-shape drops the ~2 party-side
+        // corners from the read count (derive from cornerCount, not a flat 2).
         walls = front + rear + Math.max(gableLeft, gableRight) + other;
-        corners = 2;
+        corners = input.cornerCount != null ? Math.max(2, input.cornerCount - 2) : 2;
         irregular = other > 0;
         break;
       case "MID_TERRACE":
-        // 2 sides: front + rear only (both gables are party walls).
+        // 2 sides: front + rear only (both gables are party walls). Rectangle wraps
+        // 0 corners; an L-shape keeps its step corners (read count minus the 4 gable-side).
         walls = front + rear;
-        corners = 0;
+        corners = input.cornerCount != null ? Math.max(0, input.cornerCount - 4) : 0;
         irregular = other > 0;
         break;
     }
@@ -334,6 +354,14 @@ export function buildTakeoff(
     flags.push("Hipped roof but apexes were reported — forced to 0.");
   if (perimeter.irregular)
     flags.push("Irregular ('other') walls on a non-detached config — check the perimeter.");
+  if (
+    !input.isApartmentBlock &&
+    input.config !== "DETACHED" &&
+    (input.cornerCount ?? 4) > 4
+  )
+    flags.push(
+      `L-shaped/stepped footprint on a ${input.config} (${input.cornerCount} corners) — corner reduction assumes the step is on the scaffolded side; check.`,
+    );
   if (render && render.lifts === null)
     flags.push("Rendered, but no render-lift rule for this storey count.");
   flags.push(

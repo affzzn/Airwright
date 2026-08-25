@@ -9,7 +9,7 @@
  * which isn't wired into the take-off yet (Phase 4/7).
  */
 
-import { buildTakeoff, type Configuration } from "@/lib/takeoff/engine";
+import { buildTakeoff, DEFAULT_PARAMS, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
 import { buildRateResolver, priceTakeoffLine, type PricedLine } from "./engine";
 
@@ -89,9 +89,15 @@ export function priceProject(input: {
   rateItems: RateItemLite[];
   stageSplits: StageSplitLite[];
   band: string;
+  /** Per-builder storey→lifts template; falls back to the Standard default. */
+  storeyLiftTemplate?: Record<string, number>;
 }): ProjectPricing {
   const htById = new Map(input.houseTypes.map((h) => [h.id, h]));
   const resolve = buildRateResolver(input.rateItems, input.band);
+  const params = {
+    ...DEFAULT_PARAMS,
+    storeyLiftTemplate: input.storeyLiftTemplate ?? DEFAULT_PARAMS.storeyLiftTemplate,
+  };
   const splitsFor = (scenario: string) => {
     const s = input.stageSplits.filter((x) => x.scenario === scenario);
     const use = s.length ? s : input.stageSplits.filter((x) => x.scenario === "STANDARD");
@@ -137,7 +143,7 @@ export function priceProject(input: {
     // Render is per plot — a non-rendered plot drops the house type's render.
     if (!plot.isRendered) engineInput.renderSegmentsM = [];
 
-    const line = buildTakeoff(engineInput);
+    const line = buildTakeoff(engineInput, params);
     const scenario = scenarioFor(engineInput.storeys, line.birdcage.floorCount);
     const result = priceTakeoffLine(line, {
       resolveRate: resolve,

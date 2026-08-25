@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { priceProject, type ProjectPricing } from "@/lib/pricing/priceProject";
+import { getStoreyLiftTemplate } from "@/server/builderProfile";
 
 /**
  * Load a project and price its whole development. Shared by the pricing matrix
@@ -33,6 +34,9 @@ export async function loadProjectPricing(
     orderBy: { effectiveFrom: "desc" },
     include: { items: true, stageSplits: true },
   });
+
+  // The lift template is per-builder (the client is the housebuilder).
+  const storeyLiftTemplate = await getStoreyLiftTemplate(project.clientId);
 
   const pricing = priceProject({
     houseTypes: project.houseTypes.map((h) => ({
@@ -73,6 +77,7 @@ export async function loadProjectPricing(
       percent: Number(s.percent),
     })),
     band: project.client.defaultBand,
+    storeyLiftTemplate,
   });
 
   return {

@@ -4,6 +4,8 @@ import {
   computeApex,
   computeLifts,
   computePerimeter,
+  storeyLifts,
+  DEFAULT_PARAMS,
   type TakeoffInput,
 } from "./engine";
 
@@ -29,6 +31,54 @@ const base: TakeoffInput = {
   chimney: false,
   config: "DETACHED",
 };
+
+describe("computePerimeter — corners derived from cornerCount for every config", () => {
+  const walls = [
+    { position: "front" as const, lengthM: 9 },
+    { position: "rear" as const, lengthM: 9 },
+    { position: "gable_left" as const, lengthM: 8 },
+    { position: "gable_right" as const, lengthM: 8 },
+  ];
+  it("plain rectangle: detached 4 / semi 2 / mid 0 (unchanged)", () => {
+    const b = { ...base, wallSegments: walls, cornerCount: 4 };
+    expect(computePerimeter({ ...b, config: "DETACHED" }, 1).corners).toBe(4);
+    expect(computePerimeter({ ...b, config: "SEMI_DETACHED" }, 1).corners).toBe(2);
+    expect(computePerimeter({ ...b, config: "MID_TERRACE" }, 1).corners).toBe(0);
+  });
+  it("L-shape (6 corners): detached 6 / semi 4 / mid 2", () => {
+    const b = { ...base, wallSegments: walls, cornerCount: 6 };
+    expect(computePerimeter({ ...b, config: "DETACHED" }, 1).corners).toBe(6);
+    expect(computePerimeter({ ...b, config: "SEMI_DETACHED" }, 1).corners).toBe(4);
+    expect(computePerimeter({ ...b, config: "MID_TERRACE" }, 1).corners).toBe(2);
+  });
+  it("null cornerCount falls back to the flat 2/0 for non-detached", () => {
+    const b = { ...base, wallSegments: walls, cornerCount: null };
+    expect(computePerimeter({ ...b, config: "SEMI_DETACHED" }, 1).corners).toBe(2);
+    expect(computePerimeter({ ...b, config: "MID_TERRACE" }, 1).corners).toBe(0);
+  });
+  it("flags an L-shaped non-detached footprint", () => {
+    const line = buildTakeoff({
+      ...base, wallSegments: walls, cornerCount: 6, storeys: 2, heightToSoffitM: 4.8,
+      config: "SEMI_DETACHED",
+    });
+    expect(line.flags.some((f) => /L-shaped\/stepped footprint/.test(f))).toBe(true);
+  });
+});
+
+describe("builder-specific storey→lifts template", () => {
+  const BARRATT = { ...DEFAULT_PARAMS, storeyLiftTemplate: { "1": 2, "2": 3, "2.5": 5, "3": 6 } };
+  it("storeyLifts reads the passed template (Barratt 2 → 3)", () => {
+    expect(storeyLifts(2)).toBe(4); // default Standard
+    expect(storeyLifts(2, BARRATT.storeyLiftTemplate)).toBe(3); // Barratt
+  });
+  it("computeLifts uses the Barratt template: 2-storey → 3 (template wins over height's 4), flagged", () => {
+    const r = computeLifts({ ...base, storeys: 2, heightToSoffitM: 4.7 }, BARRATT);
+    expect(r.heightLifts).toBe(4);
+    expect(r.storeyLifts).toBe(3);
+    expect(r.lifts).toBe(3); // whole storey → template wins
+    expect(r.flag).toBe(true);
+  });
+});
 
 describe("computeLifts (height ÷ 1.5, round up, +1 room-in-roof)", () => {
   it("garage @ 2.25 m → 2 lifts", () => {

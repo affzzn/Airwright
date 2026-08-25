@@ -242,6 +242,7 @@ model BuilderProfile {
   loadingBayPolicy      String? // free-text until the rule is pinned down
   joistSupportVariant   String? // single / double / sacrificial
   extraHirePolicy       String? // refuse / zero / charge
+  storeyLiftTemplate    Json? // per-builder storey→lifts map, e.g. {"1":2,"2":3,"2.5":5,"3":6} (Barratt 2→3 vs Standard 2→4); null → engine default
   matrixTemplateId      String? // the client matrix template they insist on (soft pointer)
   notes                 String?
   spec                  Json? // flexible bag for anything not yet typed

@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ReviewWorkspace } from "@/components/review-workspace";
 import type { EditorCategoricals } from "@/components/takeoff-editor";
+import { getStoreyLiftTemplate } from "@/server/builderProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,12 @@ export default async function ReviewPage({
       ? (takeoff.warnings as Record<string, unknown>)
       : {};
   const notes = rawWarnings.notes != null ? String(rawWarnings.notes) : null;
+
+  // Per-builder storey→lifts template (the client is the housebuilder), so the
+  // review take-off line matches what pricing will use. Falls back to Standard.
+  const storeyLiftTemplate = extraction.houseType
+    ? await getStoreyLiftTemplate(extraction.houseType.clientId)
+    : undefined;
 
   // Serialise the take-off for the editable client component (Prisma Decimals →
   // plain numbers). The deterministic take-off line is recomputed there, live.
@@ -141,6 +148,7 @@ export default async function ReviewPage({
           notes={notes}
           raw={raw}
           documentPages={documentPages}
+          storeyLiftTemplate={storeyLiftTemplate}
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">

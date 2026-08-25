@@ -68,7 +68,28 @@ async function main() {
       chimneyScaffoldAlways: false,
       joistSupportVariant: "single",
       extraHirePolicy: "charge",
+      // Standard storey→lifts template (docs/08). ⚠ Confirm per builder with Colin.
+      storeyLiftTemplate: { "1": 2, "2": 4, "2.5": 5, "3": 6, "4": 8 },
       notes: "PLACEHOLDER — confirm against Miller's design standard specification.",
+    },
+  });
+
+  // A second housebuilder to demonstrate the per-builder lift template — Barratt's
+  // 2-storey is 3 lifts, not 4 (docs/08). ⚠ Template values still to confirm with Colin.
+  const barratt = await prisma.client.upsert({
+    where: { id: "seed-client-barratt" },
+    update: {},
+    create: { id: "seed-client-barratt", name: "Barratt Homes", defaultBand: "MEDIUM" },
+  });
+  await prisma.builderProfile.upsert({
+    where: { id: "seed-profile-barratt" },
+    update: {},
+    create: {
+      id: "seed-profile-barratt",
+      clientId: barratt.id,
+      name: "Barratt standard (placeholder)",
+      storeyLiftTemplate: { "1": 2, "2": 3, "2.5": 5, "3": 6, "4": 8 },
+      notes: "PLACEHOLDER — Barratt 2-storey = 3 lifts (docs/08); confirm the full template.",
     },
   });
 
