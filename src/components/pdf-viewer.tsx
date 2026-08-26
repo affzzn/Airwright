@@ -158,9 +158,12 @@ export default function PdfViewer({
               pageNumber={currentPage}
               width={renderWidth}
               onLoadSuccess={(page) => {
-                const w = page.originalWidth || page.width;
-                const h = page.originalHeight || page.height;
-                if (w) setAspect(h / w);
+                // Use the rotation-aware viewport, not originalWidth/Height —
+                // architectural sheets are often stored portrait with a /Rotate,
+                // so the intrinsic size lies about the displayed orientation and
+                // would shrink a landscape drawing to a sliver.
+                const vp = page.getViewport({ scale: 1 });
+                if (vp.width) setAspect(vp.height / vp.width);
               }}
               renderAnnotationLayer={false}
               renderTextLayer={false}

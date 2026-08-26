@@ -93,7 +93,7 @@ export function ReviewWorkspace({
       </div>
 
       {/* Two panes */}
-      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-2">
+      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-2 lg:grid-rows-1">
         {/* Drawing — fixed, fit-to-contain, no scrollbar of its own */}
         <div className="flex h-[55vh] flex-col overflow-hidden border-b border-hairline p-4 lg:h-auto lg:border-b-0 lg:border-r">
           <div className="flex shrink-0 items-center justify-between pb-3">
