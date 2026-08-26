@@ -4,9 +4,12 @@
  * right split (docs/15 §5). ⚠️ ALL NUMBERS ARE PLACEHOLDERS — swap for Colin's real
  * rate sheet (Track 3), then reproduce a real priced site to the penny.
  *
- *   npx tsx scripts/fill-placeholder-rates.mts          # fills the active card (band MEDIUM)
+ *   npx tsx scripts/fill-placeholder-rates.mts          # fills the active card, ALL bands
  *
  * Idempotent: stage splits are rebuilt; rate items upsert on their unique key.
+ * The MEDIUM values below are the base; the other bands are scaled from them by a
+ * per-band multiplier (a commercial tier), so switching the rate bucket on the
+ * pricing screen produces sensible, monotonic numbers. MEDIUM is left EXACTLY as-is.
  */
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
@@ -15,9 +18,19 @@ loadEnv();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
-const BAND = "MEDIUM" as const;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// [component, action, unit, rate, liftLevel]
+// Per-band multiplier applied to the MEDIUM base rates below. ⚠️ PLACEHOLDER
+// spread — the real per-band numbers come from Colin's rate sheet.
+const BAND_MULTIPLIER: Record<string, number> = {
+  SUPER_COMPETITIVE: 0.8,
+  COMPETITIVE: 0.9,
+  MEDIUM: 1.0,
+  HIGH: 1.25,
+  CUSTOM: 1.0, // a copy of MEDIUM as a starting point to edit
+};
+
+// [component, action, unit, rate, liftLevel] — the MEDIUM base rates.
 const RATES: [string, "ERECT" | "DISMANTLE", "LM" | "M2" | "EACH", number, number][] = [
   // External scaffold — 1st lift dearer (liftLevel 1), the rest at the base (0).
   ["LIFT", "ERECT", "LM", 18.25, 0],
@@ -62,9 +75,10 @@ async function main() {
     orderBy: { effectiveFrom: "desc" },
   });
   if (!card) throw new Error("No active house-build rate card. Create one under /rates first.");
-  console.log(`Filling card "${card.name}" (${card.id}), band ${BAND}.`);
+  const bands = Object.keys(BAND_MULTIPLIER);
+  console.log(`Filling card "${card.name}" (${card.id}), bands: ${bands.join(", ")}.`);
 
-  // Rebuild stage splits (no unique key → clear then create).
+  // Rebuild stage splits (band-independent; no unique key → clear then create).
   await prisma.stageSplit.deleteMany({ where: { rateCardId: card.id } });
   await prisma.stageSplit.createMany({
     data: SPLITS.flatMap(([scenario, rows]) =>
@@ -72,24 +86,30 @@ async function main() {
     ),
   });
 
-  // Upsert rate items on [rateCardId, component, action, band, liftLevel].
-  for (const [component, action, unit, rate, liftLevel] of RATES) {
-    await prisma.rateItem.upsert({
-      where: {
-        rateCardId_component_action_band_liftLevel: {
-          rateCardId: card.id,
-          component: component as never,
-          action,
-          band: BAND,
-          liftLevel,
+  // Upsert rate items for every band on [rateCardId, component, action, band, liftLevel].
+  let written = 0;
+  for (const band of bands) {
+    const mult = BAND_MULTIPLIER[band];
+    for (const [component, action, unit, rate, liftLevel] of RATES) {
+      const banded = round2(rate * mult);
+      await prisma.rateItem.upsert({
+        where: {
+          rateCardId_component_action_band_liftLevel: {
+            rateCardId: card.id,
+            component: component as never,
+            action,
+            band: band as never,
+            liftLevel,
+          },
         },
-      },
-      create: { rateCardId: card.id, component: component as never, action, band: BAND, unit, rate, liftLevel },
-      update: { unit, rate },
-    });
+        create: { rateCardId: card.id, component: component as never, action, band: band as never, unit, rate: banded, liftLevel },
+        update: { unit, rate: banded },
+      });
+      written++;
+    }
   }
 
-  console.log(`Wrote ${SPLITS.reduce((a, [, r]) => a + r.length, 0)} stage splits and ${RATES.length} rate items.`);
+  console.log(`Wrote ${SPLITS.reduce((a, [, r]) => a + r.length, 0)} stage splits and ${written} rate items across ${bands.length} bands.`);
   console.log("⚠️ All placeholders — replace with Colin's real rate sheet, then re-generate quotes.");
 }
 

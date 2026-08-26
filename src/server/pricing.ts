@@ -8,8 +8,18 @@ import { getStoreyLiftTemplate } from "@/server/builderProfile";
  * same way (active house-build rate card + the client's default band).
  */
 export interface LoadedPricing {
-  project: { id: string; name: string; clientName: string; band: string };
+  project: {
+    id: string;
+    name: string;
+    clientName: string;
+    /** The band actually used to price (project override, else client default). */
+    band: string;
+    /** True when the band is the client's default (no per-project override set). */
+    bandIsDefault: boolean;
+  };
   rateCard: { id: string; name: string } | null;
+  /** Headline external-lift rate (£/LM) for the chosen band, for display. Null if unset. */
+  meterRate: number | null;
   pricing: ProjectPricing;
 }
 
@@ -37,6 +47,17 @@ export async function loadProjectPricing(
 
   // The lift template is per-builder (the client is the housebuilder).
   const storeyLiftTemplate = await getStoreyLiftTemplate(project.clientId);
+
+  // The band actually priced at: the per-project override if set, else the
+  // client's default. Chosen on the pricing screen's Commercial panel.
+  const band = project.rateBand ?? project.client.defaultBand;
+
+  // Headline external-lift £/LM for that band, for the Commercial panel display
+  // (the base rate, liftLevel 0 = upper lifts). Editing happens on /rates.
+  const meterRate =
+    rateCard?.items.find(
+      (i) => i.component === "LIFT" && i.action === "ERECT" && i.band === band && i.liftLevel === 0,
+    )?.rate ?? null;
 
   const pricing = priceProject({
     houseTypes: project.houseTypes.map((h) => ({
@@ -79,7 +100,7 @@ export async function loadProjectPricing(
       name: s.name,
       percent: Number(s.percent),
     })),
-    band: project.client.defaultBand,
+    band,
     storeyLiftTemplate,
   });
 
@@ -88,9 +109,11 @@ export async function loadProjectPricing(
       id: project.id,
       name: project.name,
       clientName: project.client.name,
-      band: project.client.defaultBand,
+      band,
+      bandIsDefault: project.rateBand === null,
     },
     rateCard: rateCard ? { id: rateCard.id, name: rateCard.name } : null,
+    meterRate: meterRate !== null ? Number(meterRate) : null,
     pricing,
   };
 }

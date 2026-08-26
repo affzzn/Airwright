@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GenerateQuoteButton } from "@/components/quote-actions";
+import { BandPicker } from "@/components/band-picker";
 import { buildInclusions } from "@/lib/pricing/matrix";
 import { formatDate } from "@/lib/utils";
 
@@ -29,7 +30,7 @@ export default async function PricingPage({
   const { id } = await params;
   const loaded = await loadProjectPricing(id);
   if (!loaded) notFound();
-  const { project, rateCard, pricing } = loaded;
+  const { project, rateCard, pricing, meterRate } = loaded;
 
   const quotes = await prisma.quote.findMany({
     where: { projectId: id },
@@ -59,6 +60,43 @@ export default async function PricingPage({
         </div>
         <GenerateQuoteButton projectId={id} disabled={!canQuote} />
       </div>
+
+      {/* Commercial — the rate band (bucket) this tender prices at. Rates behind
+          each band are edited on /rates; this only chooses which band applies. */}
+      <Card className="mb-6">
+        <CardHeader>
+          <h2 className="text-sm font-semibold text-ink">Commercial</h2>
+        </CardHeader>
+        <CardBody>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                Rate bucket
+              </label>
+              <BandPicker projectId={id} value={project.band} />
+              <p className="mt-1.5 text-[11px] text-ink-subtle">
+                {project.bandIsDefault
+                  ? "Using the client’s default band. Choose a band to set one for this tender."
+                  : "Set for this tender. The matrix prices at this band."}
+              </p>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                Meter rate (£/LM) — set on Rates
+              </label>
+              <div className="flex h-[38px] items-center rounded-md border border-hairline bg-surface px-3 text-sm tabular-nums text-ink-muted">
+                {meterRate !== null ? `£${meterRate.toFixed(2)}` : "— no rate for this band"}
+              </div>
+              <p className="mt-1.5 text-[11px] text-ink-subtle">
+                Headline external-lift rate for this band.{" "}
+                <Link href="/rates" className="underline decoration-hairline-strong underline-offset-2 hover:decoration-ink">
+                  Edit rates →
+                </Link>
+              </p>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
 
       {/* Flags */}
       {(!rateCard ||

@@ -281,6 +281,9 @@ model Project {
   name           String
   reference      String?
   estimatingMode EstimatingMode     @default(HOUSE_BUILD)
+  // Commercial rate band for this tender's pricing. Null → use the client's
+  // defaultBand. Chosen on the pricing screen; the matrix prices at this band.
+  rateBand       RateBand?
   status         String             @default("TENDER")
   archivedAt     DateTime? // set when the tender is archived (hidden from the default list)
   createdAt      DateTime           @default(now())
