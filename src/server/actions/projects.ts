@@ -36,6 +36,56 @@ export async function setProjectRateBand(
   return { ok: true };
 }
 
+/**
+ * Set the CUSTOM band's headline external-lift rate (£/LM) from the pricing
+ * screen's Commercial panel. Applied FLAT across lift levels (base + 1st) so the
+ * Custom band is a single per-metre external rate with no odd 1st-lift inversion.
+ * Other Custom components (birdcage, gable, dismantle…) are edited on /rates. The
+ * matrix, quote and Excel all read these rate items, so they stay correct.
+ */
+export async function setCustomMeterRate(
+  projectId: string,
+  rate: number,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!Number.isFinite(rate) || rate < 0) return { ok: false, error: "Enter a valid rate." };
+  const card = await prisma.rateCard.findFirst({
+    where: { mode: "HOUSE_BUILD", isActive: true },
+    orderBy: { effectiveFrom: "desc" },
+    select: { id: true },
+  });
+  if (!card) return { ok: false, error: "No active house-build rate card." };
+  const r = Math.round(rate * 100) / 100;
+  try {
+    for (const liftLevel of [0, 1]) {
+      await prisma.rateItem.upsert({
+        where: {
+          rateCardId_component_action_band_liftLevel: {
+            rateCardId: card.id,
+            component: "LIFT",
+            action: "ERECT",
+            band: "CUSTOM",
+            liftLevel,
+          },
+        },
+        create: {
+          rateCardId: card.id,
+          component: "LIFT",
+          action: "ERECT",
+          band: "CUSTOM",
+          unit: "LM",
+          rate: r,
+          liftLevel,
+        },
+        update: { rate: r },
+      });
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to set rate." };
+  }
+  revalidatePath(`/projects/${projectId}/pricing`);
+  return { ok: true };
+}
+
 /** Create a client + project in one step (Week-1 simple flow). */
 export async function createProject(formData: FormData) {
   const clientName = String(formData.get("clientName") ?? "").trim();

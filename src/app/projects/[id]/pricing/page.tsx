@@ -7,6 +7,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GenerateQuoteButton } from "@/components/quote-actions";
 import { BandPicker } from "@/components/band-picker";
+import { MeterRateField } from "@/components/meter-rate-field";
 import { buildInclusions } from "@/lib/pricing/matrix";
 import { formatDate } from "@/lib/utils";
 
@@ -82,16 +83,30 @@ export default async function PricingPage({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-subtle">
-                Meter rate (£/LM) — set on Rates
+                Meter rate (£/LM){project.band === "CUSTOM" ? "" : " — set on Rates"}
               </label>
-              <div className="flex h-[38px] items-center rounded-md border border-hairline bg-surface px-3 text-sm tabular-nums text-ink-muted">
-                {meterRate !== null ? `£${meterRate.toFixed(2)}` : "— no rate for this band"}
-              </div>
+              <MeterRateField
+                projectId={id}
+                value={meterRate}
+                editable={project.band === "CUSTOM"}
+              />
               <p className="mt-1.5 text-[11px] text-ink-subtle">
-                Headline external-lift rate for this band.{" "}
-                <Link href="/rates" className="underline decoration-hairline-strong underline-offset-2 hover:decoration-ink">
-                  Edit rates →
-                </Link>
+                {project.band === "CUSTOM" ? (
+                  <>
+                    External-lift rate for this tender — edit it here. Other items (birdcage,
+                    gables, dismantle…) on{" "}
+                    <Link href="/rates" className="underline decoration-hairline-strong underline-offset-2 hover:decoration-ink">
+                      Rates →
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    Headline external-lift rate for this band.{" "}
+                    <Link href="/rates" className="underline decoration-hairline-strong underline-offset-2 hover:decoration-ink">
+                      Edit rates →
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
           </div>
