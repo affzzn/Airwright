@@ -13,7 +13,7 @@
  * its confidence, and simply omits the page link.
  */
 
-import type { ExtractionResult } from "@/lib/extract/schema";
+import { lowLevelQty, type ExtractionResult } from "@/lib/extract/schema";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 import { computeHeight } from "@/lib/extract/height";
 
@@ -117,10 +117,6 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
       dwellingsWide,
     ).m2;
   };
-  const low =
-    raw.lowLevel.porchCount == null && raw.lowLevel.bayCount == null
-      ? null
-      : (raw.lowLevel.porchCount ?? 0) + (raw.lowLevel.bayCount ?? 0);
   return {
     STOREYS: raw.storeys.value,
     HEIGHT_TO_SOFFIT: raw.heightToSoffitM.value,
@@ -130,7 +126,7 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
     BIRDCAGE_GF_M2: floorArea("GF"),
     BIRDCAGE_FF_M2: floorArea("FF"),
     BIRDCAGE_SF_M2: floorArea("SF"),
-    LOW_LEVEL_QTY: low,
+    LOW_LEVEL_QTY: lowLevelQty(raw.lowLevel),
   };
 }
 
@@ -376,20 +372,47 @@ export function buildProvenanceCards(
     };
   }
 
-  // --- Low level (porch + bay) ---
-  const { porchCount, bayCount } = raw.lowLevel;
-  if (porchCount != null || bayCount != null) {
-    const p = porchCount ?? 0;
-    const b = bayCount ?? 0;
+  // --- Low level (porches + single-storey bays; two-storey bays excluded) ---
+  const ll = raw.lowLevel;
+  if (
+    ll.porchCanopyCount != null ||
+    ll.porchSolidCount != null ||
+    ll.baySingleStoreyCount != null ||
+    ll.bayTwoStoreyCount != null
+  ) {
+    const canopy = ll.porchCanopyCount ?? 0;
+    const solid = ll.porchSolidCount ?? 0;
+    const bay1 = ll.baySingleStoreyCount ?? 0;
+    const bay2 = ll.bayTwoStoreyCount ?? 0;
+    const total = lowLevelQty(ll) ?? 0;
+    const porchBits = [
+      canopy > 0 ? `${canopy} canopy porch` : "",
+      solid > 0 ? `${solid} solid porch` : "",
+      bay1 > 0 ? `${bay1} single-storey bay` : "",
+    ].filter(Boolean);
+    const steps: ProvStep[] = [
+      {
+        text: porchBits.length
+          ? `${porchBits.join(" + ")} = ${total} low-level scaffold${total === 1 ? "" : "s"}`
+          : `${total} low-level scaffolds`,
+      },
+    ];
+    if (bay2 > 0)
+      steps.push({
+        text: `${bay2} two-storey bay — full height, NOT a low level (excluded from the count).`,
+      });
+    const footnotes = [
+      "Porches (canopy or solid) and single-storey bays each get a small tower, re-erected after the main scaffold is struck. Type is recorded so the treatment can change without re-reading.",
+    ];
+    if (bay2 > 0)
+      footnotes.push("A two-storey bay rises the full height and is part of the main scaffold, not a low-level tower.");
     cards.LOW_LEVEL_QTY = {
       title: "Low-level",
-      summary: "Counted off the elevations",
+      summary: "Counted off the elevations, by type",
       method: "counted",
-      steps: [{ text: `${p} porch + ${b} bay window = ${p + b} low-level scaffold${p + b === 1 ? "" : "s"}` }],
-      footnotes: [
-        "Porches and bay windows each get a small tower, re-erected after the main scaffold is struck. Unit-priced.",
-      ],
-      confidenceLabel: raw.lowLevel.confidence,
+      steps,
+      footnotes,
+      confidenceLabel: ll.confidence,
     };
   }
 

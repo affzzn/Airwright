@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { ExtractionResult } from "./schema";
+import { lowLevelQty, type ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
 import { computeHeight } from "./height";
@@ -302,12 +302,12 @@ export async function persistExtraction(
       });
     }
 
-    // --- Low-level features (porches + bays) as a single count ---
-    const lowLevelTotal =
-      result.lowLevel.porchCount === null && result.lowLevel.bayCount === null
-        ? null
-        : (result.lowLevel.porchCount ?? 0) + (result.lowLevel.bayCount ?? 0);
-    pushIf("LOW_LEVEL_QTY", { value: lowLevelTotal, confidence: result.lowLevel.confidence });
+    // --- Low-level count = porches + SINGLE-storey bays. Two-storey bays are
+    //     full height (main scaffold), NOT low levels — excluded (lowLevelQty). ---
+    pushIf("LOW_LEVEL_QTY", {
+      value: lowLevelQty(result.lowLevel),
+      confidence: result.lowLevel.confidence,
+    });
 
     push("CORNER_COUNT", result.cornerCount);
 
@@ -372,6 +372,24 @@ export async function persistExtraction(
     }
     if (renderedFaces.length > 0) warnings.rendered = true;
     else if (result.elevations.length > 0) warnings.rendered = false;
+    // Low-level type breakdown (kept for later, so the treatment can change
+    // without re-reading) + a flag for two-storey bays (excluded from the count).
+    const ll = result.lowLevel;
+    if (
+      ll.porchCanopyCount != null ||
+      ll.porchSolidCount != null ||
+      ll.baySingleStoreyCount != null ||
+      ll.bayTwoStoreyCount != null
+    )
+      warnings.lowLevelBreakdown = {
+        porchCanopy: ll.porchCanopyCount ?? 0,
+        porchSolid: ll.porchSolidCount ?? 0,
+        baySingleStorey: ll.baySingleStoreyCount ?? 0,
+        bayTwoStorey: ll.bayTwoStoreyCount ?? 0,
+      };
+    if ((ll.bayTwoStoreyCount ?? 0) > 0)
+      warnings.twoStoreyBay = `${ll.bayTwoStoreyCount} two-storey bay(s) — full height, NOT a low level (excluded from the low-level count; treatment TBD).`;
+
     if (result.chimney.value !== null) warnings.chimney = result.chimney.value;
     if (result.smartRoofPeakHeightM.value !== null)
       warnings.smartRoofPeakM = result.smartRoofPeakHeightM.value;

@@ -308,12 +308,42 @@ export const extractionResultSchema = z.object({
     ),
   lowLevel: z
     .object({
-      porchCount: z.number().nullable().describe("Number of porches (each = one low-level scaffold)."),
-      bayCount: z.number().nullable().describe("Number of bay windows (each = one low-level scaffold)."),
+      porchCanopyCount: z
+        .number()
+        .nullable()
+        .describe(
+          "Number of PORCHES that are an OPEN CANOPY — a roof/hood over the entrance (often GRP or glass), with no full-height enclosing walls. Each still counts as ONE low-level scaffold.",
+        ),
+      porchSolidCount: z
+        .number()
+        .nullable()
+        .describe(
+          "Number of PORCHES that are SOLID / ENCLOSED (built brick or block walls). Each counts as ONE low-level scaffold. If you can see a porch but cannot tell canopy vs solid, count it HERE.",
+        ),
+      baySingleStoreyCount: z
+        .number()
+        .nullable()
+        .describe(
+          "Number of SINGLE-STOREY bay windows — the bay projects at the GROUND floor ONLY (it stops below the first-floor windows). Each counts as ONE low-level scaffold.",
+        ),
+      bayTwoStoreyCount: z
+        .number()
+        .nullable()
+        .describe(
+          "Number of TWO-STOREY bay windows — the bay rises through BOTH floors (full height), which you read off the ELEVATION. A two-storey bay is NOT a low level (it is full height, part of the main scaffold), so report it HERE and it is EXCLUDED from the low-level count. NEVER put a two-storey bay in baySingleStoreyCount.",
+        ),
       confidence,
     })
-    .describe("Low-level features needing a separate small low-level scaffold.")
-    .default({ porchCount: null, bayCount: null, confidence: "unknown" }),
+    .describe(
+      "Low-level features. Porches and SINGLE-storey bays each need a small low-level scaffold tower — recorded BY TYPE (canopy/solid, single/two-storey) so the treatment can change later without re-reading the drawings. A TWO-STOREY bay is captured but is NOT a low level.",
+    )
+    .default({
+      porchCanopyCount: null,
+      porchSolidCount: null,
+      baySingleStoreyCount: null,
+      bayTwoStoreyCount: null,
+      confidence: "unknown",
+    }),
   chimney: boolField
     .describe(
       "Whether the drawing shows a chimney (would need a chimney scaffold). Detect it from the elevations / roof plan.",
@@ -350,3 +380,21 @@ export const extractionResultSchema = z.object({
 });
 
 export type ExtractionResult = z.infer<typeof extractionResultSchema>;
+
+/** The low-level feature breakdown the model reads (typed counts). */
+export type LowLevel = ExtractionResult["lowLevel"];
+
+/**
+ * The LOW_LEVEL_QTY the engine prices: porches (canopy + solid) + single-storey
+ * bays. TWO-storey bays are full height (part of the main scaffold), NOT low
+ * levels, so they are EXCLUDED. Returns null only when nothing was read at all.
+ * Shared by persist + provenance so the two can never drift.
+ */
+export function lowLevelQty(ll: LowLevel): number | null {
+  const c = ll.porchCanopyCount;
+  const s = ll.porchSolidCount;
+  const b1 = ll.baySingleStoreyCount;
+  const b2 = ll.bayTwoStoreyCount;
+  if (c == null && s == null && b1 == null && b2 == null) return null;
+  return (c ?? 0) + (s ?? 0) + (b1 ?? 0);
+}

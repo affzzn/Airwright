@@ -4,7 +4,7 @@ loadEnv();
 
 import { readFileSync } from "node:fs";
 import { extractDrawing } from "../src/lib/extract/extractDrawing";
-import type { ExtractionResult } from "../src/lib/extract/schema";
+import { lowLevelQty, type ExtractionResult } from "../src/lib/extract/schema";
 import {
   buildTakeoff,
   type ApexByFace,
@@ -63,7 +63,7 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     apexByFace,
     renderSegmentsM,
     floors,
-    lowLevelCount: (d.lowLevel.porchCount ?? 0) + (d.lowLevel.bayCount ?? 0),
+    lowLevelCount: lowLevelQty(d.lowLevel) ?? 0,
     chimney: d.chimney.value === true,
     config,
   };
@@ -88,7 +88,7 @@ async function run(path: string, configs: Configuration[]) {
     `structure: ${data.structure.form}  storeys: ${data.storeys.value} [${data.storeys.confidence}]  roomInRoof: ${data.roomInRoof.value}  height: ${data.heightToSoffitM.value} m [${data.heightToSoffitM.confidence}]  roof: ${data.roof.overallType}`,
   );
   console.log(
-    `corners: ${data.cornerCount.value}  dwellingsWide: ${data.dwellingsWide.value}  chimney: ${data.chimney.value}  lowLevel: porch=${data.lowLevel.porchCount} bay=${data.lowLevel.bayCount}  smartRoofPeak: ${data.smartRoofPeakHeightM.value}`,
+    `corners: ${data.cornerCount.value}  dwellingsWide: ${data.dwellingsWide.value}  chimney: ${data.chimney.value}  lowLevel: ${lowLevelQty(data.lowLevel) ?? "-"} (canopy=${data.lowLevel.porchCanopyCount} solid=${data.lowLevel.porchSolidCount} bay1=${data.lowLevel.baySingleStoreyCount} bay2=${data.lowLevel.bayTwoStoreyCount})  smartRoofPeak: ${data.smartRoofPeakHeightM.value}`,
   );
   {
     const h = computeHeight({

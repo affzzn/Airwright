@@ -170,11 +170,12 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 - **Edge cases:** use the **internal** area, never the external footprint (bigger, over-reads). Irregular floor → **several rectangles** (the engine sums them). The wall thickness is **read off the drawing per-floor**, not defaulted; only the reconciliation **tolerance** remains an ⚠️ open param, flagged when used.
 - **Which area to prefer:** **gross internal (Setting Out / masonry), not NDSS usable.** They differ because NDSS excludes voids; Colin's take-off uses the gross internal footprint.
 
-### 3.11 Low level (porch / bay)
-- **What:** count of porches + bay windows (each = one low-level tower).
-- **Where:** elevations & plan.
-- **How:** count porches and bays. A porch/entrance **GRP canopy still counts**.
-- **Layer:** reads (unit-priced downstream — the model only spots & counts).
+### 3.11 Low level (porch / bay) — counted BY TYPE (2026-08-26)
+- **What:** porches + SINGLE-storey bays (each = one low-level tower), recorded by type.
+- **Where:** elevations & plan (bay height is read off the **elevation**).
+- **How:** count and classify — porches split into `porchCanopyCount` (open GRP/glass canopy) vs `porchSolidCount` (enclosed; also the default when unsure); bays split into `baySingleStoreyCount` (projects at the ground floor only) vs `bayTwoStoreyCount` (rises through **both** floors). A porch/entrance **GRP canopy still counts** as a low level.
+- **Layer:** reads; `lowLevelQty` (`schema.ts`) computes `LOW_LEVEL_QTY = canopy + solid + singleStoreyBay` — the type split is metadata (kept for a future treatment change), so **pricing is unchanged** for porches and single-storey bays.
+- **⚠️ A TWO-storey bay is NOT a low level** — it is full height (part of the main scaffold), so it is captured (`bayTwoStoreyCount`, `warnings.twoStoreyBay`) but **EXCLUDED from the count**. Never fold it into the single-storey field.
 - **Edge cases:** some Bloor sites want a beam-over instead of a returning low-level — a builder-profile item, not read from the drawing.
 
 ### 3.12 Chimney

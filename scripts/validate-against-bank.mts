@@ -4,7 +4,7 @@ loadEnv();
 
 import { readFileSync } from "node:fs";
 import { extractDrawing } from "../src/lib/extract/extractDrawing";
-import type { ExtractionResult } from "../src/lib/extract/schema";
+import { lowLevelQty, type ExtractionResult } from "../src/lib/extract/schema";
 import {
   buildTakeoff,
   type ApexByFace,
@@ -84,7 +84,7 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     apexByFace,
     renderSegmentsM: d.elevations.filter((e) => e.rendered === true).map((e) => e.renderLengthM ?? 0).filter((x) => x > 0),
     floors,
-    lowLevelCount: (d.lowLevel.porchCount ?? 0) + (d.lowLevel.bayCount ?? 0),
+    lowLevelCount: lowLevelQty(d.lowLevel) ?? 0,
     chimney: d.chimney.value === true,
     config,
   };

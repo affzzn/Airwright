@@ -87,7 +87,7 @@ prices). Never blur the two — reading is the AI's job, arithmetic is the engin
 
 | Term | Meaning |
 |------|---------|
-| **Low level** **[reads]** | A small scaffold tower for a **low feature — a porch or a bay window**. Each porch/bay = **one** low level ✅. Re-erected **after** the main scaffold is struck so the roof works can be finished. **Unit-priced**, not measured — the AI only needs to **spot and count** them. A porch/entrance **GRP canopy still counts** ✅. |
+| **Low level** **[reads]** | A small scaffold tower for a **low feature — a porch or a SINGLE-storey bay window**. Each = **one** low level ✅. Re-erected **after** the main scaffold is struck. **Unit-priced**; the AI **spots, counts, and now records the TYPE** (porch: canopy vs solid; bay: single- vs two-storey) so the treatment can change later without re-reading. A porch/entrance **GRP canopy still counts** ✅. **A TWO-storey bay is NOT a low level** — it rises the full height (part of the main scaffold), so it is captured separately and **excluded from the low-level count** (`bayTwoStoreyCount`; `lowLevelQty` in `schema.ts`). |
 | **Beam-over** | A spec variant (some Bloor sites): instead of returning with a low-level tower, a **beam is placed over** the porch/bay so it can be finished in one go. A **builder-profile** item ⚠️. |
 | **Chimney scaffold** **[reads → computes]** | Scaffold **around the perimeter of a chimney stack**, at a **fixed rate for one or two lifts** ✅. Detect the chimney **from the drawing** ✅. Specs sometimes demand a chimney scaffold **even when none is drawn** — report `chimney = false` and **flag the spec-vs-drawing mismatch** rather than pricing it. |
 | **Foot scaffold** | A low scaffold **around the base of the block**, at ground level. |
