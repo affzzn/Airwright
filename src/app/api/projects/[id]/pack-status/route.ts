@@ -25,6 +25,7 @@ export async function GET(
         orderBy: { version: "asc" },
         take: 1,
         select: {
+          groupingStatus: true,
           uploads: { select: { status: true } },
           documents: {
             select: {
@@ -33,6 +34,7 @@ export async function GET(
               isReadable: true,
               category: true,
               included: true,
+              kind: true,
             },
           },
         },
@@ -51,25 +53,28 @@ export async function GET(
   const houseTypes = project!.houseTypes;
   const extractions = houseTypes.flatMap((h) => h.extractions);
 
+  const groupingStatus = pack.groupingStatus;
+  const grouping = groupingStatus === "GROUPING";
+  const awaitingConfirm = groupingStatus === "PROPOSED"; // waiting on a human — idle
+
   const uploadsPending = uploads.some((u) => u.status === "PENDING");
   const unclassified = documents.some((d) => d.classifiedAt === null && d.isReadable);
   const extractionsRunning = extractions.some(
-    (e) => e.status === "PENDING" || e.status === "PROCESSING",
+    (e) => e.status === "PROCESSING" || (e.status === "PENDING" && !awaitingConfirm),
   );
-  // Gap coverage: a relevant drawing document classified but not yet segmented
-  // into a house type/extraction — the pipeline is still mid-flight.
-  const extractedDocIds = new Set(extractions.map((e) => e.documentId));
-  const awaitingExtraction = documents.some(
-    (d) =>
-      d.included &&
-      d.category === "HOUSE_TYPE_DRAWINGS" &&
-      !extractedDocIds.has(d.id),
-  );
+  // The window after classification, before grouping has run (worker about to group).
+  const sourceDocs = documents.filter((d) => d.kind !== "ASSEMBLED");
+  const preGroup =
+    groupingStatus === null &&
+    sourceDocs.length > 0 &&
+    !unclassified &&
+    sourceDocs.some((d) => d.included && d.classifiedAt !== null);
 
   const active =
-    uploadsPending || unclassified || extractionsRunning || awaitingExtraction;
+    uploadsPending || unclassified || grouping || preGroup || (!awaitingConfirm && extractionsRunning);
 
   const signature = JSON.stringify({
+    g: groupingStatus ?? "",
     u: uploads.map((u) => u.status).sort(),
     d: documents
       .map((d) => `${d.id}:${d.classifiedAt ? 1 : 0}:${d.category}:${d.included ? 1 : 0}`)

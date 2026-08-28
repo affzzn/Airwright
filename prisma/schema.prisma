@@ -73,6 +73,7 @@ enum DocumentKind {
   PLOT_LAYOUT
   SPEC
   PRICING_TEMPLATE
+  ASSEMBLED // a synthetic combined PDF assembled from a house type's pages (docs/17)
   OTHER
 }
 
@@ -252,6 +253,7 @@ model BuilderProfile {
   extraHirePolicy       String? // refuse / zero / charge
   storeyLiftTemplate    Json? // per-builder storey→lifts map, e.g. {"1":2,"2":3,"2.5":5,"3":6} (Barratt 2→3 vs Standard 2→4); null → engine default
   matrixTemplateId      String? // the client matrix template they insist on (soft pointer)
+  ingestProfile         Json? // smart-upload grouping rules (docs/17); null → use a built-in code profile
   notes                 String?
   spec                  Json? // flexible bag for anything not yet typed
   createdAt             DateTime    @default(now())
@@ -306,6 +308,12 @@ model TenderPack {
   documents  Document[]
   uploads    PackUpload[]
 
+  // Smart-upload / cross-file grouping (docs/17). Set by the worker after it
+  // groups the pack into house types; the confirm screen reads groupingData.
+  builderProfileId String? // detected builder ingest profile id (e.g. "vistry")
+  groupingStatus   String? // null (legacy per-file) | PROPOSED | CONFIRMED | FALLBACK
+  groupingData     Json? // the grouping proposal (groups, ignored, unplaced, flags)
+
   @@index([projectId])
 }
 
@@ -315,12 +323,13 @@ model PackUpload {
   id          String     @id @default(cuid())
   packId      String
   pack        TenderPack @relation(fields: [packId], references: [id], onDelete: Cascade)
-  fileName    String
-  storagePath String
-  mimeType    String
-  sizeBytes   Int?
-  isArchive   Boolean    @default(false)
-  status      String     @default("PENDING") // PENDING | PROCESSED | FAILED
+  fileName     String
+  relativePath String? // path inside the uploaded folder/zip (docs/17 — grouping signal)
+  storagePath  String
+  mimeType     String
+  sizeBytes    Int?
+  isArchive    Boolean    @default(false)
+  status       String     @default("PENDING") // PENDING | PROCESSED | FAILED
   error       String?
   createdAt   DateTime   @default(now())
 
@@ -333,6 +342,9 @@ model Document {
   pack           TenderPack       @relation(fields: [packId], references: [id], onDelete: Cascade)
   kind           DocumentKind     @default(OTHER)
   fileName       String
+  relativePath   String? // path inside the uploaded folder/zip (docs/17 — grouping signal)
+  contentHash    String? // for zip-vs-unzipped dedupe (docs/17)
+  pageManifest   Json? // ASSEMBLED docs: assembled page → source file+page (provenance)
   storageBucket  String           @default("tender-packs")
   storagePath    String
   mimeType       String

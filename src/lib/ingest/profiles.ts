@@ -21,10 +21,17 @@ export interface BuilderIngestProfile {
   id: string;
   label: string;
 
-  /** Recognise the builder from the top folder name or any title-block text. */
+  /**
+   * Recognise the builder. `keywords` are substring-matched (case-insensitive)
+   * against folder names, filenames, the project name and title-block text;
+   * `folderMatches` / `fileMatches` are STRUCTURAL signatures (regexes) that
+   * catch the builder even when the branded top folder was stripped (e.g. a zip
+   * rooted inside it). Any match counts; keyword matches score highest.
+   */
   detect: {
-    topFolderIncludes?: string[]; // matched case-insensitively against path segments
-    titleIncludes?: string[];
+    keywords?: string[];
+    folderMatches?: RegExp[];
+    fileMatches?: RegExp[];
   };
 
   /** How a file's house-type identity is resolved. */
@@ -60,7 +67,7 @@ const clean = (s: string) => s.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").tri
 const VISTRY: BuilderIngestProfile = {
   id: "vistry",
   label: "Vistry",
-  detect: { topFolderIncludes: ["vistry"], titleIncludes: ["vistry"] },
+  detect: { keywords: ["vistry"], folderMatches: [/^scaffold$/i], fileMatches: [/-SGP-/i] },
   grouping: {
     strategy: "folder",
     houseTypeFromPath: (rp) => {
@@ -82,7 +89,7 @@ const VISTRY: BuilderIngestProfile = {
 const BLOOR: BuilderIngestProfile = {
   id: "bloor",
   label: "Bloor Homes",
-  detect: { topFolderIncludes: ["bloor"], titleIncludes: ["bloor"] },
+  detect: { keywords: ["bloor"], fileMatches: [/_issue_\d/i, /^\d{3}(-\d)?_[a-z]+_issue/i] },
   grouping: {
     strategy: "filename",
     houseTypeFromPath: (rp) => {
@@ -104,7 +111,7 @@ const BLOOR: BuilderIngestProfile = {
 const TILIA: BuilderIngestProfile = {
   id: "tilia",
   label: "Tilia Homes",
-  detect: { topFolderIncludes: ["tilia"], titleIncludes: ["tilia"] },
+  detect: { keywords: ["tilia"], folderMatches: [/^housetypes/i], fileMatches: [/^[a-z0-9]+-\d{3}-\d/i] },
   grouping: {
     strategy: "filename",
     houseTypeFromPath: (rp) => {
@@ -136,7 +143,7 @@ const TILIA: BuilderIngestProfile = {
 const TAYLOR_WIMPEY: BuilderIngestProfile = {
   id: "taylor-wimpey",
   label: "Taylor Wimpey",
-  detect: { topFolderIncludes: ["taylor wimpey", "wimpey"], titleIncludes: ["taylor wimpey"] },
+  detect: { keywords: ["taylor wimpey", "wimpey"], folderMatches: [/^house_type$/i, /^apartment_block/i, /^em[abt]\d+_/i] },
   grouping: {
     strategy: "combined-pdf",
     houseTypeFromPath: (rp) => {
@@ -192,24 +199,43 @@ export const BUILDER_PROFILES: BuilderIngestProfile[] = [
   TAYLOR_WIMPEY,
 ];
 
+export interface DetectContext {
+  folders?: string[]; // distinct folder segment names across the pack
+  fileNames?: string[]; // sample base filenames
+  projectName?: string;
+  titles?: string[]; // sample title-block text
+}
+
 /**
- * Detect the builder from the pack's top-level folder name(s) and, if needed, a
- * sample of title-block text. Returns null when unknown (→ LLM fallback).
+ * Detect the builder from every available signal — folder names, filenames, the
+ * project name, title-block text. Keyword hits score highest; structural
+ * folder/file signatures catch a builder whose branded top folder was stripped.
+ * Returns the best-scoring profile, or null when unknown (→ LLM fallback).
  */
-export function detectBuilder(
-  topFolders: string[],
-  sampleTitles: string[] = [],
-): BuilderIngestProfile | null {
-  const folders = topFolders.map((f) => f.toLowerCase());
-  const titles = sampleTitles.map((t) => t.toLowerCase());
+export function detectBuilder(ctx: DetectContext): BuilderIngestProfile | null {
+  const folders = (ctx.folders ?? []).map((f) => f.toLowerCase());
+  const files = ctx.fileNames ?? [];
+  const kwHay = [
+    ...folders,
+    ...files.map((f) => f.toLowerCase()),
+    (ctx.projectName ?? "").toLowerCase(),
+    ...(ctx.titles ?? []).map((t) => t.toLowerCase()),
+  ];
+
+  let best: { profile: BuilderIngestProfile; score: number } | null = null;
   for (const p of BUILDER_PROFILES) {
-    const byFolder = p.detect.topFolderIncludes?.some((k) =>
-      folders.some((f) => f.includes(k)),
-    );
-    const byTitle = p.detect.titleIncludes?.some((k) => titles.some((t) => t.includes(k)));
-    if (byFolder || byTitle) return p;
+    let score = 0;
+    if (p.detect.keywords?.some((k) => kwHay.some((h) => h.includes(k.toLowerCase())))) score += 3;
+    if (p.detect.folderMatches?.some((re) => folders.some((f) => re.test(f)))) score += 2;
+    if (p.detect.fileMatches?.some((re) => files.some((f) => re.test(f)))) score += 2;
+    if (score > 0 && (!best || score > best.score)) best = { profile: p, score };
   }
-  return null;
+  return best?.profile ?? null;
+}
+
+/** Get a built-in profile by id (e.g. persisted on a pack as builderProfileId). */
+export function profileById(id: string | null | undefined): BuilderIngestProfile | null {
+  return BUILDER_PROFILES.find((p) => p.id === id) ?? null;
 }
 
 /** True if a path falls inside a folder this profile ignores. */

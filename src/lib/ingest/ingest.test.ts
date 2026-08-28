@@ -76,14 +76,31 @@ describe("parsePath — revision / plots / variants", () => {
 });
 
 describe("detectBuilder", () => {
-  it("detects each builder from the top folder", () => {
-    expect(detectBuilder([V])?.id).toBe("vistry");
-    expect(detectBuilder(["BLOOR OADBY PH2A"])?.id).toBe("bloor");
-    expect(detectBuilder(["TILIA HAWKESBURY"])?.id).toBe("tilia");
-    expect(detectBuilder([TW])?.id).toBe("taylor-wimpey");
+  it("detects each builder from the top folder keyword", () => {
+    expect(detectBuilder({ folders: [V] })?.id).toBe("vistry");
+    expect(detectBuilder({ folders: ["BLOOR OADBY PH2A"] })?.id).toBe("bloor");
+    expect(detectBuilder({ folders: ["TILIA HAWKESBURY"] })?.id).toBe("tilia");
+    expect(detectBuilder({ folders: [TW] })?.id).toBe("taylor-wimpey");
+  });
+  it("detects structurally even when the branded top folder is stripped", () => {
+    // Vistry — the SGP code in the filename.
+    expect(
+      detectBuilder({
+        folders: ["Scaffold", "Aspen"],
+        fileNames: ["240780-SGP-C414001A-XX-D2-A-0401B_The Aspen-Front Elevation (Brick)_P01.pdf"],
+      })?.id,
+    ).toBe("vistry");
+    // Bloor — the _ISSUE_ filename signature.
+    expect(detectBuilder({ fileNames: ["372_BYRON_ISSUE_4.13.pdf"] })?.id).toBe("bloor");
+    // Tilia — the CODE-NNN-ND sheet numbering.
+    expect(
+      detectBuilder({ fileNames: ["CROMFORD-201-03D Front Elevation Plots 4, 21_Ver3.pdf"] })?.id,
+    ).toBe("tilia");
+    // Taylor Wimpey — the trade-folder structure.
+    expect(detectBuilder({ folders: ["House_Type", "EMA21_Avonsford"] })?.id).toBe("taylor-wimpey");
   });
   it("returns null for an unknown builder", () => {
-    expect(detectBuilder(["SOME NEW HOUSEBUILDER SITE"])).toBeNull();
+    expect(detectBuilder({ folders: ["SOME NEW HOUSEBUILDER SITE"], fileNames: ["plan.pdf"] })).toBeNull();
   });
 });
 
