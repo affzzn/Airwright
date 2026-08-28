@@ -141,7 +141,7 @@ const birdcageRect = z.object({
     .number()
     .nullable()
     .describe(
-      "Overall EXTERNAL width in metres — the OUTERMOST dimension line, tick-to-tick at the outer brick faces. Report it as-is — do NOT subtract walls or divide for a pair; the engine does that. Report it whenever visible (it cross-checks the internal read).",
+      "Overall EXTERNAL width of ONE HOUSE in metres — the outermost dimension line of a SINGLE house (the setting-out plan shows one house). Do NOT report the combined pair/terrace frontage here, and do NOT subtract walls — report it as-is. The engine subtracts the walls; it does NOT divide the birdcage (that's per house). Report it whenever visible (it cross-checks the internal read).",
     )
     .optional(),
   overallDepthM: z

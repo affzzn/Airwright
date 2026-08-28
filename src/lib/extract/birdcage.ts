@@ -11,7 +11,7 @@
  * per-axis LADDER (docs/13 §3.10) — printed internal wins, else derive from the
  * overall minus the wall:
  *   depth  = internalDepthM ?? (overallDepthM − 2·wall)
- *   width  = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide
+ *   width  = internalWidthM ?? (overallWidthM − 2·wall)   [per house — NOT divided]
  *   wall   = wallThicknessMm (STRUCTURAL, plan) ?? legendWallThicknessMm (finished, fallback)
  *   area   = Σ (width × depth) over the rectangles (compound / L-shaped floors)
  * then reconciles the derived area against the stated gross-internal area and
@@ -166,21 +166,24 @@ function resolveAxisWalls(
  * Walls are subtracted PER SIDE (they can differ) — never `2 × wall` — and there
  * is NO default: an overall with no wall on a side is left UNRESOLVED and flagged.
  */
-function computeRect(r: BirdcageRectInput, dwellingsWide: number): RectComputed {
-  const dw = dwellingsWide >= 1 ? dwellingsWide : 1;
+function computeRect(r: BirdcageRectInput): RectComputed {
   const wWall = resolveAxisWalls(r.wallWidthLeftMm, r.wallWidthRightMm, r.wallThicknessMm, r.legendWallThicknessMm);
   const dWall = resolveAxisWalls(r.wallDepthFrontMm, r.wallDepthRearMm, r.wallThicknessMm, r.legendWallThicknessMm);
 
-  // --- WIDTH: derived (overall − both walls, ÷ dwellings) computed if possible ---
+  // --- WIDTH: derived (overall − both walls) computed if possible. NOT divided
+  //     by dwellings: the birdcage is measured PER HOUSE, and the model reports a
+  //     single house's footprint (the setting-out plan shows one house). The pair
+  //     frontage is only for the perimeter walls — that division lives in the
+  //     take-off engine, not here. ---
   const overallW = pos(r.overallWidthM);
   const derivedWidthM =
     overallW != null && wWall.a != null && wWall.b != null
-      ? round3((overallW - wWall.a / 1000 - wWall.b / 1000) / dw)
+      ? round3(overallW - wWall.a / 1000 - wWall.b / 1000)
       : null;
   let widthM: number | null;
   let widthBasis: Basis;
   if (pos(r.internalWidthM) != null) {
-    widthM = r.internalWidthM as number; // internal is already per-dwelling — no division
+    widthM = r.internalWidthM as number; // a printed internal span is already one house
     widthBasis = "internal";
   } else if (derivedWidthM != null) {
     widthM = derivedWidthM;
@@ -261,10 +264,7 @@ export const BIRDCAGE_INTERNAL_XCHECK_TOLERANCE = 0.05; // 5%
  * The overall − walls derivation is ALSO computed as an independent cross-check
  * of a printed internal footprint (internal ≈ derived → corroborated).
  */
-export function computeBirdcageFloor(
-  floor: BirdcageFloorInput,
-  dwellingsWide = 1,
-): BirdcageResult {
+export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult {
   const readConf: Conf = floor.readConfidence ?? "medium";
   const statedM2 =
     floor.statedGrossInternalM2 != null && floor.statedGrossInternalM2 > 0
@@ -273,7 +273,7 @@ export function computeBirdcageFloor(
   const ndssM2 =
     floor.statedNdssM2 != null && floor.statedNdssM2 > 0 ? round3(floor.statedNdssM2) : null;
 
-  const rects = (floor.rectangles ?? []).map((r) => computeRect(r, dwellingsWide));
+  const rects = (floor.rectangles ?? []).map((r) => computeRect(r));
   const usedLegendWall = rects.some((r) => r.usedLegendWall);
   const assumedSymmetric = rects.some((r) => r.assumedSymmetric);
   const anyInternal = rects.some((r) => r.widthBasis === "internal" || r.depthBasis === "internal");
@@ -319,10 +319,10 @@ export function computeBirdcageFloor(
 
   if (derivedM2 != null) {
     // --- Priority 2: a printed internal footprint, corroborated by the independent
-    //     overall − walls derivation. Gated to a single dwelling — a pair's overall
-    //     may be per-dwelling OR the whole frontage (the division is ambiguous, an
-    //     open item), which would make the cross-check falsely diverge. ---
-    if (anyInternal && crossCheckM2 != null && crossCheckM2 !== derivedM2 && dwellingsWide <= 1) {
+    //     overall − walls derivation. Both are now strictly per-house (the birdcage
+    //     never divides by dwellings), so this cross-check runs for pairs/terraces
+    //     too — it catches a per-house-vs-pair read mismatch instead of hiding it. ---
+    if (anyInternal && crossCheckM2 != null && crossCheckM2 !== derivedM2) {
       const relDiff = Math.abs(derivedM2 - crossCheckM2) / derivedM2;
       const reconciled = relDiff <= BIRDCAGE_INTERNAL_XCHECK_TOLERANCE;
       if (reconciled) {

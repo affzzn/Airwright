@@ -260,10 +260,6 @@ export async function persistExtraction(
       FF: "BIRDCAGE_FF_M2",
       SF: "BIRDCAGE_SF_M2",
     };
-    const dwellingsWide =
-      result.dwellingsWide.value !== null && result.dwellingsWide.value >= 1
-        ? result.dwellingsWide.value
-        : 1;
     const birdcageDerivation: Prisma.JsonObject[] = [];
     for (const fa of result.floorAreas) {
       const key = BIRDCAGE_KEY[fa.level];
@@ -275,15 +271,13 @@ export async function persistExtraction(
         if (!checkDim(rect.sourceDimension, rect.sourcePage, `Birdcage ${fa.level}`))
           readConf = capLow(readConf);
       }
-      const r = computeBirdcageFloor(
-        {
-          statedGrossInternalM2: fa.statedGrossInternalM2,
-          statedNdssM2: fa.statedNdssM2 ?? null,
-          rectangles: fa.rectangles,
-          readConfidence: readConf,
-        },
-        dwellingsWide,
-      );
+      // The birdcage is per-house — no dwellings division (that's the perimeter).
+      const r = computeBirdcageFloor({
+        statedGrossInternalM2: fa.statedGrossInternalM2,
+        statedNdssM2: fa.statedNdssM2 ?? null,
+        rectangles: fa.rectangles,
+        readConfidence: readConf,
+      });
       if (r.m2 === null) continue;
       push(key, { value: r.m2, confidence: r.confidence, sourceSheet: fa.sourceSheet ?? null });
       birdcageDerivation.push({

@@ -65,10 +65,12 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     d.dwellingsWide.value !== null && d.dwellingsWide.value >= 1 ? d.dwellingsWide.value : 1;
   const floors = d.floorAreas
     .map((f) => {
-      const m2 = computeBirdcageFloor(
-        { statedGrossInternalM2: f.statedGrossInternalM2, statedNdssM2: f.statedNdssM2 ?? null, rectangles: f.rectangles, readConfidence: f.confidence },
-        dwellingsWide,
-      ).m2;
+      const m2 = computeBirdcageFloor({
+        statedGrossInternalM2: f.statedGrossInternalM2,
+        statedNdssM2: f.statedNdssM2 ?? null,
+        rectangles: f.rectangles,
+        readConfidence: f.confidence,
+      }).m2;
       return m2 === null ? null : { level: f.level, m2 };
     })
     .filter((x): x is { level: (typeof d.floorAreas)[number]["level"]; m2: number } => x !== null);

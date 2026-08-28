@@ -18,19 +18,13 @@ import { makeDimensionVerifier } from "../src/lib/extract/dimensions";
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 /** Shared birdcage resolve for the offline runner (same engine as production). */
-function birdcageM2(
-  f: ExtractionResult["floorAreas"][number],
-  dwellingsWide: number,
-) {
-  return computeBirdcageFloor(
-    {
-      statedGrossInternalM2: f.statedGrossInternalM2,
-      statedNdssM2: f.statedNdssM2 ?? null,
-      rectangles: f.rectangles,
-      readConfidence: f.confidence,
-    },
-    dwellingsWide,
-  );
+function birdcageM2(f: ExtractionResult["floorAreas"][number]) {
+  return computeBirdcageFloor({
+    statedGrossInternalM2: f.statedGrossInternalM2,
+    statedNdssM2: f.statedNdssM2 ?? null,
+    rectangles: f.rectangles,
+    readConfidence: f.confidence,
+  });
 }
 
 function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput {
@@ -47,7 +41,7 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     d.dwellingsWide.value !== null && d.dwellingsWide.value >= 1 ? d.dwellingsWide.value : 1;
   const floors = d.floorAreas
     .map((f) => {
-      const m2 = birdcageM2(f, dwellingsWide).m2;
+      const m2 = birdcageM2(f).m2;
       return m2 === null ? null : { level: f.level, m2 };
     })
     .filter((x): x is { level: (typeof d.floorAreas)[number]["level"]; m2: number } => x !== null);
@@ -110,15 +104,9 @@ async function run(path: string, configs: Configuration[]) {
   for (const w of data.wallSegments)
     console.log(`  ${w.position}: ${w.lengthM} m (dim ${w.sourceDimension ?? "-"}) [${w.confidence}]`);
   console.log("floor areas (internal → birdcage):");
-  {
-    const dw =
-      data.dwellingsWide.value !== null && data.dwellingsWide.value >= 1
-        ? data.dwellingsWide.value
-        : 1;
-    for (const f of data.floorAreas) {
-      const r = birdcageM2(f, dw);
-      console.log(`  ${f.level}: ${r.m2 ?? "-"} m² [${r.confidence}] (${r.source}) — ${r.note}`);
-    }
+  for (const f of data.floorAreas) {
+    const r = birdcageM2(f);
+    console.log(`  ${f.level}: ${r.m2 ?? "-"} m² [${r.confidence}] (${r.source}) — ${r.note}`);
   }
   // Point 3: verify each cited sourceDimension against the text layer.
   const verify = makeDimensionVerifier(dimensions);

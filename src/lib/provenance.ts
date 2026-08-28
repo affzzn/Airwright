@@ -102,20 +102,15 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
     .filter((e) => e.rendered === true)
     .map((e) => e.renderLengthM ?? 0)
     .reduce((a, b) => a + b, 0);
-  const dwellingsWide =
-    raw.dwellingsWide.value != null && raw.dwellingsWide.value >= 1 ? raw.dwellingsWide.value : 1;
   const floorArea = (level: "GF" | "FF" | "SF"): number | null => {
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) return null;
-    return computeBirdcageFloor(
-      {
-        statedGrossInternalM2: fa.statedGrossInternalM2,
-        statedNdssM2: fa.statedNdssM2 ?? null,
-        rectangles: fa.rectangles,
-        readConfidence: fa.confidence,
-      },
-      dwellingsWide,
-    ).m2;
+    return computeBirdcageFloor({
+      statedGrossInternalM2: fa.statedGrossInternalM2,
+      statedNdssM2: fa.statedNdssM2 ?? null,
+      rectangles: fa.rectangles,
+      readConfidence: fa.confidence,
+    }).m2;
   };
   return {
     STOREYS: raw.storeys.value,
@@ -270,8 +265,6 @@ export function buildProvenanceCards(
   }
 
   // --- Birdcage per floor — the full derivation broken down step by step ---
-  const dwellingsWideForBc =
-    raw.dwellingsWide.value != null && raw.dwellingsWide.value >= 1 ? raw.dwellingsWide.value : 1;
   for (const [key, level] of [
     ["BIRDCAGE_GF_M2", "GF"],
     ["BIRDCAGE_FF_M2", "FF"],
@@ -279,15 +272,12 @@ export function buildProvenanceCards(
   ] as const) {
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) continue;
-    const r = computeBirdcageFloor(
-      {
-        statedGrossInternalM2: fa.statedGrossInternalM2,
-        statedNdssM2: fa.statedNdssM2 ?? null,
-        rectangles: fa.rectangles,
-        readConfidence: fa.confidence,
-      },
-      dwellingsWideForBc,
-    );
+    const r = computeBirdcageFloor({
+      statedGrossInternalM2: fa.statedGrossInternalM2,
+      statedNdssM2: fa.statedNdssM2 ?? null,
+      rectangles: fa.rectangles,
+      readConfidence: fa.confidence,
+    });
     if (r.m2 == null) continue;
     const page = resolve(fa.sourceSheet, fa.sourcePage);
     const floorSrc: ProvSource = { sheet: fa.sourceSheet ?? null, dim: null, page };
@@ -308,7 +298,7 @@ export function buildProvenanceCards(
       const w =
         rc.widthBasis === "internal"
           ? `internal width ${rc.widthM} m (read)`
-          : `width ${rc.widthM} m (${raw0.overallWidthM} − ${wa} − ${wb}${dwellingsWideForBc > 1 ? ` ÷ ${dwellingsWideForBc}` : ""})`;
+          : `width ${rc.widthM} m (${raw0.overallWidthM} − ${wa} − ${wb})`;
       const d =
         rc.depthBasis === "internal"
           ? `internal depth ${rc.depthM} m (read)`
