@@ -80,7 +80,9 @@ const VISTRY: BuilderIngestProfile = {
       return type.toUpperCase();
     },
   },
-  ignoreFolders: [/^boundaries$/i, /^engineer$/i, /^site plans$/i],
+  // Garages are priced separately (placeholder templates, docs/16 A6) — set aside
+  // so they don't clutter the unplaced list; block/site plans aren't house types.
+  ignoreFolders: [/^boundaries$/i, /^engineer$/i, /^site plans$/i, /^garages$/i],
   ignoreFilePatterns: [/materials?[ _]plan/i],
 };
 
@@ -117,8 +119,10 @@ const TILIA: BuilderIngestProfile = {
     houseTypeFromPath: (rp) => {
       const file = fileOf(rp);
       // Prefix up to the first sheet-number token (e.g. "-201-" / " 201-").
-      const m = file.match(/^([A-Za-z0-9]+?)[- ]\d{3}[- ]/);
-      if (m) return m[1].toUpperCase();
+      // Allow spaces/underscores so "SM1_SM2-201-…" and "SANDFORD Boulevard-201-…"
+      // resolve to their own house type instead of going unplaced.
+      const m = file.match(/^([A-Za-z0-9][A-Za-z0-9 _]*?)[-\s]\d{3}[-\s]/);
+      if (m) return m[1].toUpperCase().replace(/\s+/g, " ").trim();
       // Superstructure-detail sheets: "…Housetype CROMFORD_Ver2.pdf".
       const m2 = file.match(/housetype\s+([A-Za-z0-9]+)/i);
       return m2 ? m2[1].toUpperCase() : null;
