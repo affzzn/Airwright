@@ -20,6 +20,21 @@ ways at once. This doc is the plan to handle all of them.
 > first; this layer sits *upstream* of both and changes nothing downstream of the
 > assembled PDF.
 
+> **STATUS (2026-08-28, branch `feat/smart-upload-grouping`):** the end-to-end flow
+> is BUILT and verified on Laura's four real packs (`ingest-dryrun.mts`): detection +
+> grouping correct for all four builders; Tilia 14 / Vistry 15 house types with 0
+> unplaced; Bloor issue/handed-pair dedupe works; 157 (Tilia) / 515 (TW) trade files
+> correctly ignored. Pure core (`src/lib/ingest/`: parsePath, profiles, group,
+> assemble) is unit-tested (25 tests). Worker groups across files + assembles a
+> combined PDF per type; a **confirm screen** gates the paid extraction. Migration
+> applied. **Done:** build-order 1–6 + 9. **Not yet:** the LLM manifest-reasoner
+> fallback (7) and LLM profile-proposer/onboarding (8); grouping *override* (reassign/
+> split/merge) beyond confirm-all; TW END/MID config-variant resolution (flagged, not
+> split). **Upload:** shipped as a robust custom folder uploader (folder drag-drop +
+> picker, relativePath preserved, concurrency + retry) over the proven signed-URL
+> transport — Uppy + TUS resumable is the intended upgrade but needs a bucket RLS
+> policy for browser-side TUS; see §11.
+
 ---
 
 ## 1. The core reframe
@@ -231,6 +246,18 @@ the "a person confirms every take-off" promise intact end to end.
 ---
 
 ## 11. Upload layer — Uppy + TUS
+
+> **As built (2026-08-28):** a robust **custom folder uploader** — folder drag-drop
+> (FileSystem API recursion) + a `webkitdirectory` picker + loose files/ZIP, with
+> `relativePath` preserved end-to-end, duplicate filenames zipped by index, a
+> concurrency pool and per-file retry — over the existing **signed-URL** transport
+> (guaranteed to work against the RLS-protected bucket, no policy change needed).
+> **Uppy + TUS resumable (below) is the intended upgrade:** it adds cross-session
+> resume for very large packs, but browser-side TUS to Supabase needs a Storage RLS
+> policy allowing the authenticated user to insert into `tender-packs` (the current
+> flow sidesteps RLS with a service-role-minted signed URL). Do that policy first,
+> then swap the transport — the folder/relativePath plumbing already in place stays.
+
 
 - **Uppy** (`@uppy/core`, `@uppy/react`, `@uppy/tus`, a directory-capable source) →
   folder drag-drop with **path preservation**, **resumable** uploads (TUS), automatic
