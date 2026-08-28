@@ -130,6 +130,20 @@ const parseNum = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Break the AI's free-text notes into readable bullet points — one per sentence.
+ * Splits on a `.`, `!` or `?` followed by whitespace and a capital/opening
+ * bracket, so each bullet is a complete, capitalised thought. A decimal like
+ * `5.48` (no space after the point) and an abbreviation like `e.g.` (lowercase
+ * next) are left intact; semicolon clauses stay with their sentence.
+ */
+function splitNotes(notes: string): string[] {
+  return notes
+    .split(/(?<=[.!?])\s+(?=[A-Z(])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function TakeoffEditor({
   takeoffId,
   status,
@@ -431,8 +445,17 @@ export function TakeoffEditor({
             )}
             {notes && (
               <div>
-                <p className="eyebrow mb-1.5">AI notes</p>
-                <p className="text-xs leading-snug text-ink-muted">{notes}</p>
+                <p className="eyebrow mb-2">AI notes</p>
+                <ul className="list-disc space-y-1.5 pl-4 marker:text-ink-subtle">
+                  {splitNotes(notes).map((s, i) => (
+                    <li
+                      key={i}
+                      className="pl-0.5 text-[13px] leading-relaxed text-ink-muted"
+                    >
+                      {s}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>

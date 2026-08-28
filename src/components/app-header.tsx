@@ -2,9 +2,30 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useFormStatus } from "react-dom";
+import { Loader2, LogOut } from "lucide-react";
 import { signOut } from "@/server/actions/auth";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+/** Submit button for the sign-out form, with an in-flight spinner. Distinct from
+ *  the Rates nav link: an icon-led account action, not a section tab. */
+function SignOutButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-ink-subtle transition-colors hover:bg-surface hover:text-ink disabled:opacity-60"
+    >
+      {pending ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+      ) : (
+        <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+      )}
+      {pending ? "Signing out…" : "Sign out"}
+    </button>
+  );
+}
 
 /**
  * The app top bar. Client-side so the active section reads from the current
@@ -48,7 +69,7 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
           </nav>
         </div>
         {showSignOut && (
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4">
             <Link
               href="/rates"
               className={cn(
@@ -60,10 +81,9 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
             >
               Rates
             </Link>
+            <span className="h-4 w-px bg-hairline" aria-hidden />
             <form action={signOut}>
-              <Button variant="ghost" size="sm" type="submit">
-                Sign out
-              </Button>
+              <SignOutButton />
             </form>
           </div>
         )}
