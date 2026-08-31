@@ -21,7 +21,8 @@ export const recipeSchema = z.object({
     "filename-name-token", // house type = the name word after a leading code, before a revision (Bloor: "372_BYRON_ISSUE_…")
     "combined-pdf", // house type = the folder above `combinedPdfFolder` (TW houses: "…/EMA21_Avonsford/00_House_Type_PDF/…")
   ]),
-  folderMarker: z.string().nullish(), // for folder-after-marker
+  folderMarker: z.string().nullish(), // for folder-after-marker (single); prefer folderMarkers
+  folderMarkers: z.array(z.string()).nullish(), // for folder-after-marker — ALL marker regions
   combinedPdfFolder: z.string().nullish(), // for combined-pdf (e.g. "00_House_Type_PDF")
   junkFolderKeywords: z.array(z.string()).default([]), // a folder segment containing any → not-relevant
   junkFileKeywords: z.array(z.string()).default([]), // a filename containing any → not-relevant
@@ -43,10 +44,15 @@ function escapeRx(s: string): RegExp {
   return new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 }
 
-/** house type = the folder that directly contains the file. */
+/**
+ * house type = the folder that directly contains the file. The folder must be
+ * NESTED at least one level below the pack root (parts.length >= 3), so a loose
+ * file sitting directly under the top pack folder is treated as pack-level, not a
+ * bogus house type named after the whole pack.
+ */
 function folderParent(rp: string): string | null {
   const parts = seg(rp);
-  if (parts.length < 2) return null;
+  if (parts.length < 3) return null;
   const folder = parts[parts.length - 2];
   if (BUCKET_RX.test(folder)) return null;
   return norm(folder);
@@ -72,7 +78,11 @@ function filenameNameToken(rp: string): string | null {
 
 /** Compile an AI recipe into the deterministic profile the grouping engine applies. */
 export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
-  const marker = recipe.folderMarker?.trim() || null;
+  // A pack can have SEVERAL marker regions (e.g. houses under "Masonry" AND
+  // apartments under "Apartment_Block_Type"). Merge the singular + array fields.
+  const markers = [recipe.folderMarker, ...(recipe.folderMarkers ?? [])]
+    .map((m) => m?.trim())
+    .filter((m): m is string => Boolean(m));
   const combinedFolder = recipe.combinedPdfFolder?.trim() || null;
 
   const houseTypeFromPath = (rp: string): string | null => {
@@ -81,11 +91,17 @@ export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
       case "folder-parent":
         return folderParent(rp);
       case "folder-after-marker": {
-        if (!marker) return folderParent(rp);
-        const i = parts.findIndex((p) => ciEq(p, marker));
-        if (i === -1 || i + 1 > parts.length - 2) return null; // must have a folder child (not the file)
-        const type = parts[i + 1];
-        return BUCKET_RX.test(type) ? null : norm(type);
+        if (markers.length === 0) return folderParent(rp);
+        // Try every marker; the house type is the folder child of the first one
+        // this path sits under. The child must be a folder (not the file itself).
+        for (const marker of markers) {
+          const i = parts.findIndex((p) => ciEq(p, marker));
+          if (i !== -1 && i + 1 <= parts.length - 2) {
+            const type = parts[i + 1];
+            if (!BUCKET_RX.test(type)) return norm(type);
+          }
+        }
+        return null;
       }
       case "filename-prefix":
         return filenamePrefix(rp);

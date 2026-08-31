@@ -19,6 +19,22 @@ describe("compileRecipe — strategy vocabulary maps to correct grouping", () =>
     expect(f(`${V}/Scaffold/Boundaries/x.pdf`)).toBeNull();
   });
 
+  it("folder-after-marker with MULTIPLE markers (mixed pack: houses + apartments)", () => {
+    const p = compileRecipe(
+      make({ strategy: "folder-after-marker", folderMarkers: ["Masonry", "Apartment_Block_Type"] }),
+    );
+    const f = p.grouping.houseTypeFromPath;
+    // Houses live under "Masonry"; apartments under "Apartment_Block_Type" — both resolve.
+    expect(
+      f(`${TW}/House_Type/Masonry/EMA21_Avonsford/00_House_Type_PDF/EMA21-Avonsford END - 2021.pdf`),
+    ).toBe("EMA21 AVONSFORD");
+    expect(
+      f(`${TW}/Apartment_Block_Type/APARTMENT_BLOCK_A_PLOTS_107_127/51_GA ELEVATIONS.pdf`),
+    ).toBe("APARTMENT BLOCK A PLOTS 107 127");
+    // A pack-level bucket after a marker is still not a house type.
+    expect(f(`${TW}/House_Type/Masonry/Site Plans/x.pdf`)).toBeNull();
+  });
+
   it("folder-parent: type = the folder that contains the file", () => {
     const p = compileRecipe(make({ strategy: "folder-parent" }));
     const f = p.grouping.houseTypeFromPath;
@@ -26,6 +42,9 @@ describe("compileRecipe — strategy vocabulary maps to correct grouping", () =>
     expect(f(`${TW}/Apartment_Block_Type/APARTMENT_BLOCK_A_PLOTS_107_127/51_GA ELEVATIONS.pdf`)).toBe(
       "APARTMENT BLOCK A PLOTS 107 127",
     );
+    // A loose file directly under the pack root is NOT a house type (no bogus
+    // group named after the whole pack).
+    expect(f(`${V}/some-loose-file.pdf`)).toBeNull();
   });
 
   it("filename-prefix (Tilia): type = prefix before the sheet number", () => {

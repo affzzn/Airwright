@@ -21,7 +21,7 @@ const SYSTEM = `You are organising a UK new-build scaffolding tender pack — a 
 Your ONLY job is to work out HOW THIS PACK IS ORGANISED and return a small RULE. You do NOT list which file goes where — code applies your rule to every file. Look at the folder structure and filename patterns in the manifest and pick ONE strategy:
 
 - "folder-parent": each file sits directly in a folder named after its house type (e.g. .../Aspen/plan.pdf). Use for per-type subfolders and for apartment-block folders.
-- "folder-after-marker": the house-type folder is the one immediately AFTER a fixed marker folder (set folderMarker, e.g. "Scaffold" when types live in Scaffold/<Type>/...).
+- "folder-after-marker": the house-type folder is the one immediately AFTER a fixed marker folder. Set folderMarkers to the list of ALL marker folders whose children are house types. IMPORTANT: a pack often has SEVERAL regions — e.g. houses under "Masonry" AND apartments under "Apartment_Block_Type". List EVERY such marker in folderMarkers so no region (especially apartment blocks) is missed.
 - "filename-prefix": the house type is the START of the filename, before a sheet number (e.g. "CROMFORD-201-03..." → CROMFORD).
 - "filename-name-token": the house type is a NAME word inside the filename, after a leading numeric code and before a revision marker (e.g. "372_BYRON_ISSUE_4.13" → BYRON).
 - "combined-pdf": the real drawing is a pre-combined PDF inside a specific sub-folder; the house type is the folder ABOVE it (set combinedPdfFolder, e.g. "00_House_Type_PDF"; the type is its parent folder). Loose sheets elsewhere fall back to their parent folder.
