@@ -21,15 +21,17 @@ rules are only a caching optimisation (§9), never the core.
 > first; this layer sits *upstream* of both and changes nothing downstream of the
 > assembled PDF's relevant pages.
 
-> **STATUS (2026-08-29, branch `feat/smart-upload-grouping`).** *Built:* the
-> foundation — folder-first resumable upload; deterministic path/filename/title-block
-> reading; four **hand-written builder profiles** (now demoted to **test fixtures**,
-> and the recipe *shape* a later/optional cache could reuse — §8); cross-file grouping + combined-PDF
-> assembly; a confirm screen. Verified on the four real packs (Vistry 15 / Tilia 14 /
-> Bloor 16 / TW 13 house types; junk correctly ignored). *The new plan (this doc):*
-> flip to **AI-first grouping** (§3–§4), **group every file per house type** with a
-> **per-page relevance tag** (§5), **tiered hybrid relevance detection** (§6), and an
-> **in-pack answer-key** cross-check (§7). Build order in §12.
+> **STATUS (2026-08-29, branch `feat/smart-upload-grouping`).** *Built:* folder-first
+> resumable upload; deterministic path/filename/title-block reading; combined-PDF
+> assembly; a confirm screen; **✅ Feature 1 — group EVERY file per house type with a
+> per-page relevance tag** (§5) + the review preview-relevant / **Open full drawing**
+> split; **✅ Feature 2 — AI-first grouping** (§3–§4): the AI infers the packaging
+> *recipe* (constrained schema, `inferRecipe.ts` + `runToolText`), `compileRecipe` turns
+> it into the profile `groupPack` applies, with a deterministic-profile then legacy
+> fallback (`env.groupingAI`, default on). The four hand profiles are now **test
+> fixtures + a cross-check**. Verified group-everything on the four real packs.
+> *Next (this doc):* **Feature 3 — in-pack answer-key** cross-check (§7); **Feature 4 —
+> Tier-2 LLM relevance triage** (§6); **Feature 5 — override UI**. Build order in §12.
 >
 > **Out of scope for now (by decision 2026-08-29):** an offline **grading harness**
 > and **OCR/vision rescue of raster (image-only) PDFs**. Raster pages with no text
@@ -301,10 +303,10 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 
 ## 12. Build order (recommended)
 
-1. **Restructure to "group everything + per-page relevance tag"** + the review
-   **preview-relevant / open-full-everything** split (§5). Foundation for the rest.
-2. **AI structure pass + deterministic apply** (§3–§4) — flip from profiles-first to
-   AI-first; the profile-apply code generalises to consume an AI recipe.
+1. ✅ **DONE — "group everything + per-page relevance tag"** + the review
+   **preview-relevant / open-full-everything** split (§5).
+2. ✅ **DONE — AI structure pass + deterministic apply** (§3–§4): AI infers the recipe,
+   `compileRecipe` → `groupPack`; deterministic-profile then legacy fallback.
 3. **In-pack answer-key cross-check** (§7) — free runtime validation.
 4. **Tier-2 LLM relevance triage** (§6) — text-based, meaning-based, include-if-unsure,
    layered on the deterministic Tier 1.
