@@ -16,11 +16,20 @@ export interface GroupingGroup {
   flags: string[];
 }
 
+export interface AnswerKey {
+  source: string;
+  expected: string[];
+  matched: string[];
+  missing: string[];
+  extra: string[];
+}
+
 export interface GroupingData {
   builderId: string;
   builderLabel: string;
   groups: GroupingGroup[];
   unplacedFiles: string[];
+  answerKey?: AnswerKey | null;
 }
 
 const CONFIDENCE_LABEL: Record<GroupingGroup["confidence"], string> = {
@@ -46,8 +55,10 @@ export function GroupingConfirm({
 
   // Low-confidence groups and unplaced files float to the top for attention.
   const groups = [...data.groups].sort((a, b) => rank(a.confidence) - rank(b.confidence));
+  const ak = data.answerKey;
+  const akMismatch = ak && (ak.missing.length > 0 || ak.extra.length > 0);
   const needsAttention =
-    groups.some((g) => g.confidence !== "high") || data.unplacedFiles.length > 0;
+    groups.some((g) => g.confidence !== "high") || data.unplacedFiles.length > 0 || Boolean(akMismatch);
 
   async function onConfirm() {
     setBusy(true);
@@ -89,6 +100,28 @@ export function GroupingConfirm({
             {data.unplacedFiles.length > 0 && " and unplaced files"} below, then
             confirm to start extraction.
           </p>
+        )}
+        {ak && (
+          <div className="border-b border-hairline px-5 py-2.5 text-xs">
+            <p className={akMismatch ? "font-medium text-ink" : "text-ink-subtle"}>
+              Cross-checked against the pack’s own list ({ak.source}):{" "}
+              {ak.matched.length}/{ak.expected.length} house types matched
+              {ak.missing.length > 0 && ` · ${ak.missing.length} missing`}
+              {ak.extra.length > 0 && ` · ${ak.extra.length} extra`}
+            </p>
+            {ak.missing.length > 0 && (
+              <p className="mt-0.5 text-ink-muted">
+                On the sheet but not grouped: {ak.missing.slice(0, 10).join(", ")}
+                {ak.missing.length > 10 && ` +${ak.missing.length - 10} more`}
+              </p>
+            )}
+            {ak.extra.length > 0 && (
+              <p className="mt-0.5 text-ink-muted">
+                Grouped but not on the sheet: {ak.extra.slice(0, 10).join(", ")}
+                {ak.extra.length > 10 && ` +${ak.extra.length - 10} more`}
+              </p>
+            )}
+          </div>
         )}
         <ul className="divide-y divide-hairline">
           {groups.map((g) => (

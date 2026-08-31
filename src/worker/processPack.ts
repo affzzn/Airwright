@@ -18,6 +18,13 @@ import { assembleHouseTypePdf, type AssemblySource } from "@/lib/ingest/assemble
 import { buildManifest } from "@/lib/ingest/manifest";
 import { inferRecipe } from "@/lib/ingest/inferRecipe";
 import { compileRecipe } from "@/lib/ingest/recipe";
+import { triageRelevance, type TriageItem } from "@/lib/ingest/relevanceTriage";
+import {
+  findAnswerKeyDoc,
+  extractHouseTypeList,
+  crossCheckHouseTypes,
+  type CrossCheck,
+} from "@/lib/ingest/answerKey";
 import type { DrawingKind } from "@/lib/ingest/parsePath";
 import { getBoss } from "@/lib/queue/boss";
 import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
@@ -35,7 +42,66 @@ import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
 export async function processPack(packId: string): Promise<void> {
   await ingestUploads(packId);
   await classifyDocuments(packId);
+  await triageRelevancePass(packId);
   await groupAndPrepare(packId);
+}
+
+// --- Feature 4: Tier-2 LLM relevance triage (docs/17 §6) ----------------------
+// Re-judge the pages Tier 1 marked NOT relevant, by MEANING, and RESCUE any that
+// are actually scaffold drawings (never removes one). Bounded + best-effort.
+const TRIAGE_CAP = 200;
+
+async function triageRelevancePass(packId: string): Promise<void> {
+  if (!env.groupingAI) return;
+
+  const pack = await prisma.tenderPack.findUnique({
+    where: { id: packId },
+    select: { groupingStatus: true },
+  });
+  if (pack?.groupingStatus) return; // already grouped (retry) → don't re-triage
+
+  const candidates = await prisma.documentPage.findMany({
+    where: {
+      relevant: false,
+      sheetTitle: { not: null },
+      document: {
+        packId,
+        kind: { not: "ASSEMBLED" },
+        isRasterOnly: false,
+        category: { in: ["HOUSE_TYPE_DRAWINGS", "UNCERTAIN"] },
+      },
+    },
+    select: {
+      id: true,
+      sheetTitle: true,
+      document: { select: { fileName: true, relativePath: true } },
+    },
+    take: TRIAGE_CAP + 1,
+  });
+  if (candidates.length === 0) return;
+  const capped = candidates.length > TRIAGE_CAP;
+  const items: TriageItem[] = candidates.slice(0, TRIAGE_CAP).map((c) => ({
+    key: c.id,
+    title: c.sheetTitle ?? "",
+    fileName: c.document.fileName,
+    folder: (c.document.relativePath ?? c.document.fileName).split("/").slice(0, -1).join("/"),
+  }));
+
+  try {
+    const verdicts = await triageRelevance(items);
+    const rescued = [...verdicts.entries()].filter(([, v]) => v.relevant).map(([k]) => k);
+    if (rescued.length > 0) {
+      await prisma.documentPage.updateMany({
+        where: { id: { in: rescued } },
+        data: { relevant: true },
+      });
+    }
+    console.log(
+      `[process-pack] relevance triage: ${items.length} page(s) re-judged, ${rescued.length} rescued${capped ? ` (capped at ${TRIAGE_CAP})` : ""}`,
+    );
+  } catch (err) {
+    console.warn(`[process-pack] relevance triage skipped:`, err instanceof Error ? err.message : err);
+  }
 }
 
 // --- 1. Turn raw uploads (PDFs + ZIPs) into Document rows ---------------------
@@ -449,6 +515,30 @@ async function groupAndPrepare(packId: string): Promise<void> {
     });
   }
 
+  // Feature 3: cross-check against the pack's own house-type list (take-off sheet /
+  // plot schedule / drawing register), if present. Best-effort — never blocks.
+  let answerKey: (CrossCheck & { source: string }) | null = null;
+  if (env.groupingAI) {
+    try {
+      const akDoc = findAnswerKeyDoc(
+        docs.map((d) => ({ id: d.id, fileName: d.fileName, storagePath: d.storagePath })),
+      );
+      if (akDoc) {
+        const pdf = await downloadFromStorage(akDoc.storagePath);
+        const expected = await extractHouseTypeList(pdf);
+        if (expected.length > 0) {
+          const cc = crossCheckHouseTypes(summaryGroups.map((g) => g.name), expected);
+          answerKey = { source: akDoc.fileName, ...cc };
+          console.log(
+            `[process-pack] answer key ${akDoc.fileName}: ${cc.matched.length}/${expected.length} matched, ${cc.missing.length} missing, ${cc.extra.length} extra`,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(`[process-pack] answer-key check skipped:`, err instanceof Error ? err.message : err);
+    }
+  }
+
   await prisma.tenderPack.update({
     where: { id: packId },
     data: {
@@ -459,6 +549,7 @@ async function groupAndPrepare(packId: string): Promise<void> {
         builderLabel: recipeLabel || profile.label,
         groups: summaryGroups,
         unplacedFiles: result.unplacedFiles,
+        answerKey,
       } as unknown as Prisma.InputJsonValue,
     },
   });
