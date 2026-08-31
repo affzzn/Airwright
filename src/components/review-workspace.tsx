@@ -104,8 +104,9 @@ export function ReviewWorkspace({
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs text-ink-muted hover:text-ink"
+                title="Open the full combined PDF (every page, relevant and not) in a new tab"
               >
-                Open original ↗
+                Open full drawing ↗
               </a>
             )}
           </div>

@@ -1,21 +1,22 @@
 /**
- * Cross-file grouping engine (pure, no I/O) — `docs/17-smart-upload-and-grouping.md` §8.
+ * Cross-file grouping engine (pure, no I/O) — `docs/17-smart-upload-and-grouping.md`.
  *
  * Takes every file in an uploaded pack (each with its classified pages) plus the
- * detected builder profile, and groups the scaffold-relevant pages into HOUSE
- * TYPES that may span many files. Emits, per house type, the ordered source
- * pages to assemble into one combined PDF, plus a computed confidence and flags.
+ * grouping recipe (a builder profile, hand-written or AI-inferred), and groups
+ * EVERY file into HOUSE TYPES that may span many files. Relevance is a per-page
+ * TAG (§5), not a grouping filter: the combined PDF per house type is the complete
+ * dossier (every page of every file for that type); the tag says which pages the
+ * extractor reads and the review preview shows.
  *
  * Doctrine (same as birdcage/height): read multiple signals — folder, filename,
- * title block — reconcile in code, compute confidence from agreement, and flag
- * (never silently drop) anything unresolved. Junk is excluded by profile; the
- * latest revision of a sheet wins; nothing is guessed.
+ * title block — reconcile in code, and flag (never silently drop) anything
+ * unresolved. Every file is accounted for exactly once; the latest revision of a
+ * sheet wins; nothing is guessed.
  */
 
 import {
   parsePath,
   revisionStrippedKey,
-  RELEVANT_KINDS,
   type DrawingKind,
 } from "./parsePath";
 import { isIgnoredPath, type BuilderIngestProfile } from "./profiles";
@@ -23,7 +24,7 @@ import { isIgnoredPath, type BuilderIngestProfile } from "./profiles";
 /** One classified page of a source file (from `classify.ts`). */
 export interface IngestPage {
   page: number; // 1-based within the file
-  relevant: boolean; // relevant to a scaffold take-off
+  relevant: boolean; // scaffold-relevant (drives extraction + preview)
   houseTypeName?: string | null; // title-block name, if the classifier read one
 }
 
@@ -39,12 +40,15 @@ export interface GroupedPage {
   relativePath: string;
   page: number; // 1-based within the source file
   drawingKind: DrawingKind;
+  relevant: boolean; // scaffold-relevant tag for this page
 }
 
 export interface HouseTypeGrouping {
   name: string;
-  pages: GroupedPage[]; // ordered for assembly (reading order)
+  pages: GroupedPage[]; // ordered for assembly: relevant pages first, then the rest
   files: string[]; // distinct source relative paths, for display
+  relevantPageCount: number;
+  totalPageCount: number;
   confidence: "high" | "medium" | "low";
   flags: string[];
 }
@@ -52,14 +56,13 @@ export interface HouseTypeGrouping {
 export interface GroupingResult {
   builderId: string | null;
   groups: HouseTypeGrouping[];
-  ignoredFiles: string[];
-  /** Relevant-looking files whose house type couldn't be resolved → need a human/LLM. */
+  /** Files with no resolvable house type (site/block plans, registers) — pack-level, not in any dossier. */
   unplacedFiles: string[];
-  /** True when there is no profile, or too many files went unplaced. */
+  /** True when there is no recipe at all (→ AI structure pass, docs/17 §4). */
   needsLlmFallback: boolean;
 }
 
-/** Assembly reading order (mirrors the extractor's reading order, docs/13 §1). */
+/** Assembly reading order for the RELEVANT block (mirrors the extractor, docs/13 §1). */
 const KIND_ORDER: DrawingKind[] = [
   "COMBINED",
   "FRONT_ELEVATION",
@@ -84,16 +87,16 @@ interface Candidate {
   file: IngestFile;
   name: string;
   parsed: ReturnType<typeof parsePath>;
-  /** revision-stripped identity, for latest-wins dedupe within a house type */
-  dedupeKey: string;
+  junkFile: boolean; // in an ignored folder / matches an ignore pattern → pages forced not-relevant
+  dedupeKey: string; // revision-stripped identity, for latest-wins dedupe
   revisionOrder: number;
 }
 
 /**
- * Group an uploaded pack into house types.
+ * Group an uploaded pack into house types (group everything; relevance is a tag).
  *
- * @param files  every relevant/irrelevant file in the pack, with classified pages
- * @param profile the detected builder profile, or null (→ LLM fallback)
+ * @param files  EVERY file in the pack (relevant or junk), with its pages
+ * @param profile the grouping recipe (hand profile or AI-compiled), or null
  */
 export function groupPack(
   files: IngestFile[],
@@ -103,58 +106,38 @@ export function groupPack(
     return {
       builderId: null,
       groups: [],
-      ignoredFiles: [],
       unplacedFiles: files.map((f) => f.relativePath),
       needsLlmFallback: true,
     };
   }
 
-  const ignoredFiles: string[] = [];
   const unplacedFiles: string[] = [];
   const candidates: Candidate[] = [];
 
   for (const file of files) {
-    // 1. Drop whole-folder / whole-file junk per the profile.
-    if (isIgnoredPath(profile, file.relativePath)) {
-      ignoredFiles.push(file.relativePath);
-      continue;
-    }
-
-    const parsed = parsePath(file.relativePath);
-
-    // 2. combined-pdf builders: only the pre-combined drawing is used directly.
-    if (profile.grouping.strategy === "combined-pdf") {
-      const isCombined = profile.grouping.isCombinedPdf?.(file.relativePath) ?? false;
-      if (!isCombined) {
-        // A loose sheet in a combined-pdf pack (e.g. TW apartment GA pages) is
-        // still usable if it's relevant; otherwise it's ignored.
-        if (!fileHasRelevantPage(file, parsed.drawingKind)) {
-          ignoredFiles.push(file.relativePath);
-          continue;
-        }
-      }
-    }
-
-    // 3. Resolve the house-type identity for this file.
+    // Resolve the house-type identity for EVERY file (junk included — it still
+    // belongs in that house type's dossier, just tagged not-relevant).
     const name = profile.grouping.houseTypeFromPath(file.relativePath);
     if (!name) {
-      // A relevant-looking file we couldn't place → surface it, don't drop it.
-      if (fileHasRelevantPage(file, parsed.drawingKind)) unplacedFiles.push(file.relativePath);
-      else ignoredFiles.push(file.relativePath);
+      // No house type → a pack-level file (site/block plan, register). Not in a dossier.
+      unplacedFiles.push(file.relativePath);
       continue;
     }
-
+    const parsed = parsePath(file.relativePath);
     candidates.push({
       file,
       name,
       parsed,
+      // A junk-folder / junk-file: its pages never count as relevant, even if the
+      // page classifier false-positived one (belt-and-braces for combined-pdf packs).
+      junkFile: isIgnoredPath(profile, file.relativePath),
       dedupeKey: revisionStrippedKey(parsed.baseName),
       revisionOrder: parsed.revision?.order ?? 0,
     });
   }
 
-  // 4. Latest-revision-wins within each house type: collapse candidates whose
-  //    revision-stripped identity matches, keeping the highest revision order.
+  // Group by house type; latest-revision-wins within each (collapse candidates
+  // whose revision-stripped identity matches, keeping the highest revision order).
   const byName = new Map<string, Candidate[]>();
   for (const c of candidates) {
     (byName.get(c.name) ?? byName.set(c.name, []).get(c.name)!).push(c);
@@ -169,40 +152,45 @@ export function groupPack(
     }
     const chosen = [...latest.values()];
 
-    // 5. Collect the relevant pages across the chosen files, in reading order.
+    // Collect ALL pages of the chosen files; tag relevance per page.
     const pages: GroupedPage[] = [];
     for (const c of chosen) {
-      const fileKind = c.parsed.drawingKind;
+      const kind = c.parsed.drawingKind === "UNKNOWN" ? "ELEVATION" : c.parsed.drawingKind;
       for (const p of c.file.pages) {
-        if (!p.relevant) continue;
         pages.push({
           documentId: c.file.documentId,
           relativePath: c.file.relativePath,
           page: p.page,
-          // A single-drawing file's kind comes from its name; a combined PDF's
-          // pages keep the file kind (per-page kind refined later by classify).
-          drawingKind: fileKind === "UNKNOWN" ? "ELEVATION" : fileKind,
+          drawingKind: kind,
+          relevant: p.relevant && !c.junkFile,
         });
       }
     }
+    // Ordering: relevant pages FIRST (so the extraction range is a clean 1-k block
+    // and the preview is trivial), then by reading order, then page number.
     pages.sort(
-      (a, b) => orderOf(a.drawingKind) - orderOf(b.drawingKind) || a.page - b.page,
+      (a, b) =>
+        Number(b.relevant) - Number(a.relevant) ||
+        orderOf(a.drawingKind) - orderOf(b.drawingKind) ||
+        a.page - b.page,
     );
 
+    const relevantPageCount = pages.filter((p) => p.relevant).length;
+
     const flags: string[] = [];
-    if (pages.length === 0) flags.push("No relevant pages found for this house type.");
-    if (chosen.some((c) => c.parsed.configHint))
-      flags.push(
-        `Config/handing variants present (${[
-          ...new Set(chosen.map((c) => c.parsed.configHint).filter(Boolean)),
-        ].join(", ")}) — confirm which plot uses which.`,
-      );
+    if (relevantPageCount === 0)
+      flags.push("No scaffold-relevant pages found — check the grouping before extracting.");
+    const variants = [...new Set(chosen.map((c) => c.parsed.configHint).filter(Boolean))];
+    if (variants.length > 0)
+      flags.push(`Config/handing variants present (${variants.join(", ")}) — confirm which plot uses which.`);
 
     groups.push({
       name,
       pages,
       files: [...new Set(chosen.map((c) => c.file.relativePath))],
-      confidence: confidenceFor(chosen.length, pages.length, flags),
+      relevantPageCount,
+      totalPageCount: pages.length,
+      confidence: confidenceFor(chosen.length, relevantPageCount, flags),
       flags,
     });
   }
@@ -212,23 +200,17 @@ export function groupPack(
   return {
     builderId: profile.id,
     groups,
-    ignoredFiles,
     unplacedFiles,
-    needsLlmFallback: unplacedFiles.length > candidates.length, // mostly unplaced → unsure
+    needsLlmFallback: candidates.length === 0, // resolved nothing → unsure
   };
-}
-
-function fileHasRelevantPage(file: IngestFile, fileKind: DrawingKind): boolean {
-  return RELEVANT_KINDS.has(fileKind) || file.pages.some((p) => p.relevant);
 }
 
 function confidenceFor(
   fileCount: number,
-  pageCount: number,
+  relevantPageCount: number,
   flags: string[],
 ): "high" | "medium" | "low" {
-  if (pageCount === 0) return "low";
+  if (relevantPageCount === 0) return "low";
   if (flags.length > 0) return "medium";
-  // A house type with a healthy spread of sheets read cleanly is high confidence.
-  return pageCount >= 3 || fileCount >= 3 ? "high" : "medium";
+  return relevantPageCount >= 3 || fileCount >= 3 ? "high" : "medium";
 }

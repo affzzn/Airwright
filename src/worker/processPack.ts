@@ -4,7 +4,7 @@ import { collectZipPdfEntries } from "@/lib/zip";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { downloadFromStorage, uploadToStorage } from "@/lib/supabase/storage";
-import { getPdfPageCount } from "@/lib/pdf";
+import { getPdfPageCount, buildRangeString } from "@/lib/pdf";
 import { classifyPdf, type PageClass } from "@/lib/extract/classify";
 import {
   categoriseDocument,
@@ -12,9 +12,12 @@ import {
   isRelevantCategory,
 } from "@/lib/extract/categorise";
 import { segmentByHouseType } from "@/lib/extract/segment";
-import { detectBuilder, profileById } from "@/lib/ingest/profiles";
+import { detectBuilder, type BuilderIngestProfile } from "@/lib/ingest/profiles";
 import { groupPack, type IngestFile } from "@/lib/ingest/group";
 import { assembleHouseTypePdf, type AssemblySource } from "@/lib/ingest/assemble";
+import { buildManifest } from "@/lib/ingest/manifest";
+import { inferRecipe } from "@/lib/ingest/inferRecipe";
+import { compileRecipe } from "@/lib/ingest/recipe";
 import type { DrawingKind } from "@/lib/ingest/parsePath";
 import { getBoss } from "@/lib/queue/boss";
 import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
@@ -242,21 +245,70 @@ async function groupAndPrepare(packId: string): Promise<void> {
   await prisma.document.deleteMany({ where: { packId, kind: "ASSEMBLED" } });
   await prisma.tenderPack.update({ where: { id: packId }, data: { groupingStatus: "GROUPING" } });
 
+  // EVERY file (junk included) — grouping is by identity; relevance is a per-page tag.
   const docs = await prisma.document.findMany({
-    where: { packId, kind: { not: "ASSEMBLED" }, included: true, isReadable: true },
+    where: { packId, kind: { not: "ASSEMBLED" }, isReadable: true },
     include: { pages: true },
   });
 
-  // Detect the builder from every signal we have.
+  const files: IngestFile[] = docs.map((d) => ({
+    documentId: d.id,
+    relativePath: d.relativePath ?? d.fileName,
+    // Use the classified pages if we have them; else include every page as
+    // not-relevant (a junk file still belongs in the dossier).
+    pages:
+      d.pages.length > 0
+        ? d.pages.map((p) => ({ page: p.pageNumber, relevant: p.relevant, houseTypeName: p.houseTypeName }))
+        : Array.from({ length: d.pageCount ?? 1 }, (_, i) => ({ page: i + 1, relevant: false })),
+  }));
+
+  // Resolve the grouping recipe — AI-first (docs/17 §4), with a deterministic
+  // profile fallback, then legacy per-file as a last resort.
   const relPaths = docs.map((d) => d.relativePath ?? d.fileName);
   const folders = [...new Set(relPaths.flatMap((p) => p.split("/").slice(0, -1)))];
-  const fileNames = docs.map((d) => d.fileName);
   const titles = docs.flatMap((d) => d.pages.map((p) => p.sheetTitle ?? p.houseTypeName ?? ""));
-  const profile = detectBuilder({ folders, fileNames, projectName: pack.project.name, titles });
+  const detected = detectBuilder({
+    folders,
+    fileNames: docs.map((d) => d.fileName),
+    projectName: pack.project.name,
+    titles,
+  });
+
+  let profile: BuilderIngestProfile | null = null;
+  let recipeLabel = "";
+  if (env.groupingAI) {
+    try {
+      const manifest = buildManifest(
+        docs.map((d) => ({
+          relativePath: d.relativePath ?? d.fileName,
+          title:
+            d.pages.find((p) => p.sheetTitle)?.sheetTitle ??
+            d.pages.find((p) => p.houseTypeName)?.houseTypeName ??
+            null,
+        })),
+      );
+      const inferred = await inferRecipe(manifest);
+      profile = compileRecipe(inferred.recipe);
+      recipeLabel = `AI · ${inferred.recipe.strategy} (${inferred.recipe.confidence})`;
+      console.log(
+        `[process-pack] AI recipe: ${inferred.recipe.strategy}, ${inferred.recipe.houseTypeNames.length} types seen, $${inferred.costUsd.toFixed(4)}` +
+          (detected ? ` [fixture builder: ${detected.id}]` : ""),
+      );
+    } catch (err) {
+      console.warn(
+        `[process-pack] AI recipe inference failed, falling back:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  if (!profile && detected) {
+    profile = detected;
+    recipeLabel = `profile · ${detected.label}`;
+  }
 
   const boss = await getBoss();
 
-  // ── UNKNOWN builder → legacy per-file segmentation, auto-queued (unchanged behaviour).
+  // ── No recipe at all → legacy per-file segmentation, auto-queued (unchanged behaviour).
   if (!profile) {
     for (const doc of docs) {
       if (doc.isRasterOnly) continue;
@@ -301,17 +353,7 @@ async function groupAndPrepare(packId: string): Promise<void> {
     return;
   }
 
-  // ── KNOWN builder → cross-file grouping + combined-PDF assembly, gated on confirm.
-  const files: IngestFile[] = docs.map((d) => ({
-    documentId: d.id,
-    relativePath: d.relativePath ?? d.fileName,
-    pages: d.pages.map((p) => ({
-      page: p.pageNumber,
-      relevant: p.relevant,
-      houseTypeName: p.houseTypeName,
-    })),
-  }));
-
+  // ── AI/profile recipe → group everything + combined-PDF dossier, gated on confirm.
   const result = groupPack(files, profile);
   const summaryGroups: GroupingSummaryGroup[] = [];
 
@@ -331,7 +373,12 @@ async function groupAndPrepare(packId: string): Promise<void> {
     const assembled = await assembleHouseTypePdf(group, sources);
     if (assembled.pageCount === 0) continue;
 
-    // Store the combined PDF as its own ASSEMBLED Document.
+    // The relevant pages (assembled relevant-first, so this is a clean "1-k" block)
+    // are what the extractor reads and the review preview shows.
+    const relevantPositions = assembled.pageManifest.filter((m) => m.relevant).map((m) => m.assembledPage);
+    const pageRange = buildRangeString(relevantPositions);
+
+    // Store the combined PDF (the complete dossier) as its own ASSEMBLED Document.
     const path = `${packId}/assembled/${sanitizeKey(group.name)}.pdf`;
     const buf = Buffer.from(assembled.bytes);
     await uploadToStorage(path, buf, "application/pdf", { upsert: true });
@@ -348,37 +395,43 @@ async function groupAndPrepare(packId: string): Promise<void> {
         sizeBytes: buf.byteLength,
         included: true,
         category: "HOUSE_TYPE_DRAWINGS",
-        relevantPages: assembled.pageCount,
+        relevantPages: relevantPositions.length,
         classifiedAt: new Date(),
         pageManifest: assembled.pageManifest as unknown as Prisma.InputJsonValue,
       },
     });
 
-    // Page rows for the assembled PDF (drive the review thumbnail strip + the
-    // wall-read-off-elevation cross-check in persist.ts).
+    // Page rows for the assembled PDF (drive the review preview filter + the
+    // wall-read-off-elevation cross-check in persist.ts); carry the relevance tag.
     await prisma.documentPage.createMany({
       data: assembled.pageManifest.map((m) => ({
         documentId: assembledDoc.id,
         pageNumber: m.assembledPage,
         kind: pageKindOf(m.drawingKind as DrawingKind),
-        relevant: true,
+        relevant: m.relevant,
         houseTypeName: group.name,
         sheetTitle: `${m.drawingKind} · ${m.relativePath.split("/").pop() ?? ""} p${m.sourcePage}`,
       })),
     });
 
     const houseType = await ensureHouseType(pack.project.id, pack.project.clientId, null, group.name);
-    const pageRange = `1-${assembled.pageCount}`;
-    const extraction = await prisma.extraction.create({
-      data: {
-        documentId: assembledDoc.id,
-        houseTypeId: houseType.id,
-        pageRange,
-        model: env.extractionModel,
-        promptVersion: "pending",
-        status: "PENDING",
-      },
-    });
+
+    // Only create an extraction when there ARE relevant pages to read. A dossier
+    // with no scaffold pages is still kept for review (flagged), just not extracted.
+    let extractionId: string | null = null;
+    if (relevantPositions.length > 0) {
+      const extraction = await prisma.extraction.create({
+        data: {
+          documentId: assembledDoc.id,
+          houseTypeId: houseType.id,
+          pageRange,
+          model: env.extractionModel,
+          promptVersion: "pending",
+          status: "PENDING",
+        },
+      });
+      extractionId = extraction.id;
+    }
 
     const flags = [...group.flags];
     if (assembled.skipped.length)
@@ -387,9 +440,10 @@ async function groupAndPrepare(packId: string): Promise<void> {
     summaryGroups.push({
       name: group.name,
       houseTypeId: houseType.id,
-      extractionId: extraction.id,
+      extractionId,
       confidence: group.confidence,
-      pageCount: assembled.pageCount,
+      relevantPageCount: relevantPositions.length,
+      totalPageCount: assembled.pageCount,
       files: group.files,
       flags,
     });
@@ -402,24 +456,24 @@ async function groupAndPrepare(packId: string): Promise<void> {
       builderProfileId: profile.id,
       groupingData: {
         builderId: profile.id,
-        builderLabel: profile.label,
+        builderLabel: recipeLabel || profile.label,
         groups: summaryGroups,
-        ignoredCount: result.ignoredFiles.length,
         unplacedFiles: result.unplacedFiles,
       } as unknown as Prisma.InputJsonValue,
     },
   });
   console.log(
-    `[process-pack] builder=${profile.id}: ${summaryGroups.length} house type(s) grouped, ${result.ignoredFiles.length} files ignored, ${result.unplacedFiles.length} unplaced — awaiting confirm`,
+    `[process-pack] ${recipeLabel}: ${summaryGroups.length} house type(s), ${result.unplacedFiles.length} pack-level file(s) unplaced — awaiting confirm`,
   );
 }
 
 interface GroupingSummaryGroup {
   name: string;
   houseTypeId: string;
-  extractionId: string;
+  extractionId: string | null; // null when the dossier has no scaffold-relevant pages
   confidence: "high" | "medium" | "low";
-  pageCount: number;
+  relevantPageCount: number;
+  totalPageCount: number;
   files: string[];
   flags: string[];
 }

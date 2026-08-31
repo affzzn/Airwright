@@ -116,9 +116,8 @@ export default async function ReviewPage({
 
   const backHref = `/projects/${extraction.document.pack.projectId}`;
   const title = extraction.houseType?.name ?? "Extraction";
-  const subtitle = `${extraction.document.fileName} · pages ${
-    extraction.pageRange ?? "all"
-  } of ${extraction.document.pageCount}`;
+  const relevantCount = relevantPages?.length ?? extraction.document.pageCount ?? 0;
+  const subtitle = `${extraction.document.fileName} · ${relevantCount} relevant of ${extraction.document.pageCount} pages`;
 
   // No take-off yet (extraction incomplete) → the plain centred layout.
   if (!takeoff) {

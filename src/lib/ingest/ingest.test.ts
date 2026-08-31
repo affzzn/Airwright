@@ -153,7 +153,7 @@ function relevant(kind = 1) {
   return Array.from({ length: kind }, (_, i) => ({ page: i + 1, relevant: true }));
 }
 
-describe("groupPack — Vistry (folder = type)", () => {
+describe("groupPack — Vistry (folder = type; group everything, tag relevance)", () => {
   const files: IngestFile[] = [
     { documentId: "d1", relativePath: `${V}/Scaffold/Aspen/…_The Aspen-Front Elevation (Brick)_P01.pdf`, pages: relevant() },
     { documentId: "d2", relativePath: `${V}/Scaffold/Aspen/…_The Aspen-Ground Floor Plan_P02.pdf`, pages: relevant() },
@@ -166,14 +166,15 @@ describe("groupPack — Vistry (folder = type)", () => {
   it("makes one group per house-type folder", () => {
     expect(res.groups.map((g) => g.name).sort()).toEqual(["ASPEN", "BEECH"]);
   });
-  it("collects all relevant pages of a type across files", () => {
+  it("collects all pages of a type, relevant-first", () => {
     const aspen = res.groups.find((g) => g.name === "ASPEN")!;
-    expect(aspen.pages.length).toBe(3);
-    // Elevation sorts before floor plan before section.
+    expect(aspen.totalPageCount).toBe(3);
+    expect(aspen.relevantPageCount).toBe(3);
+    expect(aspen.pages[0].relevant).toBe(true);
     expect(aspen.pages[0].drawingKind).toBe("FRONT_ELEVATION");
   });
-  it("ignores the Boundaries folder", () => {
-    expect(res.ignoredFiles.some((f) => /Boundaries/.test(f))).toBe(true);
+  it("leaves the Boundaries folder unplaced (no house type)", () => {
+    expect(res.unplacedFiles.some((f) => /Boundaries/.test(f))).toBe(true);
   });
 });
 
@@ -190,12 +191,12 @@ describe("groupPack — Bloor (latest revision wins)", () => {
     const hallam = res.groups.find((g) => g.name === "HALLAM")!;
     expect(hallam.files).toEqual([`${B}/470_HALLAM_ISSUE_7.1.pdf`]);
   });
-  it("ignores the materials layout", () => {
-    expect(res.ignoredFiles.some((f) => /Materials Layout/.test(f))).toBe(true);
+  it("leaves the materials layout unplaced (no house type)", () => {
+    expect(res.unplacedFiles.some((f) => /Materials Layout/.test(f))).toBe(true);
   });
 });
 
-describe("groupPack — Taylor Wimpey (combined PDF, trades ignored)", () => {
+describe("groupPack — Taylor Wimpey (group everything; trades tagged not-relevant)", () => {
   const base = `${TW}/House_Type/Masonry/EMA21_Avonsford`;
   const files: IngestFile[] = [
     { documentId: "d1", relativePath: `${base}/00_House_Type_PDF/EMA21-Avonsford END - 2021.pdf`, pages: relevant(30) },
@@ -205,10 +206,15 @@ describe("groupPack — Taylor Wimpey (combined PDF, trades ignored)", () => {
   ];
   const res = groupPack(files, profile("taylor-wimpey"));
 
-  it("uses the combined PDF and ignores every trade folder", () => {
+  it("groups every file under the house type, but only the combined PDF is relevant", () => {
     expect(res.groups.map((g) => g.name)).toEqual(["EMA21_AVONSFORD"]);
-    expect(res.groups[0].files).toEqual([`${base}/00_House_Type_PDF/EMA21-Avonsford END - 2021.pdf`]);
-    expect(res.ignoredFiles.length).toBe(3);
+    const g = res.groups[0];
+    expect(g.files.length).toBe(4); // dossier includes the trade files
+    expect(g.totalPageCount).toBe(33); // 30 + 1 + 1 + 1
+    expect(g.relevantPageCount).toBe(30); // trades tagged not-relevant
+    // Relevant pages sort first.
+    expect(g.pages.slice(0, 30).every((p) => p.relevant)).toBe(true);
+    expect(g.pages.slice(30).every((p) => !p.relevant)).toBe(true);
   });
 });
 

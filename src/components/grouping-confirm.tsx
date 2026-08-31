@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 export interface GroupingGroup {
   name: string;
   confidence: "high" | "medium" | "low";
-  pageCount: number;
+  relevantPageCount: number;
+  totalPageCount: number;
   files: string[];
   flags: string[];
 }
@@ -19,7 +20,6 @@ export interface GroupingData {
   builderId: string;
   builderLabel: string;
   groups: GroupingGroup[];
-  ignoredCount: number;
   unplacedFiles: string[];
 }
 
@@ -66,11 +66,9 @@ export function GroupingConfirm({
           <h2 className="text-sm font-semibold text-ink">Review grouping</h2>
           <p className="mt-0.5 text-xs text-ink-subtle">
             {data.builderLabel} · {groups.length} house type
-            {groups.length === 1 ? "" : "s"} found ·{" "}
-            {data.ignoredCount} file{data.ignoredCount === 1 ? "" : "s"} set aside as
-            non-scaffold
+            {groups.length === 1 ? "" : "s"} found
             {data.unplacedFiles.length > 0 &&
-              ` · ${data.unplacedFiles.length} unplaced`}
+              ` · ${data.unplacedFiles.length} pack-level file${data.unplacedFiles.length === 1 ? "" : "s"} unplaced`}
           </p>
         </div>
         <button
@@ -99,8 +97,9 @@ export function GroupingConfirm({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">{g.name}</p>
                   <p className="mt-0.5 text-xs text-ink-subtle">
-                    {g.pageCount} page{g.pageCount === 1 ? "" : "s"} · {g.files.length}{" "}
-                    source file{g.files.length === 1 ? "" : "s"}
+                    {g.relevantPageCount} relevant / {g.totalPageCount} total page
+                    {g.totalPageCount === 1 ? "" : "s"} · {g.files.length} source file
+                    {g.files.length === 1 ? "" : "s"}
                   </p>
                 </div>
                 <Badge variant={g.confidence === "high" ? "muted" : "outline"}>

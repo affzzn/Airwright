@@ -23,11 +23,13 @@ describe("assembleHouseTypePdf", () => {
     const group: HouseTypeGrouping = {
       name: "ASPEN",
       pages: [
-        { documentId: "front", relativePath: "Aspen/Front.pdf", page: 1, drawingKind: "FRONT_ELEVATION" },
-        { documentId: "plans", relativePath: "Aspen/Plans.pdf", page: 1, drawingKind: "FLOOR_PLAN" },
-        { documentId: "plans", relativePath: "Aspen/Plans.pdf", page: 2, drawingKind: "FLOOR_PLAN" },
+        { documentId: "front", relativePath: "Aspen/Front.pdf", page: 1, drawingKind: "FRONT_ELEVATION", relevant: true },
+        { documentId: "plans", relativePath: "Aspen/Plans.pdf", page: 1, drawingKind: "FLOOR_PLAN", relevant: true },
+        { documentId: "plans", relativePath: "Aspen/Plans.pdf", page: 2, drawingKind: "FLOOR_PLAN", relevant: false },
       ],
       files: ["Aspen/Front.pdf", "Aspen/Plans.pdf"],
+      relevantPageCount: 2,
+      totalPageCount: 3,
       confidence: "high",
       flags: [],
     };
@@ -36,12 +38,13 @@ describe("assembleHouseTypePdf", () => {
 
     expect(res.pageCount).toBe(3);
     expect(res.skipped).toEqual([]);
-    // Manifest maps assembled page → source file + page, in order.
+    // Manifest maps assembled page → source file + page, in order, with relevance.
     expect(res.pageManifest.map((m) => `${m.relativePath}#${m.sourcePage}`)).toEqual([
       "Aspen/Front.pdf#1",
       "Aspen/Plans.pdf#1",
       "Aspen/Plans.pdf#2",
     ]);
+    expect(res.pageManifest.map((m) => m.relevant)).toEqual([true, true, false]);
     // The output is a real, loadable PDF with the right page count.
     const reloaded = await PDFDocument.load(res.bytes);
     expect(reloaded.getPageCount()).toBe(3);
@@ -55,11 +58,13 @@ describe("assembleHouseTypePdf", () => {
     const group: HouseTypeGrouping = {
       name: "X",
       pages: [
-        { documentId: "plans", relativePath: "X/Plans.pdf", page: 1, drawingKind: "FLOOR_PLAN" },
-        { documentId: "plans", relativePath: "X/Plans.pdf", page: 9, drawingKind: "FLOOR_PLAN" }, // out of range
-        { documentId: "missing", relativePath: "X/Gone.pdf", page: 1, drawingKind: "SECTION" }, // no source
+        { documentId: "plans", relativePath: "X/Plans.pdf", page: 1, drawingKind: "FLOOR_PLAN", relevant: true },
+        { documentId: "plans", relativePath: "X/Plans.pdf", page: 9, drawingKind: "FLOOR_PLAN", relevant: true }, // out of range
+        { documentId: "missing", relativePath: "X/Gone.pdf", page: 1, drawingKind: "SECTION", relevant: true }, // no source
       ],
       files: ["X/Plans.pdf"],
+      relevantPageCount: 3,
+      totalPageCount: 3,
       confidence: "medium",
       flags: [],
     };

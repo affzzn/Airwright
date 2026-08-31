@@ -58,11 +58,10 @@ const result = groupPack(files, profile);
 console.log(`House types: ${result.groups.length}`);
 for (const g of result.groups) {
   console.log(
-    `  • ${g.name}  [${g.confidence}]  ${g.pages.length} page(s), ${g.files.length} file(s)` +
+    `  • ${g.name}  [${g.confidence}]  ${g.relevantPageCount} relevant / ${g.totalPageCount} total page(s), ${g.files.length} file(s)` +
       (g.flags.length ? `\n      flags: ${g.flags.join("; ")}` : ""),
   );
 }
-console.log(`\nIgnored (non-scaffold): ${result.ignoredFiles.length} file(s)`);
-console.log(`Unplaced: ${result.unplacedFiles.length} file(s)`);
+console.log(`\nUnplaced (no house type — pack-level): ${result.unplacedFiles.length} file(s)`);
 if (result.unplacedFiles.length)
   for (const u of result.unplacedFiles.slice(0, 15)) console.log(`  ? ${u}`);

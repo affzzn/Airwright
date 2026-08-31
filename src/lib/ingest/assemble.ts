@@ -26,6 +26,7 @@ export interface AssembledPageRef {
   relativePath: string;
   sourcePage: number; // 1-based in the source file
   drawingKind: string;
+  relevant: boolean; // scaffold-relevant tag (drives extraction + preview)
 }
 
 export interface AssembledPdf {
@@ -75,6 +76,7 @@ export async function assembleHouseTypePdf(
         relativePath: gp.relativePath,
         sourcePage: gp.page,
         drawingKind: gp.drawingKind,
+        relevant: gp.relevant,
       });
     } catch (err) {
       skipped.push({
