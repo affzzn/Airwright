@@ -506,6 +506,7 @@ async function groupAndPrepare(packId: string): Promise<void> {
     summaryGroups.push({
       name: group.name,
       houseTypeId: houseType.id,
+      documentId: assembledDoc.id,
       extractionId,
       confidence: group.confidence,
       relevantPageCount: relevantPositions.length,
@@ -561,6 +562,7 @@ async function groupAndPrepare(packId: string): Promise<void> {
 interface GroupingSummaryGroup {
   name: string;
   houseTypeId: string;
+  documentId: string; // the assembled combined-PDF Document
   extractionId: string | null; // null when the dossier has no scaffold-relevant pages
   confidence: "high" | "medium" | "low";
   relevantPageCount: number;
