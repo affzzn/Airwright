@@ -1,9 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "@/lib/env";
-
-/** Claude pricing per 1M tokens (Opus). Update if the model/pricing changes. */
-const INPUT_COST_PER_MTOK = 15;
-const OUTPUT_COST_PER_MTOK = 75;
+import { INPUT_COST_PER_MTOK, OUTPUT_COST_PER_MTOK } from "./config";
 
 export interface ToolRunResult {
   input: unknown; // the tool_use input (validate with the caller's Zod schema)

@@ -3,6 +3,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { extractionResultSchema, type ExtractionResult } from "./schema";
 import { PROMPT_VERSION, SYSTEM_PROMPT, USER_INSTRUCTION } from "./prompt";
 import { runToolExtraction } from "./claude";
+import { EXTRACTION_MAX_TOKENS } from "./config";
 import { extractDimensionsByPage } from "./classify";
 import { buildDimensionHint, type PageDims } from "./dimensions";
 
@@ -44,7 +45,7 @@ export async function extractDrawing(pdf: Buffer): Promise<ExtractDrawingResult>
     toolName: TOOL_NAME,
     toolDescription: "Record the extracted scaffold take-off measurements.",
     inputSchema: toolInputSchema,
-    maxTokens: 16384, // richer field set; large blocks (3-storey, many elevations/floors) can be verbose
+    maxTokens: EXTRACTION_MAX_TOKENS, // richer field set; large blocks (3-storey, many elevations/floors) can be verbose
   });
 
   const data = extractionResultSchema.parse(res.input);

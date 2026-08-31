@@ -4,12 +4,14 @@ Everything we send to the model to read scaffold take-off **measurements** off a
 house-type drawing, and everything we require it to return. This is the *live*
 configuration as it runs in production.
 
-- **Prompt version:** `2026-08-24.1`
+- **Prompt version:** `2026-08-26.2`
 - **Model:** `claude-opus-4-8` (set via the `ANTHROPIC_EXTRACTION_MODEL` env var)
 - **Source of truth in code:** `src/lib/extract/prompt.ts` (prompt), `src/lib/extract/schema.ts` (contract), `src/lib/extract/birdcage.ts` + `height.ts` (deterministic reconciliation), `src/lib/extract/dimensions.ts` (text-layer candidates + verification), `src/lib/extract/claude.ts` (request), `src/lib/extract/extractDrawing.ts` (wiring)
 
 > This doc mirrors the code. If in doubt, `prompt.ts` / `schema.ts` win — bump the
-> version here whenever their wording changes.
+> version here whenever their wording changes. For the exhaustive term-by-term,
+> formula-by-formula treatment of the whole extractor + take-off engine, see
+> `docs/EXTRACTOR-COMPLETE-REFERENCE.md`.
 
 ---
 
@@ -41,14 +43,15 @@ Forced tool-use so the output is always structured JSON validated against our sc
 | `max_tokens` | 16384 (drawing extraction) |
 | `tool_choice` | forced — must call the `record_takeoff` tool |
 | Input | the drawing PDF (base64 `document` block) + the user instruction + the **text-layer dimension candidates** (per-page list from `dimensions.ts`) |
-| Tool `input_schema` | generated from our Zod schema (§5) so they can't drift |
+| Tool `input_schema` | generated from our Zod schema (§5) with `zod-to-json-schema` so they can't drift |
 | Prompt caching | system prompt + tool schema marked `cache_control: ephemeral`; only the PDF + candidate list vary |
 | Validation | returned JSON parsed with Zod; a failure fails the extraction |
 | Post-checks | each cited `sourceDimension` is verified against the text layer; unverified → confidence capped + flagged |
-| Telemetry | model, latency, input/output tokens, `costUsd` |
+| Telemetry | model, latency, input/output tokens, `costUsd` (Opus: $15 / $75 per 1M in/out) |
 
 Only the pages relevant to one house type are sliced out and sent (chosen by the
-free page classifier).
+free page classifier). On a retried extraction the worker reuses the stored
+`rawOutput` if it still validates, so it never re-bills Claude for the same read.
 
 ---
 
@@ -68,14 +71,14 @@ WHICH SHEETS MATTER (and what to read from each)
 - ELEVATIONS (front / rear / side / gable; brick / render / stone / boarded variants) → roof type, apex count per face, rendered sections + their length, chimney, porches and bays.
 - FLOOR PLANS (ground / first / …) → internal room dimensions, the footprint, and the NDSS "Total Floor Area" schedule (a USABLE-area figure — see BIRDCAGE).
 - SETTING OUT PLAN (Beam & Block / Suspended Slab) → the GROSS INTERNAL footprint area per dwelling (e.g. "35.60m² (BEAM & BLOCK)") and the exterior-wall run. This is the birdcage area to prefer.
-- SECTION (A-A, B-B) → vertical heights: height to soffit / underside of wallplate, FFL, and the floor-to-floor storey heights.
+- SECTION (A-A, B-B) → vertical heights: height to soffit / underside of wallplate, FFL.
 - TRUSS / ROOF SETTING OUT → roof pitch, overall wallplate dimensions, chimney position note (often conditional).
 - You may be given one combined PDF or several separate face files; treat them as one house.
 - IGNORE internal room elevations ("Kitchen Elevation", "Cloak Plan Elevation" — interior joinery), and services, drainage, levels, foundation, electrical and general-note sheets.
 
 READING DIMENSIONS
 - Dimensions are usually in millimetres — convert to metres ("9203" = 9.203 m). If a number's unit is genuinely unclear, lower the confidence and say so; never invent a unit.
-- Height to soffit is the top of the wall the scaffold reaches: ALWAYS read the SOFFIT / underside-of-wallplate value (e.g. "U/S Wallplate 5025" = 5.025 m) into heightToSoffitM — never the ridge, never a mid-roof point. ALSO read the printed floor-to-floor STOREY HEIGHTS off the SECTION into storeyHeightsM (ground upward, the last one being the top floor up to the wallplate/soffit, e.g. [2.662, 2.063]) as RAW numbers — do NOT add them up; the engine sums them as an independent cross-check of the soffit height. "FFL" (finished floor level) marks each floor.
+- Height to soffit is the top of the wall the scaffold reaches: ALWAYS read the SOFFIT / underside-of-wallplate value (e.g. "U/S Wallplate 5025" = 5.025 m) into heightToSoffitM — never the ridge, never a mid-roof point. ALSO read the floor-to-floor STOREY HEIGHTS off the SECTION into storeyHeightsM (ground upward, the last one being the top floor up to the wallplate/soffit, e.g. [2.662, 2.063]). These are DELTAS (the height of each storey), NOT absolute floor levels: if the section prints absolute FFL levels like 0 / 2662 / 5325, report the DIFFERENCES between consecutive levels (2662, 2663), not the levels. Report RAW numbers — do NOT add them up; the engine sums them as an independent cross-check of the soffit height.
 - Quote the EXACT printed dimension string for every value you report.
 
 CITE THE PAGE (sourcePage) FOR EVERY VALUE
@@ -142,26 +145,41 @@ ROOF, APEXES, RENDER (read per elevation)
 BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
 - The birdcage is the INTERNAL floor area, inside the external walls (m²), one per floor. NEVER use the external footprint — it is bigger and over-reads.
 - CRITICAL: you do NOT multiply, subtract, or divide for the birdcage. You only REPORT the printed numbers you can see. The engine does every calculation and reconciles them. Reporting a raw printed number you can point to is reliable; doing arithmetic in your head is not.
+- ONE HOUSE ONLY (pairs & terraces): the birdcage is measured PER HOUSE. Report the footprint of a SINGLE house — the SETTING OUT PLAN shows one house (e.g. 302 | 4800 | 302). Do NOT report the combined pair/terrace width here, and do NOT halve anything. (This is the OPPOSITE of the wall segments, where front/rear span the whole frontage — the birdcage does not.)
+- IDENTIFY EACH NUMBER BY ITS MARK — a floor plan dimensions the same wall in several ways; read the right one:
+  · OVERALL EXTERNAL = the OUTERMOST dimension line, tick-to-tick at the outer brick faces (the largest number for that axis, e.g. 5942).
+  · INTERNAL span = an inner dimension line reading [wall | span | wall] — the two small end numbers plus the span add up to the overall. The MIDDLE number is the internal dimension (e.g. 328 | 5287 | 328 → internal = 5287). **This is the number to prefer — always look for it and read it directly.**
+  · STRUCTURAL wall thickness = those short end segments across the hatched external wall (e.g. 328, 302, 392). This value is DIFFERENT on every drawing — read it off THIS drawing, never assume. The two ends are often equal but CAN DIFFER (a party wall vs an external gable; a rendered face vs a brick face), so read EACH side.
+  · LEGEND wall thickness = the "…MM THICK CAVITY WALL" value in the WALL LEGEND text box (e.g. 353). This is the bigger, FINISHED-face thickness — report it in legendWallThicknessMm as a FALLBACK only.
+  · IGNORE the room/partition subdivision chain — numbers that sum to the overall but are NOT flanked by wall zones (e.g. 778 · 1585 · 1217 · 1248 · 1115). Those are partition positions, not the birdcage.
 - For EACH floor, report:
   1. statedGrossInternalM2 — the GROSS INTERNAL / masonry footprint area if stated: on the SETTING OUT PLAN (e.g. "35.60m² (BEAM & BLOCK)"), or the title sheet's masonry area (a pair/dwelling total — report the PER-DWELLING figure). This is the number Colin prices. null if not stated.
   2. statedNdssM2 — the NDSS "TOTAL FLOOR AREA" schedule value if shown (e.g. "35.00m²"). This is the smaller USABLE area (excludes voids); a fallback. null if not shown.
-  3. rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). For each rectangle report whichever the drawing prints, and leave the rest null:
-     · internalWidthM / internalDepthM — a DIRECTLY PRINTED internal dimension (the clear internal span / depth of ONE dwelling). Prefer these when shown.
-     · overallWidthM / overallDepthM — the overall EXTERNAL dimension, ONLY when no internal one is printed. Report it exactly as printed — do NOT subtract walls, do NOT divide a pair's frontage.
-     · wallThicknessMm — the printed external wall build-up in mm (e.g. 302), so the engine can strip it. null if not shown.
+  3. rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). Apply this LADDER to EACH axis (width, then depth) independently, leaving the fields you don't use null:
+     · PRIORITY 1 — if the INTERNAL span is printed anywhere on the plan (the MIDDLE number of [wall|span|wall]), report internalWidthM / internalDepthM. This is by far the best; do NOT skip it and derive if the internal number is actually printed.
+     · PRIORITY 2 — only if no internal span is printed for that axis: report the OVERALL external dimension (overallWidthM / overallDepthM) AND the STRUCTURAL wall thickness on EACH side of that axis — wallWidthLeftMm / wallWidthRightMm for width, wallDepthFrontMm / wallDepthRearMm for depth. If every external wall on the plan is the same thickness you may instead give the single wallThicknessMm; if the two sides DIFFER, give the per-side values. The engine subtracts each side (it does NOT assume 2× one wall).
+     · Whenever the plan does NOT dimension the structural wall at all, ALSO report legendWallThicknessMm (the WALL LEGEND value) as the fallback.
+     · ALWAYS report the OVERALL dimension and the wall thickness when they are visible, EVEN IF you also read the internal span — the engine cross-checks internal ≈ (overall − walls) to raise the confidence.
 - L-SHAPED / STEPPED FOOTPRINT (important): if the floor is NOT a plain rectangle — it has a step, a projection, or an L/T shape (a tell: MORE than 4 external corners) — do NOT report one big bounding rectangle (that over-reads the area). Split the footprint into the SEVERAL plain rectangles that make it up and report EACH as its own entry in rectangles; the engine sums them. Only a genuinely rectangular floor is a single rectangle.
-- WORKED EXAMPLE (Dekker, a semi-detached pair, ground floor):
-    Setting Out Plan prints "35.60m² (BEAM & BLOCK)"; floor plan schedule prints "35.00m²"; the internal width of one house reads 4877; the overall depth reads 7904; the wall build-up reads 302.
+- WORKED EXAMPLE A (Whitton, Miller, ground floor): the width line reads 5942 overall and the inner line reads 328 | 5287 | 328; the depth reads 9103 overall with 328 wall zones both ends; the WALL LEGEND says "353MM THICK CAVITY WALL".
+    → rectangles = [{ internalWidthM: 5.287, internalDepthM: null, overallWidthM: 5.942, overallDepthM: 9.103, wallDepthFrontMm: 328, wallDepthRearMm: 328, wallThicknessMm: 328, legendWallThicknessMm: 353 }].
+    (internalWidthM 5287 is read DIRECTLY — priority 1; depth has no printed internal, so the engine derives 9103 − 328 − 328. Report the numbers and STOP.)
+- WORKED EXAMPLE B (Dekker, NSS, semi-detached pair): Setting Out Plan prints "35.60m² (BEAM & BLOCK)"; floor plan schedule prints "35.00m²"; the internal width of one house reads 4877; the overall depth reads 7904; the plan wall zones read 302 both ends; there is NO wall legend.
     → statedGrossInternalM2 = 35.60, statedNdssM2 = 35.00,
-      rectangles = [{ internalWidthM: 4.877, internalDepthM: null, overallDepthM: 7.904, wallThicknessMm: 302 }].
-    You report those numbers and STOP. (The engine computes depth 7.904 − 2×0.302 = 7.300, area 4.877 × 7.300 = 35.60, sees it matches the stated 35.60, and marks it high confidence.)
+      rectangles = [{ internalWidthM: 4.877, internalDepthM: null, overallDepthM: 7.904, wallThicknessMm: 302, legendWallThicknessMm: null }].
+    Report those numbers and STOP. Note the wall is 302 here, not 328 — it is per-drawing.
+- ASYMMETRIC WALLS EXAMPLE (an end-of-terrace whose gable dimension line reads 328 | 4600 | 215 — an external gable one side, a party wall the other): report internalWidthM: 4.6 if that middle span is printed; otherwise overallWidthM plus wallWidthLeftMm: 328 and wallWidthRightMm: 215 (NOT 2×328).
+- NEVER GUESS THE WALL: if a floor has no printed internal span AND no wall thickness on a side (neither plan nor legend), report what you can read and leave the rest null — the engine leaves the area unresolved and flags it for a human. Do NOT invent a wall thickness.
 - SAME FOOTPRINT, EVERY FLOOR: a plain house has the SAME footprint on each floor, so the stated gross-internal area and the internal dimensions apply to GF AND FF (and SF) alike. Report statedGrossInternalM2 and the rectangles on EVERY floor of the same footprint — not just the ground floor — so each floor can be cross-checked. Only give a floor different numbers if its plan is genuinely a different size.
 - One entry per floor (GF, FF, and for a 2.5-storey the roof room as the next level). If no internal dimensions or stated area are legible for a floor, leave its rectangles empty and its stated areas null — never estimate from an elevation.
 
 OTHER ITEMS
-- Low level: count porches and bay windows — each is one low-level scaffold. A porch or entrance CANOPY (including a GRP canopy) still counts as one low level; do not exclude it because it is "only a canopy".
+- Low level (porches + bays): count these BY TYPE — the treatment can change later, so record which kind each is.
+  · PORCHES — count them, split by kind: porchCanopyCount = an OPEN canopy/hood over the door (often GRP or glass, no full walls); porchSolidCount = a SOLID / enclosed porch with built walls. BOTH still count as a low level — a canopy is NOT excluded. If you see a porch but cannot tell the kind, put it in porchSolidCount.
+  · BAYS — count bay windows, split by HEIGHT read off the ELEVATION: baySingleStoreyCount = the bay projects at the GROUND floor ONLY (stops below the first-floor windows) → this IS a low level; bayTwoStoreyCount = the bay rises through BOTH floors, full height → this is NOT a low level (it is part of the main scaffold), so count it separately here. Look at the elevation: does the projecting bay stop at one floor or continue up to the next? Never put a two-storey bay in the single-storey field.
 - Chimney: report chimney = true ONLY if a chimney stack is actually drawn on this house. If the drawing only carries an optional/conditional note ("chimney if required") with no stack drawn, report false and mention it in notes.
 - Smart roof: if the roof peak looks unusually high for the type, report the peak height; do not apply a threshold yourself.
+- Underbuild: ONLY if the section or an elevation you were given clearly shows the house on a SLOPE or with stepped foundations (so extra scaffold is needed at the base), set underbuild.needed = true and note what you saw. The real source is the SITE ELEVATIONS plan (a separate drawing); if you weren't given it, leave underbuild.needed = null. Never infer a slope from a house elevation alone.
 
 WHAT YOU MUST NOT DO
 - Do NOT compute the number of lifts, the perimeter total, birdcage areas, render lift counts, or any pricing or stage split. Those are Airwright's deterministic rules applied downstream.
@@ -199,60 +217,67 @@ Every value carries a **confidence** and, where relevant, its **source**
 (`sourceSheet`, `sourceDimension`, `sourcePage`). The tool schema is generated
 from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 
-### Fields
+### Top-level fields
 
 | Field | Type | Meaning |
 |---|---|---|
 | `houseType.name` / `houseType.code` | string / string | e.g. `Dekker` / `NSS.277` |
-| `buildType` | `TRADITIONAL` \| `TIMBER_FRAME` \| null | construction type |
+| `buildType` | `TRADITIONAL` \| `TIMBER_FRAME` \| null | construction type (selects the pricing matrix downstream) |
 | `structure.form` | `SINGLE` \| `PAIR_OR_TERRACE` \| `APARTMENT_BLOCK` \| null | decides how the take-off is split |
 | `storeys` | number (1 / 2 / 2.5 / 3) | observed, **not** used to count lifts here |
 | `roomInRoof` | boolean | habitable room in the roof → 2.5-storey |
 | `heightToSoffitM` | number (metres) | the direct **soffit / U-S wallplate** read (datum fixed to soffit) |
-| `storeyHeightsM` | number[] | the section's floor-to-floor storey heights (last = to soffit); the engine **sums them as a 2nd height estimate** and reconciles |
+| `storeyHeightsM` | number[] | the section's floor-to-floor storey heights as **deltas** (last = to soffit); the engine **sums them as a 2nd height estimate** and reconciles |
 | `roof.overallType` | `PITCHED` \| `HIPPED` \| `MIXED` \| null | overall roof form |
-| `elevations[]` | array | per face: `face`, **`faceRoof` (GABLED/HIPPED)**, `apexCount`, **`apexReason`**, `rendered`, `renderLengthM`, source |
+| `elevations[]` | array | per face: `face`, **`faceRoof` (GABLED/HIPPED)**, **`apexReason`**, `apexCount`, `rendered`, `renderLengthM`, source |
 | `wallSegments[]` | array | per wall: `position`, `lengthM`, `sourceDimension`, `sourcePage` (read off the **floor plan**, not an elevation) |
 | `cornerCount` | number | external corners/returns (bounding rectangle = 4; >4 only for a real L/T/U) |
-| `dwellingsWide` | number | how many dwellings share the printed frontage (engine divides) |
+| `dwellingsWide` | number | how many dwellings share the printed frontage (engine divides the front/rear only) |
 | `floorAreas[]` | array | per floor — **raw** birdcage inputs (below); the engine computes + reconciles the area |
-| `lowLevel` | object | `porchCount`, `bayCount` |
+| `lowLevel` | object | `porchCanopyCount`, `porchSolidCount`, `baySingleStoreyCount`, `bayTwoStoreyCount` (two-storey bay = captured but **excluded** from the low-level count) |
 | `chimney` | boolean | a chimney stack actually drawn |
 | `smartRoofPeakHeightM` | number \| null | peak height if unusually high (no threshold applied by the model) |
+| `underbuild` | object | `needed` (bool\|null), `note` — set only if a slope/stepped foundation is visible; the real source is the site-elevations plan |
 | `notes` | string | short, useful estimator notes only |
 
 ### `floorAreas[]` — the birdcage inputs (raw, no arithmetic)
 
 | Field | Type | Meaning |
 |---|---|---|
-| `level` | `GF` \| `FF` \| `SF` \| `TF` | floor level |
+| `level` | `GF` \| `FF` \| `SF` \| `TF` | floor level (room-in-roof = the next level up, usually SF) |
 | `statedGrossInternalM2` | number \| null | stated gross-internal / masonry area (Setting Out), per dwelling — **preferred** |
 | `statedNdssM2` | number \| null | NDSS "Total Floor Area" usable value — fallback |
 | `rectangles[]` | array | internal footprint as rectangles (several for an L-shape) |
-| ↳ `internalWidthM` / `internalDepthM` | number \| null | a **directly printed** internal dimension (preferred) |
-| ↳ `overallWidthM` / `overallDepthM` | number \| null | overall **external** dimension, when no internal one is printed |
-| ↳ `wallThicknessMm` | number \| null | printed external wall build-up (mm); the engine strips two of these |
+| ↳ `internalWidthM` / `internalDepthM` | number \| null | a **directly printed** internal span (the middle of `[wall\|span\|wall]`) — **priority 1** |
+| ↳ `overallWidthM` / `overallDepthM` | number \| null | overall **external** dimension of ONE house (used to derive when no internal printed; also a cross-check) |
+| ↳ `wallWidthLeftMm` / `wallWidthRightMm` | number \| null | **structural** wall thickness per side of the width axis (they can differ) |
+| ↳ `wallDepthFrontMm` / `wallDepthRearMm` | number \| null | structural wall thickness per side of the depth axis |
+| ↳ `wallThicknessMm` | number \| null | uniform structural wall (mm) when all walls are equal — the common case |
+| ↳ `legendWallThicknessMm` | number \| null | WALL LEGEND (finished-face) thickness — **fallback only**, used only when no structural wall is dimensioned |
 
 ### The deterministic engines the model feeds
 
-- **Birdcage** (`birdcage.ts`): `depth = internalDepthM ?? (overallDepthM − 2·wall)`; `width = internalWidthM ?? (overallWidthM − 2·wall) ÷ dwellingsWide`; `Σ(width×depth)`; reconcile vs `statedGrossInternalM2` (2%) → high/flag.
-- **Height** (`height.ts`): sum `storeyHeightsM`; compare to `heightToSoffitM` + a storey band; **flag only when the two give a different lift count** (`ceil(h/1.5)`).
-- **Dimension verification** (`dimensions.ts`): each cited `sourceDimension` must be in the page text layer, else confidence is capped + flagged.
-- **Wall page-kind** (`persist.ts`): a wall cited off an ELEVATION page is capped + flagged (roof-overhang risk).
-- **Apex** (`persist.ts` / engine): a face marked `HIPPED` that still reports an apex is flagged; a hipped overall roof forces apex 0.
+- **Birdcage** (`birdcage.ts`), **per house — the birdcage is NOT divided by `dwellingsWide`**. Per axis:
+  `width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)`;
+  `depth = internalDepthM ?? (overallDepthM − wallFront − wallRear)` — each side subtracted **separately** (never `2×wall`); `area = Σ(width × depth)` over the rectangles. Then the priority of the stored VALUE: **stated gross-internal → printed internal footprint → derived → NDSS**. Reconciliation: stated vs derived within **2%** → high, else flag; internal vs (overall − walls) within **5%** → corroborated; no stated but NDSS present → gross-internal should sit **0–12%** above NDSS usable → high, else flag. No printed internal and no wall (plan or legend) → the axis is **UNRESOLVED** (`m2 = null`) and flagged — never a default.
+- **Height** (`height.ts`): sum `storeyHeightsM`; compare to `heightToSoffitM` + a storey band (≈2.2–3.0 m/storey); **flag only when the two give a different lift count** (`ceil(h/1.5)`).
+- **Dimension verification** (`dimensions.ts`): each cited `sourceDimension` must appear in the page text layer, else confidence is capped to "low" + flagged (`warnings.unverifiedDimensions`). No text layer (scanned PDF) → everything passes.
+- **Wall page-kind** (`persist.ts`): a wall cited off an ELEVATION page is capped + flagged (`warnings.wallReadOffElevation`) — roof-overhang risk — unless the same dimension also appears on a floor-plan/section page.
+- **Apex** (`persist.ts` / engine): a face marked `HIPPED` that still reports an apex is flagged (`warnings.apexContradictions`); a hipped overall roof forces apex 0.
 
 ### Enums
 
 - **Confidence:** `high` · `medium` · `low` · `unknown`.
 - **Wall position:** `front`, `rear`, `gable_left`, `gable_right`, `other`.
 - **Elevation face:** `front`, `rear`, `left`, `right`, `other`. **faceRoof:** `GABLED`, `HIPPED`.
-- **Floor level:** `GF`, `FF`, `SF`, `TF`.
+- **Floor level:** `GF`, `FF`, `SF`, `TF`. **Structure:** `SINGLE`, `PAIR_OR_TERRACE`, `APARTMENT_BLOCK`. **Roof:** `PITCHED`, `HIPPED`, `MIXED`. **Build type:** `TRADITIONAL`, `TIMBER_FRAME`.
 
 ### Example output (abridged, Dekker semi-detached pair)
 
 ```json
 {
   "houseType": { "name": "Dekker", "code": "NSS.277", "confidence": "high" },
+  "buildType": { "value": "TRADITIONAL", "confidence": "medium" },
   "structure": { "form": "PAIR_OR_TERRACE", "confidence": "high" },
   "storeys": { "value": 2, "confidence": "high" },
   "roomInRoof": { "value": false, "confidence": "high" },
@@ -260,10 +285,10 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
   "storeyHeightsM": [2.662, 2.063],
   "roof": { "overallType": "PITCHED", "confidence": "high" },
   "elevations": [
-    { "face": "front", "faceRoof": "HIPPED", "apexCount": 0, "apexReason": "plain eaves front → 0", "confidence": "high" },
-    { "face": "rear",  "faceRoof": "HIPPED", "apexCount": 0, "apexReason": "no projecting gable → 0", "confidence": "high" },
-    { "face": "left",  "faceRoof": "GABLED", "apexCount": 1, "apexReason": "gable-end rises to a point → 1", "confidence": "high" },
-    { "face": "right", "faceRoof": "GABLED", "apexCount": 1, "apexReason": "gable-end rises to a point → 1", "confidence": "high" }
+    { "face": "front", "faceRoof": "HIPPED", "apexReason": "plain eaves front → 0", "apexCount": 0, "confidence": "high" },
+    { "face": "rear",  "faceRoof": "HIPPED", "apexReason": "no projecting gable → 0", "apexCount": 0, "confidence": "high" },
+    { "face": "left",  "faceRoof": "GABLED", "apexReason": "gable-end rises to a point → 1", "apexCount": 1, "confidence": "high" },
+    { "face": "right", "faceRoof": "GABLED", "apexReason": "gable-end rises to a point → 1", "apexCount": 1, "confidence": "high" }
   ],
   "wallSegments": [
     { "position": "front", "lengthM": 10.66, "sourceDimension": "10660", "confidence": "high" },
@@ -281,7 +306,7 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
       "rectangles": [{ "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }],
       "sourceSheet": "First Floor Plan", "confidence": "high" }
   ],
-  "lowLevel": { "porchCount": 1, "bayCount": 0, "confidence": "medium" },
+  "lowLevel": { "porchCanopyCount": 0, "porchSolidCount": 1, "baySingleStoreyCount": 0, "bayTwoStoreyCount": 0, "confidence": "medium" },
   "chimney": { "value": false, "confidence": "high" },
   "notes": "Semi-detached pair; frontage 10660 spans both (dwellingsWide=2); storey ladder 2662+2063=4725 confirms the soffit; GF+FF gross-internal 35.60."
 }
@@ -295,18 +320,21 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 2. **`sourceDimension` verified** against the text layer; **wall page-kind** and
    **apex/roof** consistency checked — anything off is confidence-capped + flagged.
 3. **`height.ts`** reconciles the soffit read vs the storey ladder; **`birdcage.ts`**
-   computes + reconciles the area. Both write a step-by-step derivation to the
-   take-off `warnings` for the review tooltip.
-4. **Persisted** into measurement rows + wall segments + the per-elevation breakdown.
-5. **The take-off engine** turns the observables into Colin's line (lifts, perimeter,
-   birdcage, render, apex, party walls).
-6. **The review screen** shows every field, its (computed) confidence, and — on hover —
-   how it was read or reconciled. A person confirms before anything is priced.
+   computes + reconciles the area (per house). Both write a step-by-step derivation
+   to the take-off `warnings` for the review tooltip.
+4. **Persisted** into measurement rows (`TakeoffMeasurement`) + wall segments +
+   the per-elevation breakdown + a big `warnings` JSON of categoricals and flags.
+5. **The take-off engine** (`fromStored.ts` → `engine.ts`) turns the observables
+   into Colin's line (lifts, perimeter, birdcage, render, apex, party walls) per
+   configuration, honouring any human edits.
+6. **The review screen** shows every field, its (computed) confidence, and — on
+   hover — how it was read or reconciled. A person confirms before anything is priced.
 
 The model reads; the engines reconcile; a human signs off. Nothing is auto-priced.
 
 ---
 
-*Prompt version `2026-08-24.1` · model `claude-opus-4-8`. Bump `PROMPT_VERSION` when
+*Prompt version `2026-08-26.2` · model `claude-opus-4-8`. Bump `PROMPT_VERSION` when
 §3/§4 change. Background: `docs/11-takeoff-engine-spec.md` (§8a for the walls/apex/
-height hardening); measurement playbook: `docs/13-extraction-playbook.md`.*
+height hardening); measurement playbook: `docs/13-extraction-playbook.md`; the
+exhaustive single-file reference: `docs/EXTRACTOR-COMPLETE-REFERENCE.md`.*
