@@ -247,11 +247,19 @@ the "a person confirms every take-off" promise intact end to end.
 
 ## 11. Upload layer — Uppy + TUS
 
-> **As built (2026-08-28):** a robust **custom folder uploader** — folder drag-drop
-> (FileSystem API recursion) + a `webkitdirectory` picker + loose files/ZIP, with
-> `relativePath` preserved end-to-end, duplicate filenames zipped by index, a
-> concurrency pool and per-file retry — over the existing **signed-URL** transport
-> (guaranteed to work against the RLS-protected bucket, no policy change needed).
+> **As built (2026-08-28):** a robust, **folder-first** custom uploader — folder
+> drag-drop (FileSystem API recursion) + a `webkitdirectory` picker (loose files /
+> ZIP still accepted), with `relativePath` preserved end-to-end, non-PDF/ZIP files
+> filtered client-side, a concurrency pool (5) and **backoff retry** (0/1s/3s) — over
+> the existing **signed-URL** transport (works against the RLS-protected bucket, no
+> policy change needed). **Resumable by re-drop:** files are **registered
+> incrementally** as they finish (`registerUploads`, batches of 20) — not all at the
+> end — so an interrupted session keeps its progress; `createSignedUploads` then
+> **skips files already registered** for the pack (by relative path), so re-dropping
+> the same folder re-uploads only what's missing. `startProcessing` enqueues the
+> pack once at the end (idempotent). The worker also dedupes by **content hash**
+> (zip-vs-unzipped). The folder-first guidance is the reliability win: many small
+> parallel transfers beat one fragile 155 MB ZIP.
 > **Uppy + TUS resumable (below) is the intended upgrade:** it adds cross-session
 > resume for very large packs, but browser-side TUS to Supabase needs a Storage RLS
 > policy allowing the authenticated user to insert into `tender-packs` (the current

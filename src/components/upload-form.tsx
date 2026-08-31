@@ -2,8 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, FolderUp } from "lucide-react";
-import { createSignedUploads, finalizeUploads } from "@/server/actions/upload";
+import { FolderUp, FileUp } from "lucide-react";
+import {
+  createSignedUploads,
+  registerUploads,
+  startProcessing,
+} from "@/server/actions/upload";
+import { isUploadableName, normalizeRelativePath } from "@/lib/upload/plan";
 import { ProgressBar } from "@/components/ui/progress";
 import { cn, formatBytes } from "@/lib/utils";
 
@@ -12,23 +17,20 @@ type FileStatus = {
   name: string;
   state: "uploading" | "done" | "error";
   size: number;
-  progress: number; // 0–100, real bytes uploaded
+  progress: number; // 0–100
   error?: string;
 };
 
-/** A picked file plus its path inside the uploaded folder (docs/17 grouping signal). */
 interface FileWithPath {
   file: File;
   relativePath: string;
 }
 
 const MAX_CONCURRENT = 5;
-const MAX_RETRIES = 2;
+const RETRY_DELAYS_MS = [0, 1000, 3000]; // attempt 1 immediate, then backoff
+const FLUSH_EVERY = 20; // register completed files in batches (durability + resume)
 
-/**
- * PUT a file straight to a Supabase signed upload URL via XHR (true byte-level
- * progress). Mirrors what `uploadToSignedUrl` sends (multipart FormData).
- */
+/** PUT a file to a Supabase signed upload URL via XHR (true byte progress). */
 function putToSignedUrl(
   signedUrl: string,
   file: File,
@@ -41,7 +43,6 @@ function putToSignedUrl(
     xhr.setRequestHeader("apikey", anonKey);
     xhr.setRequestHeader("authorization", `Bearer ${anonKey}`);
     xhr.setRequestHeader("x-upsert", "true");
-
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     });
@@ -53,7 +54,6 @@ function putToSignedUrl(
     });
     xhr.addEventListener("error", () => reject(new Error("Network error")));
     xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
-
     const form = new FormData();
     form.append("cacheControl", "3600");
     form.append("", file);
@@ -61,19 +61,20 @@ function putToSignedUrl(
   });
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Recursively read a dropped directory (FileSystem API) into files + paths. */
 async function readEntry(entry: FileSystemEntry): Promise<FileWithPath[]> {
   if (entry.isFile) {
     const fileEntry = entry as FileSystemFileEntry;
     const file = await new Promise<File>((res, rej) => fileEntry.file(res, rej));
-    return [{ file, relativePath: entry.fullPath.replace(/^\//, "") }];
+    return [{ file, relativePath: normalizeRelativePath(entry.fullPath, file.name) }];
   }
-  const dirReader = (entry as FileSystemDirectoryEntry).createReader();
+  const reader = (entry as FileSystemDirectoryEntry).createReader();
   const entries: FileSystemEntry[] = [];
-  // readEntries returns in batches — keep calling until it's empty.
   for (;;) {
     const batch = await new Promise<FileSystemEntry[]>((res, rej) =>
-      dirReader.readEntries(res, rej),
+      reader.readEntries(res, rej),
     );
     if (batch.length === 0) break;
     entries.push(...batch);
@@ -91,7 +92,6 @@ async function filesFromDrop(dt: DataTransfer): Promise<FileWithPath[]> {
     const all = await Promise.all(entries.map(readEntry));
     return all.flat();
   }
-  // Fallback: no FileSystem API — take the flat file list.
   return Array.from(dt.files).map((file) => ({ file, relativePath: file.name }));
 }
 
@@ -101,37 +101,21 @@ export function UploadForm({ packId }: { packId: string }) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [statuses, setStatuses] = useState<FileStatus[]>([]);
+  const [resumed, setResumed] = useState(0);
   const router = useRouter();
 
   async function handleFiles(picked: FileWithPath[]) {
-    const files = picked.filter((p) => /\.(pdf|zip)$/i.test(p.file.name));
+    const files = picked.filter((p) => isUploadableName(p.file.name));
     if (files.length === 0) return;
 
     setBusy(true);
-    setStatuses(
-      files.map((f, i) => ({
-        key: `${i}-${f.relativePath}`,
-        name: f.relativePath,
-        state: "uploading",
-        size: f.file.size,
-        progress: 0,
-      })),
-    );
+    setResumed(0);
 
-    const setProgress = (key: string, progress: number) =>
-      setStatuses((prev) => prev.map((s) => (s.key === key ? { ...s, progress } : s)));
-    const setState = (key: string, state: FileStatus["state"], error?: string) =>
-      setStatuses((prev) =>
-        prev.map((s) =>
-          s.key === key
-            ? { ...s, state, error, progress: state === "done" ? 100 : s.progress }
-            : s,
-        ),
-      );
+    const setStatus = (key: string, patch: Partial<FileStatus>) =>
+      setStatuses((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
 
     try {
-      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const targets = await createSignedUploads(
+      const prep = await createSignedUploads(
         packId,
         files.map((f) => ({
           name: f.file.name,
@@ -140,60 +124,105 @@ export function UploadForm({ packId }: { packId: string }) {
           relativePath: f.relativePath,
         })),
       );
+      setResumed(prep.alreadyDone);
 
-      const uploaded: {
+      const targetByIndex = new Map(prep.targets.map((t) => [t.index, t]));
+      // Initial UI: files not in the target set were already uploaded (resumed).
+      setStatuses(
+        files.map((f, i) => ({
+          key: `${i}-${f.relativePath}`,
+          name: f.relativePath,
+          state: targetByIndex.has(i) ? "uploading" : "done",
+          size: f.file.size,
+          progress: targetByIndex.has(i) ? 0 : 100,
+        })),
+      );
+
+      if (prep.targets.length === 0) {
+        await startProcessing(packId); // everything already uploaded → just process
+        return;
+      }
+
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+      const targets = prep.targets;
+
+      // Completed-but-unregistered buffer, flushed in batches for durability.
+      type Desc = {
         path: string;
         name: string;
         relativePath: string;
         type: string;
         size: number;
         isArchive: boolean;
-      }[] = [];
+      };
+      const buffer: Desc[] = [];
+      async function flush(force = false) {
+        while (buffer.length >= FLUSH_EVERY || (force && buffer.length > 0)) {
+          const batch = buffer.splice(0, FLUSH_EVERY);
+          try {
+            await registerUploads(packId, batch);
+          } catch {
+            buffer.unshift(...batch); // put back; retried on the final force-flush
+            break;
+          }
+        }
+      }
 
-      // Concurrency-limited pool with per-file retry (robust on big folders).
       let cursor = 0;
       async function worker() {
         while (cursor < targets.length) {
           const t = targets[cursor++];
-          const picked = files[t.index];
-          if (!picked) continue;
+          const item = files[t.index];
+          if (!item) continue;
           const key = `${t.index}-${t.relativePath}`;
+
+          let ok = false;
           let lastErr: unknown;
-          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+            if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt]);
             try {
-              await putToSignedUrl(t.signedUrl, picked.file, anonKey, (frac) =>
-                setProgress(key, Math.round(frac * 100)),
+              await putToSignedUrl(t.signedUrl, item.file, anonKey, (frac) =>
+                setStatus(key, { progress: Math.round(frac * 100) }),
               );
-              setState(key, "done");
-              uploaded.push({
-                path: t.path,
-                name: t.name,
-                relativePath: t.relativePath,
-                type: t.type,
-                size: t.size,
-                isArchive: t.isArchive,
-              });
-              lastErr = null;
+              ok = true;
               break;
             } catch (err) {
               lastErr = err;
             }
           }
-          if (lastErr)
-            setState(key, "error", lastErr instanceof Error ? lastErr.message : "Upload failed");
+
+          if (ok) {
+            setStatus(key, { state: "done", progress: 100 });
+            buffer.push({
+              path: t.path,
+              name: t.name,
+              relativePath: t.relativePath,
+              type: t.type,
+              size: t.size,
+              isArchive: t.isArchive,
+            });
+            if (buffer.length >= FLUSH_EVERY) await flush();
+          } else {
+            setStatus(key, {
+              state: "error",
+              error: lastErr instanceof Error ? lastErr.message : "Upload failed",
+            });
+          }
         }
       }
-      await Promise.all(Array.from({ length: MAX_CONCURRENT }, worker));
 
-      if (uploaded.length) await finalizeUploads(packId, uploaded);
+      await Promise.all(Array.from({ length: MAX_CONCURRENT }, worker));
+      await flush(true); // register any stragglers
+      await startProcessing(packId);
     } finally {
       setBusy(false);
       router.refresh();
     }
   }
 
-  const doneCount = statuses.filter((s) => s.state === "done").length;
-  const errorCount = statuses.filter((s) => s.state === "error").length;
+  const total = statuses.length;
+  const done = statuses.filter((s) => s.state === "done").length;
+  const errors = statuses.filter((s) => s.state === "error").length;
 
   return (
     <div>
@@ -207,8 +236,7 @@ export function UploadForm({ packId }: { packId: string }) {
           e.preventDefault();
           setDragging(false);
           if (busy) return;
-          const files = await filesFromDrop(e.dataTransfer);
-          void handleFiles(files);
+          void handleFiles(await filesFromDrop(e.dataTransfer));
         }}
         className={cn(
           "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-14 text-center transition-colors",
@@ -217,22 +245,22 @@ export function UploadForm({ packId }: { packId: string }) {
         )}
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-md border border-hairline bg-canvas">
-          <Upload className="h-4 w-4 text-ink-muted" strokeWidth={1.75} />
+          <FolderUp className="h-4 w-4 text-ink-muted" strokeWidth={1.75} />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">
-            {busy ? "Uploading…" : "Drop a tender-pack folder or files here"}
+            {busy ? "Uploading…" : "Drop the tender-pack folder here"}
           </p>
           <p className="mt-1 text-xs text-ink-subtle">
-            A whole folder (subfolders and all), loose PDFs, or a ZIP — the system
-            sorts pages into house types
+            The whole folder — subfolders and all. The system sorts the pages into
+            house types and ignores the non-scaffolding files.
           </p>
         </div>
         <div className="mt-1 flex items-center gap-2">
           <button
             type="button"
             onClick={() => !busy && folderInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-canvas"
+            className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3.5 py-1.5 text-xs font-medium text-canvas transition-opacity hover:opacity-90"
           >
             <FolderUp className="h-3.5 w-3.5" strokeWidth={1.75} />
             Choose folder
@@ -242,9 +270,13 @@ export function UploadForm({ packId }: { packId: string }) {
             onClick={() => !busy && fileInputRef.current?.click()}
             className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-canvas"
           >
-            Choose files
+            <FileUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Files or ZIP
           </button>
         </div>
+        <p className="text-[11px] text-ink-subtle">
+          Tip: uploading the folder is more reliable than a single large ZIP.
+        </p>
 
         {/* Folder picker (webkitdirectory → webkitRelativePath preserved). */}
         <input
@@ -252,18 +284,22 @@ export function UploadForm({ packId }: { packId: string }) {
           type="file"
           hidden
           multiple
-          // @ts-expect-error non-standard but widely supported directory picker
+          // @ts-expect-error non-standard directory picker attributes
           webkitdirectory=""
           directory=""
           onChange={(e) => {
             const list = Array.from(e.target.files ?? []).map((file) => ({
               file,
-              relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+              relativePath: normalizeRelativePath(
+                (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "",
+                file.name,
+              ),
             }));
+            e.target.value = "";
             void handleFiles(list);
           }}
         />
-        {/* Flat file picker. */}
+        {/* Loose files / ZIP picker. */}
         <input
           ref={fileInputRef}
           type="file"
@@ -271,19 +307,29 @@ export function UploadForm({ packId }: { packId: string }) {
           multiple
           hidden
           onChange={(e) => {
-            const list = Array.from(e.target.files ?? []).map((file) => ({ file, relativePath: file.name }));
+            const list = Array.from(e.target.files ?? []).map((file) => ({
+              file,
+              relativePath: file.name,
+            }));
+            e.target.value = "";
             void handleFiles(list);
           }}
         />
       </div>
 
-      {statuses.length > 0 && (
+      {total > 0 && (
         <>
           <p className="mt-3 text-xs text-ink-subtle">
-            {doneCount} of {statuses.length} uploaded
-            {errorCount > 0 && ` · ${errorCount} failed`}
+            {done} of {total} uploaded
+            {errors > 0 && ` · ${errors} failed`}
+            {resumed > 0 && ` · ${resumed} already uploaded (resumed)`}
           </p>
-          {statuses.length <= 40 && (
+          {errors > 0 && !busy && (
+            <p className="mt-1 text-xs text-ink-muted">
+              Some files failed — drop the same folder again to retry just those.
+            </p>
+          )}
+          {total <= 40 && (
             <ul className="mt-2 space-y-1.5">
               {statuses.map((s) => {
                 const label =
