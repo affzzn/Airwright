@@ -102,6 +102,49 @@ describe("compileRecipe — junk keywords → ignore rules", () => {
   });
 });
 
+describe("compileRecipe — canonical snapping (fix filename over-split)", () => {
+  // The AI's de-duplicated list for a Tilia-style pack.
+  const tiliaNames = [
+    "Cromford",
+    "Sandford",
+    "SM1_SM2 Maisonettes",
+    "2B4PN",
+    "3B5PN",
+  ];
+  const p = compileRecipe(make({ strategy: "filename-prefix", houseTypeNames: tiliaNames }));
+  const f = p.grouping.houseTypeFromPath;
+
+  it("collapses 2B4P/2B4PN and 3B5P/3B5PN to the AI canonical", () => {
+    expect(f(`${T}/2B4P-201-03 Front Elevation_Ver3.pdf`)).toBe("2B4PN");
+    expect(f(`${T}/2B4PN-201-03 Front Elevation_Ver3.pdf`)).toBe("2B4PN");
+    expect(f(`${T}/3B5P-201-03 Front Elevation_Ver3.pdf`)).toBe("3B5PN");
+  });
+  it("collapses SANDFORD and SANDFORD BOULEVARD to Sandford", () => {
+    expect(f(`${T}/SANDFORD-201-03 Front Elevation_Ver3.pdf`)).toBe("SANDFORD");
+    expect(f(`${T}/SANDFORD Boulevard-201-06B Side Elevation_Ver5.pdf`)).toBe("SANDFORD");
+  });
+  it("collapses SM1_SM2 and MAISONETTES to the maisonette canonical", () => {
+    expect(f(`${T}/SM1_SM2-201-01D Ground Floor Plan_Ver6.pdf`)).toBe("SM1 SM2 MAISONETTES");
+    expect(f(`${T}/MAISONETTES-201-01 Ground Floor Plan_Ver1.pdf`)).toBe("SM1 SM2 MAISONETTES");
+  });
+  it("leaves a raw key with no canonical match unchanged", () => {
+    expect(f(`${T}/CROMFORD-201-03 Front Elevation_Ver3.pdf`)).toBe("CROMFORD");
+    expect(f(`${T}/UNLISTED-201-03 Front Elevation_Ver3.pdf`)).toBe("UNLISTED");
+  });
+  it("does NOT over-merge when the AI lists both a name and its extension", () => {
+    const q = compileRecipe(
+      make({ strategy: "filename-prefix", houseTypeNames: ["Cromford", "Cromford Manor"] }),
+    );
+    const g = q.grouping.houseTypeFromPath;
+    expect(g(`${T}/CROMFORD-201-03 Front Elevation.pdf`)).toBe("CROMFORD");
+    expect(g(`${T}/CROMFORD Manor-201-03 Front Elevation.pdf`)).toBe("CROMFORD MANOR");
+  });
+  it("is a no-op when the AI returned no house-type names", () => {
+    const q = compileRecipe(make({ strategy: "filename-prefix", houseTypeNames: [] }));
+    expect(q.grouping.houseTypeFromPath(`${T}/2B4P-201-03 Front Elevation.pdf`)).toBe("2B4P");
+  });
+});
+
 describe("recipeSchema", () => {
   it("applies defaults for the array/meta fields", () => {
     const r = recipeSchema.parse({ strategy: "folder-parent" });

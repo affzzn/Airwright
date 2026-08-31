@@ -45,6 +45,40 @@ function escapeRx(s: string): RegExp {
 }
 
 /**
+ * Build a canonicaliser from the AI's `houseTypeNames` list. Filename-prefix packs
+ * over-split when the same type shows up with slightly different prefixes
+ * (`2B4P`/`2B4PN`, `SANDFORD`/`SANDFORD BOULEVARD`, `SM1 SM2`/`MAISONETTES`). The AI's
+ * list is already de-duplicated, so we SNAP each raw key to the nearest canonical
+ * name. Deterministic; the AI governs which names are distinct (an exact/longest
+ * match wins, so `Cromford` and `Cromford Manor` stay separate if the AI lists both).
+ */
+function makeCanonicalizer(names: string[]): (raw: string) => string {
+  const compact = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const canon = names
+    .map((n) => ({ display: norm(n), c: compact(n) }))
+    .filter((x) => x.c.length >= 3);
+  if (canon.length === 0) return (raw) => raw;
+
+  return (raw) => {
+    const rc = compact(raw);
+    if (rc.length < 3) return raw;
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const cand of canon) {
+      let score = 0;
+      if (cand.c === rc) score = 1000; // exact
+      else if (cand.c.includes(rc)) score = 500 + rc.length; // raw ⊂ canonical (2B4P → 2B4PN)
+      else if (rc.includes(cand.c)) score = 400 + cand.c.length; // canonical ⊂ raw (SANDFORD BOULEVARD → SANDFORD)
+      if (score > bestScore) {
+        bestScore = score;
+        best = cand.display;
+      }
+    }
+    return best ?? raw;
+  };
+}
+
+/**
  * house type = the folder that directly contains the file. The folder must be
  * NESTED at least one level below the pack root (parts.length >= 3), so a loose
  * file sitting directly under the top pack folder is treated as pack-level, not a
@@ -84,8 +118,9 @@ export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
     .map((m) => m?.trim())
     .filter((m): m is string => Boolean(m));
   const combinedFolder = recipe.combinedPdfFolder?.trim() || null;
+  const canonicalize = makeCanonicalizer(recipe.houseTypeNames);
 
-  const houseTypeFromPath = (rp: string): string | null => {
+  const rawFromPath = (rp: string): string | null => {
     const parts = seg(rp);
     switch (recipe.strategy) {
       case "folder-parent":
@@ -115,6 +150,13 @@ export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
         return folderParent(rp); // loose file (e.g. apartment GA pages)
       }
     }
+  };
+
+  // Snap the raw key to the nearest AI-canonical house-type name (collapses
+  // filename over-splits); a no-op when the AI listed no names.
+  const houseTypeFromPath = (rp: string): string | null => {
+    const raw = rawFromPath(rp);
+    return raw ? canonicalize(raw) : null;
   };
 
   const isCombinedPdf =
