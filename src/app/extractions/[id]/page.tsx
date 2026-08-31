@@ -164,6 +164,7 @@ export default async function ReviewPage({
         title={title}
         subtitle={subtitle}
         pdfUrl={pdfUrl}
+        fullDrawingHref={`/documents/${extraction.document.id}/full`}
         relevantPages={relevantPages}
         takeoffId={takeoff.id}
         status={takeoff.status}

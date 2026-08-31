@@ -4,7 +4,7 @@ import { collectZipPdfEntries } from "@/lib/zip";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { downloadFromStorage, uploadToStorage } from "@/lib/supabase/storage";
-import { getPdfPageCount, buildRangeString } from "@/lib/pdf";
+import { buildRangeString } from "@/lib/pdf";
 import { classifyPdf, type PageClass } from "@/lib/extract/classify";
 import {
   categoriseDocument,
@@ -104,63 +104,105 @@ async function triageRelevancePass(packId: string): Promise<void> {
   }
 }
 
-// --- 1. Turn raw uploads (PDFs + ZIPs) into Document rows ---------------------
+/** Run an async fn over items with bounded concurrency (I/O parallelism). */
+async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
+// Files whose PATH is clearly a non-scaffold trade — never downloaded/parsed (they
+// still get grouped by identity + appear in the lazy full dossier, just not read).
+const JUNK_PATH_RX =
+  /(^|\/)(0[1-9]_[a-z]|1[0-2]_[a-z]|kitchens?|wardrobes?|fitted[_ ]furniture|under[_ ]stair|ventilation|heating[_ ]and[_ ]plumbing|\bsap\b|part[_ ]o|lintels?|structural[_ ]appraisal|structural[_ ]calc|metsawood|symphony|goodings?|smartroof|roofspace|pinewood|risk[_ ]assessment|\bra[s]?\b)(\/|_|\b)/i;
+
+const isJunkPath = (relativePath: string): boolean => JUNK_PATH_RX.test(relativePath);
+
+// --- 1. Register raw uploads as Document rows (NO per-file download — perf). ---
+// The bytes are only downloaded ONCE, later, by the classify pass (§2). ZIPs are
+// the only per-file download here (unzip the archive once, upload each entry).
+
+function docRow(
+  packId: string,
+  fileName: string,
+  relativePath: string,
+  storagePath: string,
+  sizeBytes: number | null,
+): Prisma.DocumentCreateManyInput {
+  return {
+    packId,
+    fileName,
+    relativePath,
+    storageBucket: env.storageBucket,
+    storagePath,
+    mimeType: "application/pdf",
+    pageCount: null, // filled by the classify pass
+    sizeBytes,
+    isReadable: true, // provisional; the classify pass sets the real value
+    needsReview: false,
+  };
+}
 
 async function ingestUploads(packId: string): Promise<void> {
-  const uploads = await prisma.packUpload.findMany({
-    where: { packId, status: "PENDING" },
-  });
+  const uploads = await prisma.packUpload.findMany({ where: { packId, status: "PENDING" } });
+  if (uploads.length === 0) return;
 
-  for (const upload of uploads) {
+  // One query for the pack's existing relative paths (dedup, incl. zip-vs-unzipped).
+  const existing = new Set(
+    (await prisma.document.findMany({ where: { packId }, select: { relativePath: true } }))
+      .map((d) => d.relativePath)
+      .filter((x): x is string => x !== null),
+  );
+
+  // ── Loose PDFs: BATCH-register (one createMany, no per-file download/query).
+  const loose = uploads.filter((u) => !u.isArchive);
+  const looseRows: Prisma.DocumentCreateManyInput[] = [];
+  for (const u of loose) {
+    const rp = u.relativePath ?? u.fileName;
+    if (existing.has(rp)) continue;
+    existing.add(rp);
+    looseRows.push(docRow(packId, u.fileName, rp, u.storagePath, u.sizeBytes ?? null));
+  }
+  if (looseRows.length) await prisma.document.createMany({ data: looseRows });
+  if (loose.length)
+    await prisma.packUpload.updateMany({ where: { id: { in: loose.map((u) => u.id) } }, data: { status: "PROCESSED" } });
+
+  // ── Archives: download the zip once, upload entries in parallel, batch-register.
+  for (const u of uploads.filter((x) => x.isArchive)) {
     try {
-      if (upload.isArchive) {
-        const zip = await downloadFromStorage(upload.storagePath);
-        // Recursive: real packs arrive as zips-of-zips (e.g. a OneDrive export
-        // zip inside the pack zip) — nested PDFs must not vanish silently.
-        const { pdfs, skipped } = collectZipPdfEntries(new Uint8Array(zip));
-        for (let i = 0; i < pdfs.length; i++) {
-          const entry = pdfs[i];
-          const base = entry.name.split("/").pop() ?? entry.name;
-          const buffer = Buffer.from(entry.bytes);
-          // The zip entry name IS the relative path inside the pack (docs/17).
-          const relativePath = joinRelative(upload.relativePath, entry.name);
-          // Deterministic path (upload id + entry index) so a retried job
-          // OVERWRITES rather than duplicating documents.
-          const path = `${packId}/${upload.id}/${i}-${sanitizeKey(base)}`;
-          if (await documentExists(packId, path, buffer)) continue;
-          await uploadToStorage(path, buffer, "application/pdf", { upsert: true });
-          await createDocument(packId, base, relativePath, path, buffer);
-        }
-        if (skipped.length) {
-          console.warn(
-            `[process-pack] ${upload.fileName}: ${skipped.length} non-PDF entr${skipped.length === 1 ? "y" : "ies"} set aside: ${skipped.slice(0, 10).join(", ")}${skipped.length > 10 ? ", …" : ""}`,
-          );
-        }
-        if (pdfs.length === 0) {
-          throw new Error(
-            `No PDFs found in the archive${skipped.length ? ` (contains: ${skipped.slice(0, 5).join(", ")})` : ""}`,
-          );
-        }
-      } else {
-        // A PDF already sitting in storage — register it as a Document (skip if a
-        // retry, or a duplicate zip-vs-unzipped copy, already registered it).
-        const buffer = await downloadFromStorage(upload.storagePath);
-        if (!(await documentExists(packId, upload.storagePath, buffer))) {
-          const relativePath = upload.relativePath ?? upload.fileName;
-          await createDocument(packId, upload.fileName, relativePath, upload.storagePath, buffer);
-        }
-      }
-      await prisma.packUpload.update({
-        where: { id: upload.id },
-        data: { status: "PROCESSED" },
-      });
+      const zip = await downloadFromStorage(u.storagePath);
+      const { pdfs, skipped } = collectZipPdfEntries(new Uint8Array(zip));
+      if (pdfs.length === 0)
+        throw new Error(`No PDFs found in the archive${skipped.length ? ` (contains: ${skipped.slice(0, 5).join(", ")})` : ""}`);
+      const rows: Prisma.DocumentCreateManyInput[] = [];
+      await mapPool(
+        pdfs.map((e, i) => ({ e, i })),
+        PARSE_CONCURRENCY,
+        async ({ e, i }) => {
+          const base = e.name.split("/").pop() ?? e.name;
+          const rp = joinRelative(u.relativePath, e.name);
+          if (existing.has(rp)) return;
+          existing.add(rp);
+          const path = `${packId}/${u.id}/${i}-${sanitizeKey(base)}`;
+          await uploadToStorage(path, Buffer.from(e.bytes), "application/pdf", { upsert: true });
+          rows.push(docRow(packId, base, rp, path, e.bytes.byteLength));
+        },
+      );
+      if (rows.length) await prisma.document.createMany({ data: rows });
+      if (skipped.length)
+        console.warn(
+          `[process-pack] ${u.fileName}: ${skipped.length} non-PDF entr${skipped.length === 1 ? "y" : "ies"} set aside: ${skipped.slice(0, 10).join(", ")}${skipped.length > 10 ? ", …" : ""}`,
+        );
+      await prisma.packUpload.update({ where: { id: u.id }, data: { status: "PROCESSED" } });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await prisma.packUpload.update({
-        where: { id: upload.id },
-        data: { status: "FAILED", error: message },
-      });
-      console.error(`[process-pack] upload ${upload.fileName} failed:`, message);
+      await prisma.packUpload.update({ where: { id: u.id }, data: { status: "FAILED", error: message } });
+      console.error(`[process-pack] upload ${u.fileName} failed:`, message);
     }
   }
 }
@@ -172,20 +214,6 @@ function joinRelative(prefix: string | null, entryName: string): string {
   return dir ? `${dir}/${entryName}` : entryName;
 }
 
-/** Already ingested? Either the same storage path, or the same content (dedupe). */
-async function documentExists(
-  packId: string,
-  storagePath: string,
-  buffer: Buffer,
-): Promise<boolean> {
-  const hash = sha256(buffer);
-  const existing = await prisma.document.findFirst({
-    where: { packId, OR: [{ storagePath }, { contentHash: hash }] },
-    select: { id: true },
-  });
-  return existing !== null;
-}
-
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
@@ -195,70 +223,65 @@ function sanitizeKey(name: string): string {
   return name.replace(/[^A-Za-z0-9._ ()-]/g, "_").slice(0, 180);
 }
 
-async function createDocument(
-  packId: string,
-  fileName: string,
-  relativePath: string,
-  storagePath: string,
-  buffer: Buffer,
-): Promise<void> {
-  let pageCount: number | null = null;
-  try {
-    pageCount = await getPdfPageCount(buffer);
-  } catch {
-    pageCount = null;
-  }
-  await prisma.document.create({
-    data: {
-      packId,
-      fileName,
-      relativePath,
-      contentHash: sha256(buffer),
-      storageBucket: env.storageBucket,
-      storagePath,
-      mimeType: "application/pdf",
-      pageCount,
-      sizeBytes: buffer.byteLength,
-      isReadable: pageCount !== null,
-      needsReview: pageCount === null,
-    },
-  });
-}
+// --- 2. Download-once + classify pass (parallel; page count comes from the parse) ---
 
-// --- 2. Classify every document's pages (no segmentation / no queueing here) ---
+const PARSE_CONCURRENCY = 8; // ≤ the DB pooled connection limit
 
 async function classifyDocuments(packId: string): Promise<void> {
   const documents = await prisma.document.findMany({
     where: { packId, classifiedAt: null, kind: { not: "ASSEMBLED" } },
+    select: { id: true, fileName: true, relativePath: true, storagePath: true },
   });
 
-  for (const doc of documents) {
-    if (!doc.isReadable) {
+  const seenHashes = new Map<string, string>(); // hash → docId (best-effort in-run dedup)
+
+  await mapPool(documents, PARSE_CONCURRENCY, async (doc) => {
+    const rp = doc.relativePath ?? doc.fileName;
+
+    // Skip obvious junk by NAME or PATH — never download/parse it (perf). It is
+    // still grouped by identity and appears in the lazy full dossier, just not read.
+    const pre = filenamePrefilter(doc.fileName);
+    if (pre || isJunkPath(rp)) {
       await prisma.document.update({
         where: { id: doc.id },
-        data: { classifiedAt: new Date(), needsReview: true, category: "UNREADABLE", included: false },
+        data: {
+          classifiedAt: new Date(),
+          category: pre?.category ?? "NOT_RELEVANT",
+          categoryDetail: pre?.detail ?? "Trade / non-scaffold path",
+          included: false,
+          pageCount: null,
+        },
       });
-      continue;
+      return;
     }
 
-    // Filename pre-filter: skip opening clearly-junk files entirely (large packs).
-    const skip = filenamePrefilter(doc.fileName);
-    if (skip) {
-      await prisma.document.update({
-        where: { id: doc.id },
-        data: { classifiedAt: new Date(), category: skip.category, categoryDetail: skip.detail, included: false },
-      });
-      continue;
-    }
-
-    const pdf = await downloadFromStorage(doc.storagePath);
     let pages: PageClass[] = [];
     let hasText = false;
+    let buffer: Buffer;
     try {
-      ({ pages, hasText } = await classifyPdf(pdf));
+      buffer = Buffer.from(await downloadFromStorage(doc.storagePath));
+      ({ pages, hasText } = await classifyPdf(buffer));
     } catch (err) {
-      console.error(`[process-pack] classify ${doc.fileName} failed:`, err);
+      console.error(`[process-pack] classify ${doc.fileName} failed:`, err instanceof Error ? err.message : err);
+      await prisma.document.update({
+        where: { id: doc.id },
+        data: { classifiedAt: new Date(), isReadable: false, needsReview: true, category: "UNREADABLE", included: false, pageCount: null },
+      });
+      return;
     }
+
+    // Content-hash dedup (a file duplicated under two paths that slipped past the
+    // relative-path dedup): keep the first, exclude the rest. In-memory only (no
+    // per-file DB scan — best-effort within this run).
+    const hash = sha256(buffer);
+    if (seenHashes.has(hash)) {
+      await prisma.document.update({
+        where: { id: doc.id },
+        data: { classifiedAt: new Date(), contentHash: hash, category: "NOT_RELEVANT", categoryDetail: "Duplicate", included: false, pageCount: pages.length || null },
+      });
+      return;
+    }
+    seenHashes.set(hash, doc.id);
 
     if (pages.length) {
       await prisma.documentPage.deleteMany({ where: { documentId: doc.id } });
@@ -279,6 +302,9 @@ async function classifyDocuments(packId: string): Promise<void> {
     await prisma.document.update({
       where: { id: doc.id },
       data: {
+        pageCount: pages.length || null,
+        contentHash: hash,
+        isReadable: pages.length > 0,
         kind: documentKind(pages),
         category,
         categoryDetail: detail,
@@ -289,7 +315,7 @@ async function classifyDocuments(packId: string): Promise<void> {
         classifiedAt: new Date(),
       },
     });
-  }
+  });
 }
 
 // --- 3. Detect the builder, group across files, assemble, prepare extractions --
@@ -320,12 +346,10 @@ async function groupAndPrepare(packId: string): Promise<void> {
   const files: IngestFile[] = docs.map((d) => ({
     documentId: d.id,
     relativePath: d.relativePath ?? d.fileName,
-    // Use the classified pages if we have them; else include every page as
-    // not-relevant (a junk file still belongs in the dossier).
-    pages:
-      d.pages.length > 0
-        ? d.pages.map((p) => ({ page: p.pageNumber, relevant: p.relevant, houseTypeName: p.houseTypeName }))
-        : Array.from({ length: d.pageCount ?? 1 }, (_, i) => ({ page: i + 1, relevant: false })),
+    // Classified files contribute their pages; junk/unparsed files contribute NO
+    // eager pages — they're still grouped by identity (→ group.files) and included
+    // in the lazy full dossier, but not merged into the eager relevant-only PDF.
+    pages: d.pages.map((p) => ({ page: p.pageNumber, relevant: p.relevant, houseTypeName: p.houseTypeName })),
   }));
 
   // Resolve the grouping recipe — AI-first (docs/17 §4), with a deterministic
@@ -419,28 +443,29 @@ async function groupAndPrepare(packId: string): Promise<void> {
     return;
   }
 
-  // ── AI/profile recipe → group everything + combined-PDF dossier, gated on confirm.
+  // ── AI/profile recipe → group everything; EAGERLY assemble only the RELEVANT
+  //    pages (small + fast); the full dossier is built lazily on "Open full drawing".
   const result = groupPack(files, profile);
   const summaryGroups: GroupingSummaryGroup[] = [];
 
   for (const group of result.groups) {
-    if (group.pages.length === 0) continue;
+    const relevantPages = group.pages.filter((p) => p.relevant);
+    if (relevantPages.length === 0) continue; // no scaffold pages → nothing to read
 
-    // Download the distinct source docs this group needs.
-    const neededIds = [...new Set(group.pages.map((p) => p.documentId))];
+    // Download ONLY the source docs that carry relevant pages, in parallel.
+    const neededIds = [...new Set(relevantPages.map((p) => p.documentId))];
     const sources = new Map<string, AssemblySource>();
-    for (const id of neededIds) {
+    await mapPool(neededIds, PARSE_CONCURRENCY, async (id) => {
       const src = docs.find((d) => d.id === id);
-      if (!src) continue;
-      const bytes = await downloadFromStorage(src.storagePath);
+      if (!src) return;
+      const bytes = Buffer.from(await downloadFromStorage(src.storagePath));
       sources.set(id, { documentId: id, relativePath: src.relativePath ?? src.fileName, bytes });
-    }
+    });
 
-    const assembled = await assembleHouseTypePdf(group, sources);
+    const assembled = await assembleHouseTypePdf({ ...group, pages: relevantPages }, sources);
     if (assembled.pageCount === 0) continue;
 
-    // The relevant pages (assembled relevant-first, so this is a clean "1-k" block)
-    // are what the extractor reads and the review preview shows.
+    // The eager PDF is relevant-only, so every page is in the range ("1-k").
     const relevantPositions = assembled.pageManifest.filter((m) => m.relevant).map((m) => m.assembledPage);
     const pageRange = buildRangeString(relevantPositions);
 
@@ -510,7 +535,7 @@ async function groupAndPrepare(packId: string): Promise<void> {
       extractionId,
       confidence: group.confidence,
       relevantPageCount: relevantPositions.length,
-      totalPageCount: assembled.pageCount,
+      totalPageCount: group.totalPageCount, // classified pages (full dossier adds the trade files)
       files: group.files,
       flags,
     });

@@ -9,7 +9,7 @@
 import { PDFDocument } from "pdf-lib";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { downloadFromStorage, uploadToStorage } from "@/lib/supabase/storage";
+import { downloadFromStorage, uploadToStorage, createSignedUrl } from "@/lib/supabase/storage";
 import { buildRangeString } from "@/lib/pdf";
 import type { AssembledPageRef } from "@/lib/ingest/assemble";
 
@@ -174,4 +174,82 @@ export async function mergeAssembledDocs(
   }
 
   return { relevantCount: relevantPositions.length, totalCount: newManifest.length };
+}
+
+const SIGNED_TTL = 60 * 60 * 4; // 4h — matches the review page
+
+/**
+ * Return a signed URL to a document's FULL drawing (docs/17 §5 — lazy dossier).
+ *
+ * For an ASSEMBLED doc, the eager PDF holds only the relevant pages; the COMPLETE
+ * dossier (every page of every file grouped into this house type, incl. the trade
+ * sheets) is built here ON DEMAND and cached to storage — so the heavy merge only
+ * happens when someone actually clicks "Open full drawing". For any other document
+ * it just signs the file itself.
+ */
+export async function ensureFullDossier(documentId: string): Promise<string> {
+  const doc = await prisma.document.findUnique({ where: { id: documentId } });
+  if (!doc) throw new Error("Document not found");
+  if (doc.kind !== "ASSEMBLED") return createSignedUrl(doc.storagePath, SIGNED_TTL);
+
+  const fullPath = doc.storagePath.replace(/\.pdf$/i, "") + "-full.pdf";
+  try {
+    return await createSignedUrl(fullPath, SIGNED_TTL); // already built + cached
+  } catch {
+    /* not built yet — build below */
+  }
+
+  const pack = await prisma.tenderPack.findUnique({
+    where: { id: doc.packId },
+    select: { groupingData: true },
+  });
+  const group = readGroupingData(pack?.groupingData ?? null)?.groups.find(
+    (g) => g.documentId === documentId,
+  );
+  const relPaths = group?.files ?? [];
+  if (relPaths.length === 0) return createSignedUrl(doc.storagePath, SIGNED_TTL); // no group info
+
+  const sourceDocs = await prisma.document.findMany({
+    where: { packId: doc.packId, relativePath: { in: relPaths } },
+    include: { pages: { select: { pageNumber: true, relevant: true } } },
+  });
+
+  // Load every source PDF (bounded concurrency) and enumerate its pages + relevance.
+  const loaded = new Map<string, PDFDocument>();
+  const entries: { docId: string; index: number; relevant: boolean }[] = [];
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(8, sourceDocs.length) }, async () => {
+    while (cursor < sourceDocs.length) {
+      const sd = sourceDocs[cursor++];
+      try {
+        const bytes = await downloadFromStorage(sd.storagePath);
+        const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        loaded.set(sd.id, pdf);
+      } catch {
+        /* skip a corrupt/missing source */
+      }
+    }
+  });
+  await Promise.all(workers);
+
+  for (const sd of sourceDocs) {
+    const pdf = loaded.get(sd.id);
+    if (!pdf) continue;
+    const relByPage = new Map(sd.pages.map((p) => [p.pageNumber, p.relevant]));
+    for (let i = 0; i < pdf.getPageCount(); i++)
+      entries.push({ docId: sd.id, index: i, relevant: relByPage.get(i + 1) ?? false });
+  }
+  // Relevant pages first (stable), then the rest of the dossier.
+  entries.sort((a, b) => Number(b.relevant) - Number(a.relevant));
+
+  const out = await PDFDocument.create();
+  for (const e of entries) {
+    const pdf = loaded.get(e.docId);
+    if (!pdf || e.index < 0 || e.index >= pdf.getPageCount()) continue;
+    const [pg] = await out.copyPages(pdf, [e.index]);
+    out.addPage(pg);
+  }
+  const bytes = Buffer.from(await out.save());
+  await uploadToStorage(fullPath, bytes, "application/pdf", { upsert: true });
+  return createSignedUrl(fullPath, SIGNED_TTL);
 }
