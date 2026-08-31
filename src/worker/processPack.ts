@@ -63,6 +63,7 @@ async function triageRelevancePass(packId: string): Promise<void> {
   const candidates = await prisma.documentPage.findMany({
     where: {
       relevant: false,
+      kind: "OTHER", // only genuinely AMBIGUOUS pages — not those already typed SPEC/PLOT_LAYOUT/etc.
       sheetTitle: { not: null },
       document: {
         packId,
@@ -226,6 +227,8 @@ function sanitizeKey(name: string): string {
 // --- 2. Download-once + classify pass (parallel; page count comes from the parse) ---
 
 const PARSE_CONCURRENCY = 8; // ≤ the DB pooled connection limit
+// Cap on pages sent to the extractor per house type (Anthropic PDF limit ~100pp/32MB).
+const MAX_EXTRACTION_PAGES = 30;
 
 async function classifyDocuments(packId: string): Promise<void> {
   const documents = await prisma.document.findMany({
@@ -449,8 +452,14 @@ async function groupAndPrepare(packId: string): Promise<void> {
   const summaryGroups: GroupingSummaryGroup[] = [];
 
   for (const group of result.groups) {
-    const relevantPages = group.pages.filter((p) => p.relevant);
+    let relevantPages = group.pages.filter((p) => p.relevant);
     if (relevantPages.length === 0) continue; // no scaffold pages → nothing to read
+
+    // Hard safety cap: never hand the extractor more than Anthropic can take. Pages
+    // are already relevant-first in reading order, so the first N are the important
+    // ones (elevations → plans → section → roof). Flagged if it bites.
+    const cappedExtraction = relevantPages.length > MAX_EXTRACTION_PAGES;
+    if (cappedExtraction) relevantPages = relevantPages.slice(0, MAX_EXTRACTION_PAGES);
 
     // Download ONLY the source docs that carry relevant pages, in parallel.
     const neededIds = [...new Set(relevantPages.map((p) => p.documentId))];
@@ -527,6 +536,8 @@ async function groupAndPrepare(packId: string): Promise<void> {
     const flags = [...group.flags];
     if (assembled.skipped.length)
       flags.push(`${assembled.skipped.length} source page(s) could not be copied.`);
+    if (cappedExtraction)
+      flags.push(`Capped at ${MAX_EXTRACTION_PAGES} pages for extraction (too many looked relevant) — review the relevant pages.`);
 
     summaryGroups.push({
       name: group.name,

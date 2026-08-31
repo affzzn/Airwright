@@ -44,9 +44,15 @@ const batchSchema = z.object({
   ),
 });
 
-const SYSTEM = `You are triaging pages of a UK new-build scaffolding tender pack. A page is SCAFFOLD-RELEVANT if it carries a measurement a scaffold take-off needs: the OUTSIDE FACES (elevations), the FOOTPRINT / floor or setting-out plan, the SECTION (heights), or the ROOF plan. It is NOT relevant if it is an internal trade sheet — kitchen/bathroom/wardrobe layouts, M+E/electrical/plumbing, structural calcs, SAP/Part-O, schedules, lintels, joist layouts, drainage, compliance.
+const SYSTEM = `You are triaging pages of a UK new-build scaffolding tender pack that a first pass was UNSURE about. Mark a page RELEVANT only if it CLEARLY is one of these four scaffold-take-off drawings:
+  1. an ELEVATION — a view of the OUTSIDE face of the building,
+  2. a FLOOR PLAN or SETTING-OUT PLAN — the building footprint,
+  3. a SECTION — a vertical cut showing heights,
+  4. a ROOF PLAN.
 
-Judge by MEANING, not keywords — an unusually named sheet ("External Wall Elevation", "GA Elevation") is still relevant if it shows the outside/plan/section. When genuinely unsure, mark it RELEVANT (a human will confirm; missing a real drawing is worse than including an extra).
+Everything else is NOT relevant: internal room/kitchen/bathroom/wardrobe layouts, M+E/electrical/plumbing, structural calcs, SAP/Part-O, schedules, lintel/joist details, drainage, notes, cover/index/title-only sheets.
+
+Judge by MEANING, not keywords — an unusually named "External Wall Elevation" or "GA Elevation" IS an elevation. But do NOT include a page just because you're unsure: if it is not clearly one of the four above, mark it NOT relevant. Precision matters — an over-included page wastes extraction budget.
 
 For EVERY page in the list, return its ref, whether it is scaffold-relevant, its drawing type, and a one-clause reason. Do not skip any ref.`;
 

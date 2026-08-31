@@ -173,6 +173,20 @@ export function revisionStrippedKey(baseName: string): string {
     .toUpperCase();
 }
 
+/**
+ * A key that also collapses CONFIG/handing variants of the same drawing (on top of
+ * the revision strip): `EMA21-Avonsford END`, `… MID`, `… END AFFORDABLE` all →
+ * `EMA21 AVONSFORD`. Used to pick ONE variant per house type for extraction (the
+ * others stay in the full dossier). Material variants (Brick/Stone/Render) are kept
+ * distinct — they carry render info the take-off needs.
+ */
+export function variantStrippedKey(baseName: string): string {
+  return revisionStrippedKey(baseName)
+    .replace(/\b(END|MID|DET|DETACHED|SEMI|AFFORDABLE|LH|RH|LEFT|RIGHT|HANDED|HANDING)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Plot numbers a sheet serves, e.g. "Plots 4, 21, 39" → [4,21,39]. */
 export function parsePlots(name: string): number[] {
   const m = name.match(/\bplots?\s+([\d,\s&and]+)/i);

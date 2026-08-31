@@ -17,6 +17,7 @@
 import {
   parsePath,
   revisionStrippedKey,
+  variantStrippedKey,
   type DrawingKind,
 } from "./parsePath";
 import { isIgnoredPath, type BuilderIngestProfile } from "./profiles";
@@ -82,6 +83,8 @@ const orderOf = (k: DrawingKind) => {
   const i = KIND_ORDER.indexOf(k);
   return i === -1 ? KIND_ORDER.length : i;
 };
+
+const isAffordable = (baseName: string): boolean => /\baffordable\b/i.test(baseName);
 
 interface Candidate {
   file: IngestFile;
@@ -152,9 +155,25 @@ export function groupPack(
     }
     const chosen = [...latest.values()];
 
-    // Collect ALL pages of the chosen files; tag relevance per page.
+    // Config-variant collapse for the EXTRACTION pages: keep ONE file per
+    // variant-stripped identity (prefer non-affordable) so a house type shipped in
+    // END/MID/affordable variants isn't read four times over. ALL variants remain
+    // in `files` (→ the full dossier); only the primary contributes eager pages.
+    const primaryByVariant = new Map<string, Candidate>();
+    for (const c of chosen) {
+      const vk = variantStrippedKey(c.parsed.baseName);
+      const prev = primaryByVariant.get(vk);
+      if (!prev || (isAffordable(prev.parsed.baseName) && !isAffordable(c.parsed.baseName))) {
+        primaryByVariant.set(vk, c);
+      }
+    }
+    const primaryIds = new Set([...primaryByVariant.values()].map((c) => c.file.documentId));
+    const variantsDropped = chosen.length - primaryByVariant.size;
+
+    // Collect the pages of the PRIMARY-variant files; tag relevance per page.
     const pages: GroupedPage[] = [];
     for (const c of chosen) {
+      if (!primaryIds.has(c.file.documentId)) continue; // non-primary variant → dossier only
       const kind = c.parsed.drawingKind === "UNKNOWN" ? "ELEVATION" : c.parsed.drawingKind;
       for (const p of c.file.pages) {
         pages.push({
@@ -180,9 +199,10 @@ export function groupPack(
     const flags: string[] = [];
     if (relevantPageCount === 0)
       flags.push("No scaffold-relevant pages found — check the grouping before extracting.");
-    const variants = [...new Set(chosen.map((c) => c.parsed.configHint).filter(Boolean))];
-    if (variants.length > 0)
-      flags.push(`Config/handing variants present (${variants.join(", ")}) — confirm which plot uses which.`);
+    if (variantsDropped > 0)
+      flags.push(
+        `${variantsDropped} config/handing variant(s) set aside for extraction (still in the full dossier) — confirm which plot uses which.`,
+      );
 
     groups.push({
       name,

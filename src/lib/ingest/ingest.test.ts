@@ -7,6 +7,7 @@ import {
   parseConfigHint,
   parseMaterialVariant,
   revisionStrippedKey,
+  variantStrippedKey,
 } from "./parsePath";
 import { detectBuilder, isIgnoredPath, BUILDER_PROFILES } from "./profiles";
 import { groupPack, type IngestFile } from "./group";
@@ -71,6 +72,16 @@ describe("parsePath — revision / plots / variants", () => {
     // Different faces do NOT collapse.
     expect(revisionStrippedKey("Aspen-Front Elevation_P01")).not.toBe(
       revisionStrippedKey("Aspen-Rear Elevation_P01"),
+    );
+  });
+  it("variantStrippedKey collapses END/MID/AFFORDABLE but keeps material variants", () => {
+    const k = variantStrippedKey("EMA21-Avonsford END - 2021");
+    expect(variantStrippedKey("EMA21-Avonsford MID - 2021")).toBe(k);
+    expect(variantStrippedKey("EMA21-Avonsford END - 2021 AFFORDABLE")).toBe(k);
+    expect(variantStrippedKey("EMA21-Avonsford MID - 2021 AFFORDABLE")).toBe(k);
+    // Material variants stay distinct (render carries take-off info).
+    expect(variantStrippedKey("Aspen-Front Elevation (Brick)")).not.toBe(
+      variantStrippedKey("Aspen-Front Elevation (Render)"),
     );
   });
 });
@@ -215,6 +226,31 @@ describe("groupPack — Taylor Wimpey (group everything; trades tagged not-relev
     // Relevant pages sort first.
     expect(g.pages.slice(0, 30).every((p) => p.relevant)).toBe(true);
     expect(g.pages.slice(30).every((p) => !p.relevant)).toBe(true);
+  });
+});
+
+describe("groupPack — config-variant collapse (one variant read, all kept in dossier)", () => {
+  const base = `${TW}/House_Type/Masonry/EMA21_Avonsford/00_House_Type_PDF`;
+  const files: IngestFile[] = [
+    { documentId: "v1", relativePath: `${base}/EMA21-Avonsford END - 2021.pdf`, pages: relevant(3) },
+    { documentId: "v2", relativePath: `${base}/EMA21-Avonsford MID - 2021.pdf`, pages: relevant(3) },
+    { documentId: "v3", relativePath: `${base}/EMA21-Avonsford END - 2021 AFFORDABLE.pdf`, pages: relevant(3) },
+    { documentId: "v4", relativePath: `${base}/EMA21-Avonsford MID - 2021 AFFORDABLE.pdf`, pages: relevant(3) },
+  ];
+  const res = groupPack(files, profile("taylor-wimpey"));
+
+  it("reads ONE variant's pages but keeps all four in the dossier", () => {
+    expect(res.groups.length).toBe(1);
+    const g = res.groups[0];
+    expect(g.files.length).toBe(4); // full dossier keeps every variant
+    expect(g.relevantPageCount).toBe(3); // only the primary variant is read (not 12)
+    expect(g.flags.some((f) => /variant/i.test(f))).toBe(true);
+  });
+  it("prefers a non-affordable variant as the primary", () => {
+    const g = res.groups[0];
+    // The read pages all come from a non-affordable file.
+    const readFiles = new Set(g.pages.map((p) => p.relativePath));
+    expect([...readFiles].every((f) => !/affordable/i.test(f))).toBe(true);
   });
 });
 
