@@ -23,8 +23,8 @@ rules are only a caching optimisation (§9), never the core.
 
 > **STATUS (2026-08-29, branch `feat/smart-upload-grouping`).** *Built:* the
 > foundation — folder-first resumable upload; deterministic path/filename/title-block
-> reading; four **hand-written builder profiles** (now demoted to **test fixtures +
-> the seed for the learned-recipe cache**); cross-file grouping + combined-PDF
+> reading; four **hand-written builder profiles** (now demoted to **test fixtures**,
+> and the recipe *shape* a later/optional cache could reuse — §8); cross-file grouping + combined-PDF
 > assembly; a confirm screen. Verified on the four real packs (Vistry 15 / Tilia 14 /
 > Bloor 16 / TW 13 house types; junk correctly ignored). *The new plan (this doc):*
 > flip to **AI-first grouping** (§3–§4), **group every file per house type** with a
@@ -234,18 +234,22 @@ reliability multiplier that costs nothing extra and needs no separate test suite
 
 ---
 
-## 8. Builder recipes = an auto-learned cache (the profiles, reborn)
+## 8. Builder recipes (the profiles, reborn) — 🔭 LATER / OPTIONAL
 
-The four hand-written profiles are **not** the product. Their real roles:
-- **Test fixtures** — the known-answer packs to sanity-check grouping against by hand.
-- **Seed + shape** for the **learned-recipe cache**: once the AI infers a builder's
-  pattern (§4.3) and a human confirms the grouping, persist that recipe
-  (`BuilderProfile.ingestProfile`). The next pack from that builder **reuses it** →
-  deterministic, instant, free. Unknown builders "just work" on day one (AI infers) and
-  become rock-solid + free on repeat (cache). The recipe's shape is exactly what the
-  hand-written profiles encode (folder / filename / combined-pdf strategy, junk rules,
-  name pattern), so the code that *applies* a hand profile is the same code that applies
-  a *learned* one.
+The four hand-written profiles are **not** the product. Their real role now is as
+**test fixtures** — the known-answer packs to sanity-check grouping against by hand — and
+as the **shape** of a recipe (folder / filename / combined-pdf strategy, junk rules, name
+pattern), so the code that *applies* a hand profile is the same code that applies an
+AI-inferred one (§4.4).
+
+**Recipe caching is a later/optional optimisation, not a foundation.** The idea: once the
+AI infers a builder's pattern (§4.3) and a human confirms the grouping, persist that
+recipe (`BuilderProfile.ingestProfile`) and reuse it on the next pack from that builder →
+instant, free, identical. But the AI structure pass is already cheap (pennies/pack), and
+caching adds real complexity: recognising "same builder as last time," and — the risky
+part — detecting when a builder **changes** their packaging so a **stale** recipe doesn't
+silently mis-group a pack. So the near-term plan **infers fresh every pack** (always
+current); add caching only if high volume from a few repeat builders makes it worthwhile.
 
 ---
 
@@ -256,10 +260,10 @@ Already added (migration `smart_upload_grouping`): `PackUpload.relativePath`;
 `TenderPack.groupingStatus/groupingData/builderProfileId`; `BuilderProfile.ingestProfile`.
 
 Still needed for this plan: the **page manifest carries a `relevant` flag** per page (so
-extraction/preview can filter, and "open full" ignores it); a place to persist the
-**learned recipe** per builder (reuse `BuilderProfile.ingestProfile`); the grouping
-proposal (`groupingData`) gains the **answer-key cross-check** result + per-file
-assignment reasons for the override UI.
+extraction/preview can filter, and "open full" ignores it); the grouping proposal
+(`groupingData`) gains the **answer-key cross-check** result + per-file assignment
+reasons for the override UI. (`BuilderProfile.ingestProfile` already exists for a
+later/optional recipe cache — §8 — but nothing in the near-term plan writes it.)
 
 ---
 
@@ -305,7 +309,13 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 4. **Tier-2 LLM relevance triage** (§6) — text-based, meaning-based, include-if-unsure,
    layered on the deterministic Tier 1.
 5. **Override UI** (§4.7) — reassign / split / merge / toggle relevance before extraction.
-6. **Recipe caching** (§8) — persist a confirmed learned recipe; reuse on repeat packs.
+
+**Later / optional (not near-term):**
+- **Recipe caching** (§8) — persist a confirmed learned recipe and reuse it on repeat
+  packs. A pure optimisation: the AI structure pass is already cheap (pennies/pack), and
+  caching adds real complexity (matching a pack to a builder, and detecting/invalidating
+  a **stale** recipe when a builder changes their packaging). Add only if high volume
+  from a few repeat builders makes cost or run-to-run variance worth removing.
 
 *(Out of scope for now: an offline grading harness, and OCR/vision rescue of raster
 PDFs — see the STATUS note.)*
