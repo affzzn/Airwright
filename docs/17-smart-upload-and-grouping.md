@@ -28,9 +28,12 @@ rules are only a caching optimisation (§9), never the core.
 > assembly; a confirm screen. Verified on the four real packs (Vistry 15 / Tilia 14 /
 > Bloor 16 / TW 13 house types; junk correctly ignored). *The new plan (this doc):*
 > flip to **AI-first grouping** (§3–§4), **group every file per house type** with a
-> **per-page relevance tag** (§5), **tiered hybrid relevance detection** (§6), an
-> **in-pack answer-key** cross-check and a **grading harness** to measure accuracy
-> (§7). Build order in §13.
+> **per-page relevance tag** (§5), **tiered hybrid relevance detection** (§6), and an
+> **in-pack answer-key** cross-check (§7). Build order in §12.
+>
+> **Out of scope for now (by decision 2026-08-29):** an offline **grading harness**
+> and **OCR/vision rescue of raster (image-only) PDFs**. Raster pages with no text
+> layer are simply **flagged for a human** as they are today, not auto-read.
 
 ---
 
@@ -104,8 +107,9 @@ LLMs generalise these rules well to layouts they've never seen
 1. **Read the facts (no AI, free).** For every file: folder path, filename tokens, and
    the **title-block text** from the PDF (house-type name, drawing type, plots,
    revision). ~90% of the signal, at no cost. *(Built: `parsePath.ts` + `classify.ts`.)*
-2. **Rescue image-only drawings.** No text layer → OCR / a vision model reads just the
-   title block so the file joins the pile (else scanned drawings are missed). *(To build.)*
+2. **Image-only drawings → flag for a human (no OCR).** A PDF with no text layer can't
+   be read for grouping/relevance, so it is **flagged for review**, not auto-read.
+   *(OCR/vision rescue is out of scope for now — see the STATUS note.)*
 3. **AI structure pass (one small call).** Hand the AI a compact **text summary** of the
    pack — the folder tree + a sample of filenames and title blocks. With a **strict
    schema** and **low temperature**, ask: the packaging convention? the distinct house
@@ -194,11 +198,12 @@ generalises to any builder; keyword lists don't.
 **Decide it in tiers, cheapest first:**
 1. **Tier 1 — deterministic (free).** The text classifier resolves the clear cases at
    high confidence. Most pages settle here for nothing.
-2. **Tier 2 — LLM triage for the rest.** Ambiguous / weak-or-no-text / unfamiliar pages
-   get an LLM look — **title-block text + a small thumbnail image** — with the
-   scaffold-relevance definition in the prompt and a strict schema: *drawing type +
-   relevant? + one-line reason*. Vision handles the raster pages that kill the text
-   approach ([vision LLMs classify drawing pages effectively](https://parseur.com/blog/vision-ai-technical-drawings)).
+2. **Tier 2 — LLM triage for the rest.** Ambiguous / weak-text / unfamiliar pages get
+   an LLM look — the page's **title-block text + surrounding filename/folder context** —
+   with the scaffold-relevance definition in the prompt and a strict schema: *drawing
+   type + relevant? + one-line reason*. (Text-based; a page thumbnail / vision pass is a
+   possible later add, but OCR/raster rescue is out of scope for now — raster pages with
+   no text stay flagged for a human, Tier 1.)
 3. **Reconcile → confidence.** Agree → high, done. Disagree → flag and **lean toward
    including**. Crucial bias: for relevance, **recall beats precision** — a wrongly
    *included* page just wastes a few tokens (Colin deselects it); a wrongly *excluded*
@@ -208,37 +213,31 @@ generalises to any builder; keyword lists don't.
 
 **Reliability techniques** (from the research): strict JSON schema + **low temperature**
 so labels don't wobble run-to-run; **account for every page** (each input page must
-appear in the output — no silent drops); **thumbnail only when needed** (text-only where
-text exists) to stay cheap; route **only uncertain** pages to the LLM, not all
-([keep the confident, review the risky](https://arxiv.org/pdf/2510.23874)).
+appear in the output — no silent drops); route **only uncertain** pages to the LLM, not
+all ([keep the confident, review the risky](https://arxiv.org/pdf/2510.23874)).
 
-**Cost:** Tier 1 free; Tier 2 text triage pennies; vision reserved for the minority of
-raster/ambiguous pages.
+**Cost:** Tier 1 free; Tier 2 text triage on only the minority of uncertain pages —
+pennies per pack.
 
 ---
 
-## 7. How we *prove* it's accurate — the grading harness + in-pack answer key
+## 7. Self-check at runtime — the in-pack answer key
 
-You can't make grouping *or* relevance "accurate and reliable" until you can **measure**
-it. Two levers, both using data you already have:
+Most packs *contain* a house-type list — the take-off sheet, plot schedule, or drawing
+register (Laura's packs literally ship a `… TAKE OFFS.pdf`). Parse it at runtime and
+**cross-check it against our grouping**: found all of them? extra? missing? A self-check
+that flags "expected 16 house types, found 15" while Colin is right there to fix it — a
+reliability multiplier that costs nothing extra and needs no separate test suite.
 
-- **Grading harness (offline).** Point grouping + relevance at the test packs and score
-  against their `… TAKE OFFS.pdf` sheets + `bank.json` (594 of Colin's real take-offs):
-  *"found 15/16 house types; here's the one we missed and why"* and *"marked the right
-  pages relevant on N/M."* Turns "we think it's smart" into a **number**, and becomes a
-  **regression suite** so a later change can't silently break an earlier pass. **Build
-  this first** — it makes every other improvement targeted instead of speculative.
-- **In-pack answer key (runtime).** The same take-off/plot-schedule/drawing-register
-  that lives inside most packs is parsed at runtime and cross-checked against our
-  grouping — a self-check that flags "expected 16 house types, found 15" while Colin is
-  right there to fix it. A reliability multiplier that costs nothing extra.
+*(An offline grading harness that scores grouping/relevance against these sheets +
+`bank.json` is **out of scope for now** — see the STATUS note.)*
 
 ---
 
 ## 8. Builder recipes = an auto-learned cache (the profiles, reborn)
 
 The four hand-written profiles are **not** the product. Their real roles:
-- **Test fixtures** — the known-answer packs the grading harness scores against.
+- **Test fixtures** — the known-answer packs to sanity-check grouping against by hand.
 - **Seed + shape** for the **learned-recipe cache**: once the AI infers a builder's
   pattern (§4.3) and a human confirms the grouping, persist that recipe
   (`BuilderProfile.ingestProfile`). The next pack from that builder **reuses it** →
@@ -292,8 +291,7 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 | Unzip (dedupe) | **fflate** | ✅ have |
 | Page text / classification | **pdfjs-dist** | ✅ have |
 | Combined-PDF assembly | **pdf-lib** | ✅ have |
-| AI structure pass + relevance triage | **@anthropic-ai/sdk** (text: a fast model; vision for raster/ambiguous) | ✅ SDK have |
-| OCR / vision for raster title blocks | vision model via the SDK (or an OCR lib) | 🔧 to add |
+| AI structure pass + relevance triage | **@anthropic-ai/sdk** (text; a fast model, strict schema, low temp) | ✅ SDK have |
 
 ---
 
@@ -301,16 +299,16 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 
 1. **Restructure to "group everything + per-page relevance tag"** + the review
    **preview-relevant / open-full-everything** split (§5). Foundation for the rest.
-2. **Grading harness** (§7) — score grouping + relevance vs the answer sheets. Do this
-   early; it makes everything measurable.
-3. **AI structure pass + deterministic apply** (§3–§4) — flip from profiles-first to
+2. **AI structure pass + deterministic apply** (§3–§4) — flip from profiles-first to
    AI-first; the profile-apply code generalises to consume an AI recipe.
-4. **In-pack answer-key cross-check** (§7) — free runtime validation.
-5. **Tier-2 LLM relevance triage** (§6) — text + thumbnail, meaning-based,
-   include-if-unsure, layered on the deterministic Tier 1.
-6. **OCR/vision for raster** (folds into §4.2 + §6 Tier 2).
-7. **Override UI** (§4.7) — reassign / split / merge / toggle relevance before extraction.
-8. **Recipe caching** (§8) — persist a confirmed learned recipe; reuse on repeat packs.
+3. **In-pack answer-key cross-check** (§7) — free runtime validation.
+4. **Tier-2 LLM relevance triage** (§6) — text-based, meaning-based, include-if-unsure,
+   layered on the deterministic Tier 1.
+5. **Override UI** (§4.7) — reassign / split / merge / toggle relevance before extraction.
+6. **Recipe caching** (§8) — persist a confirmed learned recipe; reuse on repeat packs.
+
+*(Out of scope for now: an offline grading harness, and OCR/vision rescue of raster
+PDFs — see the STATUS note.)*
 
 ---
 
@@ -320,8 +318,9 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 - **Relevant pages first** in the combined PDF; extraction reads the contiguous relevant
   range; preview filters to relevant; open-full shows all.
 - **Include-if-unsure** for relevance (recall > precision), always flagged.
-- **AI reasons over TEXT** for grouping; **images only** for raster/ambiguous relevance.
+- **AI reasons over TEXT** — for both grouping and relevance triage (no images for now).
 - **Config & plots from filenames/answer key** proposed to the human, not auto-applied.
+- **Raster (no-text) PDFs** are flagged for a human, not OCR'd (out of scope for now).
 
 **⚠️ Open:**
 1. Answer-key parsing — how reliably can the take-off/register sheet be read to a
@@ -337,9 +336,7 @@ until real usage shows a need; the folder/relativePath plumbing already in place
 Research: [structured-output reliability in production](https://tianpan.co/blog/2025-10-29-structured-outputs-llm-production),
 [structured JSON prompting guide](https://genaiunplugged.substack.com/p/structured-outputs-json-prompts-guide),
 [LLM rule generalization](https://www.nature.com/articles/s41598-025-15627-z.pdf),
-[risk-based human review](https://arxiv.org/pdf/2510.23874),
-[vision-language floor-plan analysis](https://dl.acm.org/doi/10.1145/3704268.3748681),
-[vision AI for technical drawings](https://parseur.com/blog/vision-ai-technical-drawings).
+[risk-based human review](https://arxiv.org/pdf/2510.23874).
 Cross-refs: `docs/13` (extraction playbook — unchanged downstream of the relevant pages),
 `docs/11` (take-off spec), `ARCHITECTURE.md`. Update this doc as ⚠️ items resolve and the
 build-order status changes.*
