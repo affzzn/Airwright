@@ -29,9 +29,10 @@ rules are only a caching optimisation (§9), never the core.
 > *recipe* (constrained schema, `inferRecipe.ts` + `runToolText`), `compileRecipe` turns
 > it into the profile `groupPack` applies, with a deterministic-profile then legacy
 > fallback (`env.groupingAI`, default on). The four hand profiles are now **test
-> fixtures + a cross-check**. Verified group-everything on the four real packs.
-> *Next (this doc):* **Feature 3 — in-pack answer-key** cross-check (§7); **Feature 4 —
-> Tier-2 LLM relevance triage** (§6); **Feature 5 — override UI**. Build order in §12.
+> fixtures + a cross-check**. **✅ Feature 3 — in-pack answer-key cross-check** (§7);
+> **✅ Feature 4 — Tier-2 LLM relevance triage** (§6, rescue-only). Verified
+> group-everything on the four real packs. *Next:* **Feature 5 — override UI** (§4.7).
+> Build order in §12.
 >
 > **Out of scope for now (by decision 2026-08-29):** an offline **grading harness**
 > and **OCR/vision rescue of raster (image-only) PDFs**. Raster pages with no text
@@ -307,9 +308,10 @@ until real usage shows a need; the folder/relativePath plumbing already in place
    **preview-relevant / open-full-everything** split (§5).
 2. ✅ **DONE — AI structure pass + deterministic apply** (§3–§4): AI infers the recipe,
    `compileRecipe` → `groupPack`; deterministic-profile then legacy fallback.
-3. **In-pack answer-key cross-check** (§7) — free runtime validation.
-4. **Tier-2 LLM relevance triage** (§6) — text-based, meaning-based, include-if-unsure,
-   layered on the deterministic Tier 1.
+3. ✅ **DONE — In-pack answer-key cross-check** (§7): read the pack's take-off/schedule
+   sheet, cross-check grouped names → matched/missing/extra, surfaced in the confirm screen.
+4. ✅ **DONE — Tier-2 LLM relevance triage** (§6): re-judge uncertain not-relevant pages
+   by meaning (rescue-only, batched, account-for-every-page); `env.groupingAI`.
 5. **Override UI** (§4.7) — reassign / split / merge / toggle relevance before extraction.
 
 **Later / optional (not near-term):**
