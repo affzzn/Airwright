@@ -30,8 +30,10 @@ rules are only a caching optimisation (§9), never the core.
 > it into the profile `groupPack` applies, with a deterministic-profile then legacy
 > fallback (`env.groupingAI`, default on). The four hand profiles are now **test
 > fixtures + a cross-check**. **✅ Feature 3 — in-pack answer-key cross-check** (§7);
-> **✅ Feature 4 — Tier-2 LLM relevance triage** (§6, rescue-only). Verified
-> group-everything on the four real packs. *Next:* **Feature 5 — override UI** (§4.7).
+> **✅ Feature 4 — Tier-2 LLM relevance triage** (§6, rescue-only); **✅ Feature 5 —
+> override UI** (§4.7, rename / merge / exclude). Verified group-everything on the four
+> real packs. **All five near-term features shipped.** Follow-ups: file-level reassign /
+> split; the later/optional items (§8, and the descoped grading harness + OCR/raster).
 > Build order in §12.
 >
 > **Out of scope for now (by decision 2026-08-29):** an offline **grading harness**
@@ -312,7 +314,8 @@ until real usage shows a need; the folder/relativePath plumbing already in place
    sheet, cross-check grouped names → matched/missing/extra, surfaced in the confirm screen.
 4. ✅ **DONE — Tier-2 LLM relevance triage** (§6): re-judge uncertain not-relevant pages
    by meaning (rescue-only, batched, account-for-every-page); `env.groupingAI`.
-5. **Override UI** (§4.7) — reassign / split / merge / toggle relevance before extraction.
+5. ✅ **DONE (rename / merge / exclude) — Override UI** (§4.7): fix the grouping in the
+   confirm screen before extraction. File-level reassign + split are a follow-up.
 
 **Later / optional (not near-term):**
 - **Recipe caching** (§8) — persist a confirmed learned recipe and reuse it on repeat
