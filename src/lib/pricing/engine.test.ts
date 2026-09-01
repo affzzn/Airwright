@@ -40,7 +40,7 @@ const RATES = [
   { component: "BIRDCAGE_GF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
   { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", rate: 9.0 },
   { component: "BIRDCAGE_FF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
-  { component: "GABLE", action: "ERECT", band: "MEDIUM", rate: 120.0 },
+  { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120.0 },
   { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
   { component: "LOW_LEVEL", action: "ERECT", band: "MEDIUM", rate: 150.0 },
 ];
@@ -74,11 +74,12 @@ describe("priceTakeoffLine", () => {
     expect(gfErect?.amount).toBe(360); // 40 × 9
   });
 
-  it("prices apex as ONE combined client item (table lift + gable rails)", () => {
-    // Client matrix column M combines them (docs/15 §3, P4) — one GABLE line,
-    // quantity = apex count. No separate GABLE_RAILS line for the client quote.
-    expect(result.lines.find((l) => l.component === "GABLE")?.quantity).toBe(2);
-    expect(result.lines.find((l) => l.component === "GABLE_RAILS")).toBeUndefined();
+  it("prices apex as TWO separate client items (table lifts + apex guard rails)", () => {
+    // Split 2026-09-01 — table lifts and the guard rails are now their own lines,
+    // each quantity = apex count (2). No combined GABLE line on the traditional path.
+    expect(result.lines.find((l) => l.component === "TABLE_LIFT" && l.action === "ERECT")?.quantity).toBe(2);
+    expect(result.lines.find((l) => l.component === "GABLE_RAILS" && l.action === "ERECT")?.quantity).toBe(2);
+    expect(result.lines.find((l) => l.component === "GABLE")).toBeUndefined();
   });
 
   it("stages always reconcile back to the subtotal (to the penny)", () => {

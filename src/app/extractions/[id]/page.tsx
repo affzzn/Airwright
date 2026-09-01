@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { createSignedUrl } from "@/lib/supabase/storage";
 import { parseRangeString } from "@/lib/pdf";
 import { extractionResultSchema } from "@/lib/extract/schema";
+import { normalizeStructureForm } from "@/lib/structure";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ReviewWorkspace } from "@/components/review-workspace";
@@ -77,11 +78,12 @@ export default async function ReviewPage({
     typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : null;
   const categoricals: EditorCategoricals = {
     roofType: asEnum(rawWarnings.roofType, ["PITCHED", "HIPPED", "MIXED"] as const),
-    structure: asEnum(rawWarnings.structure, [
-      "SINGLE",
-      "PAIR_OR_TERRACE",
-      "APARTMENT_BLOCK",
-    ] as const),
+    // Legacy-aware: old stored SINGLE / PAIR_OR_TERRACE values are mapped to the
+    // current vocabulary (pair/three-block/terrace split out by dwellingsWide).
+    structure: normalizeStructureForm(
+      rawWarnings.structure,
+      typeof rawWarnings.dwellingsWide === "number" ? rawWarnings.dwellingsWide : null,
+    ),
     dwellingsWide:
       typeof rawWarnings.dwellingsWide === "number" ? rawWarnings.dwellingsWide : null,
     roomInRoof:

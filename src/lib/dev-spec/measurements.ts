@@ -41,7 +41,7 @@ export const MEASUREMENTS: Measurement[] = [
     whereRead: ["Floor plans", "Title sheet"],
     layer: "both",
     howRead:
-      "Two mirrored dwellings sharing a party gable → PAIR_OR_TERRACE, dwellingsWide=2; a terrace → 3+; flats with a communal entrance → APARTMENT_BLOCK, dwellingsWide=1; a single detached house → SINGLE, dwellingsWide=1. Report front/rear as the FULL printed frontage spanning all dwellings — do NOT pre-divide. Gable-end walls are per-house depth, never divided.",
+      "Two mirrored dwellings sharing a party gable → PAIR_SEMI, dwellingsWide=2; three joined → THREE_BLOCK, dwellingsWide=3; four or more → TERRACE, dwellingsWide=4+ ('terrace' is reserved for 4+); flats with a communal entrance → APARTMENT_BLOCK, dwellingsWide=1; a free-standing house → DETACHED, dwellingsWide=1. Report front/rear as the FULL printed frontage spanning all dwellings — do NOT pre-divide. Gable-end walls are per-house depth, never divided.",
     derivation: "The engine divides the front/rear frontage by dwellingsWide to get one house.",
     confidenceRule: "The model's read confidence.",
     crossChecks: ["c3"],

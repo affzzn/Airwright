@@ -170,14 +170,19 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
     add(component, "DISMANTLE", f.m2, "M2", null, `strip ${f.level} birdcage`);
   }
 
-  // --- Apex: ONE combined client item (table lift + guard rails to gables) ---
-  // Colin's client matrix has ONE column M "Table Lifts & Guard Rails to Gables"
-  // (docs/15 §3, P4). tableLifts == handrails == apex count, so price one item per
-  // apex via the GABLE rate. (The GANG matrix — Build 2 — splits TABLE_LIFT +
-  // GABLE_RAILS; keep that separation for the operatives self-bill, not here.)
-  if (line.apex.count > 0) {
-    add("GABLE", "ERECT", line.apex.count, "EACH", null, "table lift + gable rails");
-  }
+  // --- Apex: TWO separate client items — table lifts + apex guard rails (split
+  //     2026-09-01). Colin's original client matrix had ONE column M "Table Lifts
+  //     & Guard Rails to Gables" (docs/15 §3, P4); we now present the rails as
+  //     their own line/column. `computeApex` already returns tableLifts and
+  //     handrails separately (both == apex count for a traditional build).
+  //     ⚠ RATES: splitting the one combined column into two needs a SEPARATE rate
+  //     for each — BOTH are unconfirmed and MUST come from Colin's rate sheet
+  //     (docs/15 §11). Until then each resolves independently and, if no rate is
+  //     set, surfaces in `unpriced` (priced at £0, never silently guessed). ---
+  if (line.apex.tableLifts > 0)
+    add("TABLE_LIFT", "ERECT", line.apex.tableLifts, "EACH", null, "table lifts to gables");
+  if (line.apex.handrails > 0)
+    add("GABLE_RAILS", "ERECT", line.apex.handrails, "EACH", null, "apex guard rails");
 
   // --- Render adaption: rendered LM × render lifts ---
   if (line.render && line.render.lifts) {

@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { ensureDefaultPlot } from "@/server/plots";
+import { STRUCTURE_FORMS } from "@/lib/structure";
 
 /**
  * Save Colin's corrections to an extracted take-off. Editing the OBSERVABLES
@@ -42,7 +43,7 @@ const EDITABLE_KEYS = new Set([
 ]);
 const WALL_POSITIONS = new Set(["FRONT", "REAR", "GABLE_LEFT", "GABLE_RIGHT", "OTHER"]);
 const ROOF_TYPES = new Set(["PITCHED", "HIPPED", "MIXED"]);
-const STRUCTURES = new Set(["SINGLE", "PAIR_OR_TERRACE", "APARTMENT_BLOCK"]);
+const STRUCTURES = new Set<string>(STRUCTURE_FORMS);
 
 type MKey = Prisma.TakeoffMeasurementCreateManyInput["key"];
 type WPos = Prisma.WallSegmentCreateManyInput["position"];

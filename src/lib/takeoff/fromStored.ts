@@ -6,6 +6,7 @@ import type {
   TakeoffInput,
   WallPosition,
 } from "./engine";
+import { STRUCTURE_DWELLINGS, normalizeStructureForm } from "@/lib/structure";
 
 type Measurement = { key: string; valueNumber: unknown };
 type Wall = { position: string; lengthM: unknown };
@@ -106,7 +107,12 @@ export function takeoffInputFromStored(
     dwellingsWide:
       typeof warnings.dwellingsWide === "number" && warnings.dwellingsWide >= 1
         ? warnings.dwellingsWide
-        : 1,
+        : // Fall back to the count implied by the structure form (pair=2,
+          // three-block=3) when dwellingsWide wasn't captured; terrace is 4+ so
+          // it still needs the explicit count → defaults to 1 (flagged upstream).
+          (STRUCTURE_DWELLINGS[
+            normalizeStructureForm(warnings.structure, null) ?? "DETACHED"
+          ] ?? 1),
     isApartmentBlock: warnings.structure === "APARTMENT_BLOCK",
     cornerCount: num("CORNER_COUNT"),
     apexByFace,

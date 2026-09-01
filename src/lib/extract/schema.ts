@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { STRUCTURE_FORMS } from "@/lib/structure";
 
 /**
  * The extractDrawing() output contract — the OBSERVABLES a scaffolder reads off
@@ -246,10 +247,10 @@ export const extractionResultSchema = z.object({
   structure: z
     .object({
       form: z
-        .enum(["SINGLE", "PAIR_OR_TERRACE", "APARTMENT_BLOCK"])
+        .enum(STRUCTURE_FORMS)
         .nullable()
         .describe(
-          "SINGLE = one detached dwelling. PAIR_OR_TERRACE = a semi-detached pair or a terrace of HOUSES drawn together (take-off is per house — set dwellingsWide). APARTMENT_BLOCK = a block of FLATS (multiple flats per floor): it is scaffolded as ONE whole building, so do NOT divide the frontage (set dwellingsWide = 1) and report the WHOLE-FLOOR internal area per level, not a single flat's area.",
+          "The building type, named by HOW MANY HOUSES are joined side-by-side (set dwellingsWide to match): DETACHED = 1 free-standing house (dwellingsWide 1). PAIR_SEMI = a semi-detached PAIR, 2 houses sharing one party wall (dwellingsWide 2). THREE_BLOCK = 3 houses joined in a row (dwellingsWide 3). TERRACE = 4 OR MORE houses joined in a row — use 'terrace' ONLY for four or more (dwellingsWide 4+). For all house forms the take-off is per ONE house. APARTMENT_BLOCK = a block of FLATS (multiple flats per floor, communal entrance): scaffolded as ONE whole building, so do NOT divide the frontage (dwellingsWide = 1) and report the WHOLE-FLOOR internal area per level, not a single flat's area.",
         ),
       confidence,
     })
@@ -299,7 +300,7 @@ export const extractionResultSchema = z.object({
     "Number of EXTERNAL corners / returns on the scaffolded perimeter (a plain rectangle has 4). Count external returns only.",
   ),
   dwellingsWide: numberField.describe(
-    "How many dwellings share the FRONT/REAR frontage in THIS drawing: 1 for a single or detached dwelling, 2 for a semi-detached pair, 3+ for a terrace block drawn together. Report the front/rear wall lengths as the FULL printed frontage spanning all the dwellings — do NOT pre-divide them. The engine divides the front/rear by this number to get one dwelling; gable-end walls are NOT divided.",
+    "How many dwellings share the FRONT/REAR frontage in THIS drawing: 1 for a detached house, 2 for a pair/semi, 3 for a three-block, 4 or more for a terrace. Report the front/rear wall lengths as the FULL printed frontage spanning all the dwellings — do NOT pre-divide them. The engine divides the front/rear by this number to get one dwelling; gable-end walls are NOT divided.",
   ),
   floorAreas: z
     .array(floorArea)

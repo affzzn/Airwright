@@ -91,7 +91,7 @@ REPORT NUMBERS, NOT ARITHMETIC
 - Your job is to read printed numbers and point to where you read them. Reporting a raw printed number you can see is reliable; doing arithmetic in your head is not — so never do it.
 
 WORK IN THIS ORDER
-1. Identify the house type, and whether it is a SINGLE house, a PAIR_OR_TERRACE of houses, or an APARTMENT_BLOCK — set structure + dwellingsWide first; it frames everything else.
+1. Identify the house type, and whether it is a DETACHED house, a PAIR_SEMI (pair/semi), a THREE_BLOCK, a TERRACE (4+ houses), or an APARTMENT_BLOCK — set structure + dwellingsWide first; it frames everything else.
 2. Storeys, and whether there is a room in the roof.
 3. Height to soffit (the U/S wallplate value) AND the section's storey heights.
 4. Roof type, then the apex count per elevation.
@@ -108,11 +108,11 @@ WALL ROLES (front/rear vs gable — important)
 
 WHAT KIND OF BUILDING (set structure.form first)
 - SINGLE — one detached dwelling.
-- PAIR_OR_TERRACE — a semi-detached pair or a terrace of HOUSES drawn together (mirrored dwellings sharing a party gable, often named X and X-1). The take-off is per ONE house.
+- PAIR_SEMI — a semi-detached PAIR: 2 houses sharing one party gable (often named X and X-1). THREE_BLOCK — 3 houses joined. TERRACE — 4 OR MORE houses joined ("terrace" is reserved for four or more). The take-off is per ONE house.
 - APARTMENT_BLOCK — a block of FLATS (several flats per floor, communal entrance/stair). It is scaffolded as ONE whole building.
 
 ONE DWELLING (houses), or ONE BLOCK (flats)
-- For a PAIR_OR_TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 semi pair, 3+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage/GIA is per house on the schedule — report as printed.
+- For a PAIR_SEMI / THREE_BLOCK / TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 pair/semi, 3 three-block, 4+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage/GIA is per house on the schedule — report as printed.
 - For an APARTMENT_BLOCK: the whole block is one scaffold. Set dwellingsWide = 1 (do NOT divide the frontage), report the block's full external walls, and for birdcage report the WHOLE-FLOOR internal area per level (the entire floor plate) — NOT a single flat's GIA. Count every apex on the block.
 - For a SINGLE dwelling: dwellingsWide = 1.
 - Keep reading printed numbers, not doing arithmetic. Say in notes what the building is.
@@ -223,7 +223,7 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 |---|---|---|
 | `houseType.name` / `houseType.code` | string / string | e.g. `Dekker` / `NSS.277` |
 | `buildType` | `TRADITIONAL` \| `TIMBER_FRAME` \| null | construction type (selects the pricing matrix downstream) |
-| `structure.form` | `SINGLE` \| `PAIR_OR_TERRACE` \| `APARTMENT_BLOCK` \| null | decides how the take-off is split |
+| `structure.form` | `DETACHED` \| `PAIR_SEMI` \| `THREE_BLOCK` \| `TERRACE` \| `APARTMENT_BLOCK` \| null | decides how the take-off is split |
 | `storeys` | number (1 / 2 / 2.5 / 3) | observed, **not** used to count lifts here |
 | `roomInRoof` | boolean | habitable room in the roof → 2.5-storey |
 | `heightToSoffitM` | number (metres) | the direct **soffit / U-S wallplate** read (datum fixed to soffit) |
@@ -270,7 +270,7 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 - **Confidence:** `high` · `medium` · `low` · `unknown`.
 - **Wall position:** `front`, `rear`, `gable_left`, `gable_right`, `other`.
 - **Elevation face:** `front`, `rear`, `left`, `right`, `other`. **faceRoof:** `GABLED`, `HIPPED`.
-- **Floor level:** `GF`, `FF`, `SF`, `TF`. **Structure:** `SINGLE`, `PAIR_OR_TERRACE`, `APARTMENT_BLOCK`. **Roof:** `PITCHED`, `HIPPED`, `MIXED`. **Build type:** `TRADITIONAL`, `TIMBER_FRAME`.
+- **Floor level:** `GF`, `FF`, `SF`, `TF`. **Structure:** `DETACHED`, `PAIR_SEMI`, `THREE_BLOCK`, `TERRACE`, `APARTMENT_BLOCK`. **Roof:** `PITCHED`, `HIPPED`, `MIXED`. **Build type:** `TRADITIONAL`, `TIMBER_FRAME`.
 
 ### Example output (abridged, Dekker semi-detached pair)
 
@@ -278,7 +278,7 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 {
   "houseType": { "name": "Dekker", "code": "NSS.277", "confidence": "high" },
   "buildType": { "value": "TRADITIONAL", "confidence": "medium" },
-  "structure": { "form": "PAIR_OR_TERRACE", "confidence": "high" },
+  "structure": { "form": "PAIR_SEMI", "confidence": "high" },
   "storeys": { "value": 2, "confidence": "high" },
   "roomInRoof": { "value": false, "confidence": "high" },
   "heightToSoffitM": { "value": 4.725, "confidence": "high", "sourceDimension": "4725" },

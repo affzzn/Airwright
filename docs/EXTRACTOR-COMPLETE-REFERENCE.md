@@ -235,7 +235,7 @@ The precise meaning of every term used in an Airwright take-off. Grounded in the
 |---|---|
 | **Storeys** [reads] | Number of floor levels: **1, 2, 2.5, 3**. Observed; used only to cross-check the lift count, never to price directly. |
 | **Room in roof** [reads] | A habitable room in the roof space (dormers, velux, raised eaves with living space) → a **2.5-storey**. It **adds one lift and one birdcage floor**. ✅ |
-| **Structure** [reads] | What the drawing shows: **SINGLE** (one detached house), **PAIR_OR_TERRACE** (a semi pair or terrace of houses drawn together — take-off is **per one house**), or **APARTMENT_BLOCK** (flats — scaffolded as **one whole building**). |
+| **Structure** [reads] | What the drawing shows: **DETACHED** (1, free-standing), **PAIR_SEMI** (2 — a semi/pair), **THREE_BLOCK** (3), **TERRACE** (4 or more — reserved for 4+), or **APARTMENT_BLOCK** (flats — scaffolded as **one whole building**). |
 | **Dwellings-wide** [reads] | How many houses share the printed **front/rear frontage** (1 single, 2 semi pair, 3+ terrace). The engine divides the frontage by this to get one house; gable-end walls are never divided. |
 | **Configuration** | A **plot-level** attribute (from the plot schedule, **not** the elevation): **Detached / Semi-detached / End-terrace / Mid-terrace**. It decides **which walls get scaffold**: detached = 4 sides; semi & end = 3 sides (2 corners); mid-terrace = front + rear only (both gables are party walls). ✅ The extractor never infers configuration. |
 | **Party wall** | A wall **shared** with the joined house — **not scaffolded**. Detached = 0, semi/end = 1, mid-terrace = 2. ✅ |
@@ -561,7 +561,7 @@ REPORT NUMBERS, NOT ARITHMETIC
 - Your job is to read printed numbers and point to where you read them. Reporting a raw printed number you can see is reliable; doing arithmetic in your head is not — so never do it.
 
 WORK IN THIS ORDER
-1. Identify the house type, and whether it is a SINGLE house, a PAIR_OR_TERRACE of houses, or an APARTMENT_BLOCK — set structure + dwellingsWide first; it frames everything else.
+1. Identify the house type, and whether it is a DETACHED house, a PAIR_SEMI (pair/semi), a THREE_BLOCK, a TERRACE (4+ houses), or an APARTMENT_BLOCK — set structure + dwellingsWide first; it frames everything else.
 2. Storeys, and whether there is a room in the roof.
 3. Height to soffit (the U/S wallplate value) AND the section's storey heights.
 4. Roof type, then the apex count per elevation.
@@ -578,11 +578,11 @@ WALL ROLES (front/rear vs gable — important)
 
 WHAT KIND OF BUILDING (set structure.form first)
 - SINGLE — one detached dwelling.
-- PAIR_OR_TERRACE — a semi-detached pair or a terrace of HOUSES drawn together (mirrored dwellings sharing a party gable, often named X and X-1). The take-off is per ONE house.
+- PAIR_SEMI — a semi-detached PAIR: 2 houses sharing one party gable (often named X and X-1). THREE_BLOCK — 3 houses joined. TERRACE — 4 OR MORE houses joined ("terrace" is reserved for four or more). The take-off is per ONE house.
 - APARTMENT_BLOCK — a block of FLATS (several flats per floor, communal entrance/stair). It is scaffolded as ONE whole building.
 
 ONE DWELLING (houses), or ONE BLOCK (flats)
-- For a PAIR_OR_TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 semi pair, 3+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage/GIA is per house on the schedule — report as printed.
+- For a PAIR_SEMI / THREE_BLOCK / TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 pair/semi, 3 three-block, 4+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage/GIA is per house on the schedule — report as printed.
 - For an APARTMENT_BLOCK: the whole block is one scaffold. Set dwellingsWide = 1 (do NOT divide the frontage), report the block's full external walls, and for birdcage report the WHOLE-FLOOR internal area per level (the entire floor plate) — NOT a single flat's GIA. Count every apex on the block.
 - For a SINGLE dwelling: dwellingsWide = 1.
 - Keep reading printed numbers, not doing arithmetic. Say in notes what the building is.
@@ -757,7 +757,7 @@ Claude tool's `input_schema` is generated. Every value carries a **confidence**
 |---|---|---|
 | `houseType` | `{ name: string\|null, code?: string\|null, confidence }` | e.g. Dekker / NSS.277. |
 | `buildType` | `{ value: "TRADITIONAL"\|"TIMBER_FRAME"\|null, confidence }` | Selects the pricing matrix downstream; timber-frame also changes scaffold sequence/ties (flagged, not maths). |
-| `structure` | `{ form: "SINGLE"\|"PAIR_OR_TERRACE"\|"APARTMENT_BLOCK"\|null, confidence }` | Decides how the take-off is split. Defaults to `{null, unknown}`. |
+| `structure` | `{ form: "DETACHED"\|"PAIR_SEMI"\|"THREE_BLOCK"\|"TERRACE"\|"APARTMENT_BLOCK"\|null, confidence }` | Decides how the take-off is split. Defaults to `{null, unknown}`. |
 | `storeys` | `numberField` | 1 / 2 / 2.5 / 3. Observed, not used to count lifts. |
 | `roomInRoof` | `boolField` | Habitable room in the roof → 2.5-storey. Adds a lift + a birdcage floor. |
 | `heightToSoffitM` | `numberField` | The direct soffit / U-S wallplate read (datum fixed to soffit). |
@@ -861,19 +861,19 @@ confidence · worked examples.**
 
 ## 5.3 Structure & dwellings-wide
 
-- **What:** `SINGLE` / `PAIR_OR_TERRACE` / `APARTMENT_BLOCK`; and how many houses
+- **What:** `DETACHED` / `PAIR_SEMI` / `THREE_BLOCK` / `TERRACE` (4+) / `APARTMENT_BLOCK`; and how many houses
   share the printed frontage.
 - **Where:** floor plans + title sheet (mirrored dwellings named X / X-1; a
   communal stair ⇒ flats).
-- **How (model):** two mirrored dwellings sharing a party gable → `PAIR_OR_TERRACE`,
-  `dwellingsWide = 2`; a terrace → 3+; flats with a communal entrance →
-  `APARTMENT_BLOCK`, `dwellingsWide = 1`; a single detached house → `SINGLE`,
-  `dwellingsWide = 1`. **Report front/rear as the full printed frontage spanning
+- **How (model):** two mirrored dwellings sharing a party gable → `PAIR_SEMI`,
+  `dwellingsWide = 2`; three joined → `THREE_BLOCK`, `= 3`; four or more → `TERRACE`,
+  `= 4+`; flats with a communal entrance → `APARTMENT_BLOCK`, `dwellingsWide = 1`;
+  a free-standing house → `DETACHED`, `dwellingsWide = 1`. **Report front/rear as the full printed frontage spanning
   all dwellings — do not pre-divide.** Gable-end walls are per-house depth, never
   divided.
 - **Layer:** reads. The engine divides the frontage by `dwellingsWide` (Part 6.3).
-- **Cross-check (C3):** `persist` flags a contradiction — SINGLE/APARTMENT with
-  `dwellingsWide ≠ 1`, or PAIR_OR_TERRACE with `< 2`
+- **Cross-check (C3):** `persist` flags a contradiction — DETACHED/APARTMENT with
+  `dwellingsWide ≠ 1`, or PAIR_SEMI/THREE_BLOCK/TERRACE with the wrong count
   (`warnings.structureDwellingsMismatch`) — because this pair drives the frontage
   division, so a contradiction silently mis-prices the perimeter.
 
@@ -1392,7 +1392,7 @@ Everything that isn't a numeric measurement or a wall row lives on the take-off'
 |---|---|
 | `notes` | The model's short notes. |
 | `dwellingsWide` | The dwellings-wide count (drives the frontage division). |
-| `structure` | SINGLE / PAIR_OR_TERRACE / APARTMENT_BLOCK. |
+| `structure` | DETACHED / PAIR_SEMI / THREE_BLOCK / TERRACE (4+) / APARTMENT_BLOCK. |
 | `roofType` | PITCHED / HIPPED / MIXED. |
 | `roomInRoof` | boolean. |
 | `buildTypeNote` | Present when TIMBER_FRAME — confirm sequence/tie requirements. |
@@ -1640,7 +1640,7 @@ heightSoffit = directRead, cross-checked vs Σ storeyHeightsM (flag if different
 ## 13.4 Every enum
 
 - **Confidence:** high · medium · low · unknown.
-- **Structure:** SINGLE · PAIR_OR_TERRACE · APARTMENT_BLOCK.
+- **Structure:** DETACHED · PAIR_SEMI · THREE_BLOCK · TERRACE (4+) · APARTMENT_BLOCK.
 - **Build type:** TRADITIONAL · TIMBER_FRAME.
 - **Roof:** PITCHED · HIPPED · MIXED. **faceRoof:** GABLED · HIPPED.
 - **Elevation face:** front · rear · left · right · other.

@@ -15,7 +15,7 @@ export const GLOSSARY: GlossaryTerm[] = [
   // Building & shape
   { id: "storeys", term: "Storeys", definition: "Number of floor levels: 1, 2, 2.5, 3. Observed; cross-checks the lift count, never prices directly.", layer: "llm" },
   { id: "room-in-roof", term: "Room in roof", definition: "A habitable room in the roof space (dormers, velux, raised eaves) → a 2.5-storey. Adds one lift and one birdcage floor.", layer: "llm" },
-  { id: "structure", term: "Structure", definition: "SINGLE (one detached house), PAIR_OR_TERRACE (a semi pair / terrace of houses — take-off per one house), or APARTMENT_BLOCK (flats — scaffolded as one whole building).", layer: "llm" },
+  { id: "structure", term: "Structure", definition: "Named by how many houses are joined: DETACHED (1), PAIR_SEMI (2 — a semi/pair), THREE_BLOCK (3), TERRACE (4+ — 'terrace' is reserved for four or more), or APARTMENT_BLOCK (flats — scaffolded as one whole building). House forms take off per one house; the frontage is divided by dwellingsWide.", layer: "llm" },
   { id: "dwellings-wide", term: "Dwellings-wide", definition: "How many houses share the printed front/rear frontage (1 single, 2 semi, 3+ terrace). The engine divides the frontage by this; gable-end walls are never divided.", layer: "llm" },
   { id: "configuration", term: "Configuration", definition: "A plot-level attribute (from the plot schedule, not the elevation): Detached / Semi / End-terrace / Mid-terrace. Decides which walls get scaffold. The extractor never infers it." },
   { id: "party-wall", term: "Party wall", definition: "A wall shared with the joined house — not scaffolded. Detached 0, semi/end 1, mid-terrace 2." },

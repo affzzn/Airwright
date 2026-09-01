@@ -43,7 +43,8 @@ const RATES = [
   { component: "BIRDCAGE_GF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
   { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", rate: 9.0 },
   { component: "BIRDCAGE_FF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
-  { component: "GABLE", action: "ERECT", band: "MEDIUM", rate: 120.0 },
+  { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120.0 },
+  { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
 ];
 const SPLITS = [
   { name: "Plot Erect", percent: 50 },
@@ -82,15 +83,15 @@ describe("buildClientMatrix — Traditional", () => {
     expect(keys.slice(0, 4)).toEqual(["plot", "code", "config", "storey"]);
     expect(keys).toContain("lift1");
     expect(keys).toContain("lift8");
-    expect(keys).toContain("tableGable");
+    expect(keys).toContain("tableLifts");
+    expect(keys).toContain("apexRails");
     expect(keys).toContain("bcageErectGF");
     expect(keys).toContain("bcageStripTF");
     expect(keys).toContain("dismantle");
     expect(keys).toContain("stage:Plot Erect");
     expect(keys.at(-1)).toBe("total");
-    expect(m.columns.find((c) => c.key === "tableGable")?.header).toBe(
-      "Table Lifts & Guard Rails to Gables",
-    );
+    expect(m.columns.find((c) => c.key === "tableLifts")?.header).toBe("Table Lifts to Gables");
+    expect(m.columns.find((c) => c.key === "apexRails")?.header).toBe("Apex Guard Rails to Gables");
   });
 
   it("cost columns reconcile to the plot total (to the penny)", () => {

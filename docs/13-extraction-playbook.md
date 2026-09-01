@@ -93,9 +93,9 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 - **Edge cases:** codes repeat across regions for the same builder → the bank matches on builder + code.
 
 ### 3.2 Structure & dwellings-wide
-- **What:** SINGLE / PAIR_OR_TERRACE / APARTMENT_BLOCK; how many houses share the printed frontage.
+- **What:** DETACHED / PAIR_SEMI / THREE_BLOCK / TERRACE (4+) / APARTMENT_BLOCK; how many houses share the printed frontage.
 - **Where:** floor plans + title sheet (mirrored dwellings drawn together, named X / X-1; a communal stair ⇒ flats).
-- **How:** if two mirrored dwellings share a party gable → `PAIR_OR_TERRACE`, `dwellingsWide = 2`; a terrace → 3+. Flats with several units per floor and a communal entrance → `APARTMENT_BLOCK`, `dwellingsWide = 1`. A single detached house → `SINGLE`, `dwellingsWide = 1`.
+- **How:** two mirrored dwellings sharing a party gable → `PAIR_SEMI`, `dwellingsWide = 2`; three joined → `THREE_BLOCK`, `dwellingsWide = 3`; four or more → `TERRACE`, `dwellingsWide = 4+` (reserve "terrace" for 4+). Flats with several units per floor and a communal entrance → `APARTMENT_BLOCK`, `dwellingsWide = 1`. A free-standing house → `DETACHED`, `dwellingsWide = 1`.
 - **Layer:** reads (the engine divides the frontage by `dwellingsWide`). **Consistency check (C3):** `persist` flags SINGLE/APARTMENT with dwellingsWide ≠ 1, or PAIR/TERRACE with < 2 (`warnings.structureDwellingsMismatch`) — this pair drives the division, so a contradiction silently mis-prices the perimeter.
 - **Edge cases:** report front/rear as the **full printed frontage spanning all dwellings** — do **not** pre-divide. Gable-end walls are per-house depth, never divided.
 - **Confidence:** high when the drawing clearly shows a pair/terrace/block.

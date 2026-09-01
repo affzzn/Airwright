@@ -416,9 +416,13 @@ export async function persistExtraction(
     const form = result.structure.form;
     const dw = result.dwellingsWide.value;
     if (form && dw != null) {
+      // Each form names a home count: detached/flats = 1, pair/semi = 2,
+      // three-block = 3, terrace = 4+. A mismatch mis-prices the frontage division.
       const bad =
-        ((form === "SINGLE" || form === "APARTMENT_BLOCK") && dw !== 1) ||
-        (form === "PAIR_OR_TERRACE" && dw < 2);
+        ((form === "DETACHED" || form === "APARTMENT_BLOCK") && dw !== 1) ||
+        (form === "PAIR_SEMI" && dw !== 2) ||
+        (form === "THREE_BLOCK" && dw !== 3) ||
+        (form === "TERRACE" && dw < 4);
       if (bad)
         warnings.structureDwellingsMismatch = `structure=${form} but dwellingsWide=${dw} — check (frontage division depends on this)`;
     }

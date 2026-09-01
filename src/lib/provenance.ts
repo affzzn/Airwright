@@ -14,6 +14,7 @@
  */
 
 import { lowLevelQty, type ExtractionResult } from "@/lib/extract/schema";
+import { STRUCTURE_LABEL, isMultiHome } from "@/lib/structure";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 import { computeHeight } from "@/lib/extract/height";
 
@@ -427,17 +428,13 @@ export function buildProvenanceCards(
 
   // --- Structure ---
   if (raw.structure.form != null) {
-    const label = {
-      SINGLE: "Single dwelling",
-      PAIR_OR_TERRACE: "Pair / terrace of houses",
-      APARTMENT_BLOCK: "Apartment block",
-    }[raw.structure.form];
+    const label = STRUCTURE_LABEL[raw.structure.form];
     const foot =
       raw.structure.form === "APARTMENT_BLOCK"
         ? "Scaffolded as one whole building — the frontage is not divided per flat."
-        : raw.structure.form === "PAIR_OR_TERRACE"
+        : isMultiHome(raw.structure.form)
           ? "The take-off is per one house; the printed frontage is divided by the dwellings-wide count."
-          : "One detached dwelling — the full frontage is used.";
+          : "One detached house — the full frontage is used.";
     cards.STRUCTURE = {
       title: "Structure",
       summary: "Read from the drawing",

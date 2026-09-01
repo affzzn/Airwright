@@ -18,6 +18,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { formatDate } from "@/lib/utils";
 import { Provenance } from "@/components/ui/provenance";
 import type { ExtractionResult } from "@/lib/extract/schema";
+import { STRUCTURE_FORMS, STRUCTURE_LABEL, isMultiHome, type StructureForm } from "@/lib/structure";
 import {
   aiMeasurementValues,
   buildProvenanceCards,
@@ -48,7 +49,7 @@ export interface EditorWall {
 }
 export interface EditorCategoricals {
   roofType: "PITCHED" | "HIPPED" | "MIXED" | null;
-  structure: "SINGLE" | "PAIR_OR_TERRACE" | "APARTMENT_BLOCK" | null;
+  structure: StructureForm | null;
   dwellingsWide: number | null;
   roomInRoof: boolean | null;
   rendered: boolean | null;
@@ -108,9 +109,7 @@ const ROOF_OPTIONS: { value: string; label: string }[] = [
 ];
 const STRUCTURE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "—" },
-  { value: "SINGLE", label: "Single" },
-  { value: "PAIR_OR_TERRACE", label: "Pair / terrace" },
-  { value: "APARTMENT_BLOCK", label: "Apartment block" },
+  ...STRUCTURE_FORMS.map((f) => ({ value: f, label: STRUCTURE_LABEL[f] })),
 ];
 
 type WallRow = {
@@ -605,7 +604,7 @@ export function TakeoffEditor({
                 }
               />
             </DetailRow>
-            {cats.structure === "PAIR_OR_TERRACE" && (
+            {isMultiHome(cats.structure) && (
               <DetailRow label="Dwellings wide">
                 <NumField
                   value={cats.dwellingsWide != null ? String(cats.dwellingsWide) : ""}

@@ -76,7 +76,7 @@ then `X = AA × 50%`, `Y = AA × 25%`, `Z = AA × 25%`. ✅ This is exactly our 
 
 **⚠️ Critical structural facts from these columns:**
 1. **Per-lift-level pricing (E–L).** Each lift level is its own cost, and on the real Windermere data the **1st lift is dearer than upper lifts** (e.g. 234.5 vs 201). ✅ CONFIRMED. 🔧 **APP GAP: we use ONE `LIFT` rate for every lift.**
-2. **Table lift + gable rails = ONE column (M).** 🔧 **APP GAP: we split into `GABLE` + `GABLE_RAILS`.** For the *client* quote they are one item. (The gang matrix separates them — §8.)
+2. **Table lift + gable rails were ONE column (M) in Colin's source matrix.** 🔧 **The app now SPLITS this into two client line items/columns — `TABLE_LIFT` ("Table Lifts to Gables") + `GABLE_RAILS` ("Apex Guard Rails to Gables")** (changed 2026-09-01). ⚠️ **RATES: each needs its OWN rate — both are unconfirmed placeholders (unpriced → £0 + flagged) until Colin's rate sheet gives how the one combined figure splits.**
 3. **Birdcage erect (O–R) AND strip (S–V) are per-floor, GF→TF.** 🔧 **APP GAP: we only handle GF/FF.**
 4. **There are NO columns for low level, party wall, chimney, or access (Haki/LB/chute).** 🔧 **APP GAP / ⚠️: our app prices `LOW_LEVEL`, `PARTY_WALL`, and chimney (`OTHER`) as separate lines — the client matrix does NOT. These are bundled into the rates (or a standard-inclusions list), so pricing them separately over-states the client quote.** Confirm with Colin whether low-level/party-wall are (a) bundled in the lift rate, (b) a separate inclusions list, or (c) genuinely absent.
 
@@ -185,7 +185,7 @@ plot-dependent.)
 | P1 | **`buildType` selects Traditional vs Timber-Frame matrix** | ✅ done (`85ef4d4`) | `priceProject` branches on `buildType` → `priceTimberFrameLine` (single external erect + adaptions + apex handrails, no birdcage, 80/20). |
 | P2 | **Per-lift-level rates (1st lift dearer)** | ✅ done (`93b3f7a`) | `RateItem.liftLevel` (0 = base, 1..8); resolver = exact level → base fallback. |
 | P3 | **NO_BIRDCAGE split = 75 / 0 / 25** | ✅ done (`93b3f7a`) | `StageScenario` += NO_BIRDCAGE / GARAGE(_NO_BCAGE) / TIMBER_FRAME, seeded; missing scenario now flags instead of silently STANDARD. |
-| P4 | **Table lift + gable rails = ONE client column** | ✅ done (`93b3f7a`) | One combined `GABLE` client line; gang split kept for Build 2. |
+| P4 | **Table lift + gable rails split into TWO client columns** | ✅ done (2026-09-01) | `priceTakeoffLine` emits `TABLE_LIFT` + `GABLE_RAILS` separately; matrix has "Table Lifts to Gables" + "Apex Guard Rails to Gables". ⚠️ both rates unconfirmed — Colin. (Was one combined `GABLE` line; garage block still uses combined `GABLE`.) |
 | P5 | **Birdcage erect + strip per floor, GF→TF** | ✅ done (`93b3f7a`) | `ScaffoldComponent` += `BIRDCAGE_SF/TF`; each floor priced to its own component, erect + strip. |
 | P6 | **Low-level / party-wall / chimney are NOT client columns** | 🟠 OPEN — over-prices | ⚠️ needs Colin: bundled into the rate / separate inclusions / absent? Build a toggle (default = flag). Still priced as separate lines today. |
 | P7 | **Garages priced (own columns + 65/10/25)** | ✅ done (`5e8b115`) | `takeoff/garage.ts` template + `priceGarageLine`; garages block in the matrix + folded into grand total. ⚠️ quantities are placeholders (no extracted geometry). |

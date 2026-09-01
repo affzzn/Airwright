@@ -108,7 +108,10 @@ function traditionalColumns(stageCols: StageCol[]): MatrixColumn[] {
   ];
   for (const lvl of TRADITIONAL_LIFT_LEVELS)
     cols.push({ key: `lift${lvl}`, header: ORDINAL[lvl], kind: "cost" });
-  cols.push({ key: "tableGable", header: "Table Lifts & Guard Rails to Gables", kind: "cost" });
+  // Apex split into two client columns (2026-09-01): table lifts and the guard
+  // rails are now presented separately. ⚠ Both rates are unconfirmed — Colin.
+  cols.push({ key: "tableLifts", header: "Table Lifts to Gables", kind: "cost" });
+  cols.push({ key: "apexRails", header: "Apex Guard Rails to Gables", kind: "cost" });
   cols.push({ key: "render", header: "Render Adaptions", kind: "cost" });
   for (const f of FLOORS)
     cols.push({ key: `bcageErect${f}`, header: FLOOR_ERECT_HEADER[f], kind: "cost" });
@@ -156,7 +159,8 @@ function traditionalCells(lines: PricedLine[]): Record<string, number> {
   // Per-lift erect — one column per level; the resolver already priced each level.
   for (const lvl of TRADITIONAL_LIFT_LEVELS)
     put(`lift${lvl}`, sumPence(lines, (l) => l.component === "LIFT" && l.action === "ERECT" && l.liftLevel === lvl));
-  put("tableGable", sumPence(lines, (l) => l.component === "GABLE" && l.action === "ERECT"));
+  put("tableLifts", sumPence(lines, (l) => l.component === "TABLE_LIFT" && l.action === "ERECT"));
+  put("apexRails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
   put("render", sumPence(lines, (l) => l.component === "RENDER_ADAPTION" && l.action === "ERECT"));
   for (const f of FLOORS) {
     put(`bcageErect${f}`, sumPence(lines, (l) => l.component === `BIRDCAGE_${f}` && l.action === "ERECT"));

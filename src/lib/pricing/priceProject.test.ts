@@ -25,7 +25,7 @@ const confirmed: HouseTypeForPricing = {
     { position: "GABLE_LEFT", lengthM: 7.9 },
     { position: "GABLE_RIGHT", lengthM: 7.9 },
   ],
-  warnings: { roofType: "PITCHED", structure: "SINGLE" },
+  warnings: { roofType: "PITCHED", structure: "DETACHED" },
 };
 const draft: HouseTypeForPricing = { ...confirmed, id: "ht2", name: "Dekker", takeoffStatus: "IN_REVIEW" };
 
@@ -42,7 +42,7 @@ const rateItems = [
   { component: "BIRDCAGE_GF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
   { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", rate: 9 },
   { component: "BIRDCAGE_FF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
-  { component: "GABLE", action: "ERECT", band: "MEDIUM", rate: 120 },
+  { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120 },
   { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40 },
 ];
 const stageSplits = [
