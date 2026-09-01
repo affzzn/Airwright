@@ -69,15 +69,11 @@ export const GLOSSARY: GlossaryTerm[] = [
   { id: "erect-dismantle", term: "Erect vs dismantle", definition: "Put up vs take down — two separate priced operations." },
   { id: "stage-split", term: "Payment stages / stage split", definition: "The plot total split into billing stages: Plot Erect 50% · Birdcage Erect 25% · Dismantle 25% (bungalow 65/10/25). Configurable per client." },
   { id: "rate-band", term: "Rate band", definition: "Colin's commercial tier: super-competitive / competitive / medium / high / custom. Same take-off, different £/unit." },
-  { id: "builder-profile", term: "Builder profile", definition: "A stored per-housebuilder profile (~20 builders): access type, loading-bay policy, beam-over, chimney rule, storey-lift template… The governing document is the design-standard specification for scaffolding." },
 
   // Drawings / systems
   { id: "elevation", term: "Elevation", definition: "A drawing of a face of the house. Read apexes, render, height, chimney, porches/bays here. Ignore internal room elevations (Kitchen/Cloak)." },
   { id: "floor-plan", term: "Floor plan", definition: "A top-down drawing of a floor. Read internal dimensions / GIA for the birdcage, and the footprint." },
   { id: "setting-out-plan", term: "Setting-out plan", definition: "Carries the gross internal footprint area per dwelling and the exterior-wall run. Colin's birdcage number. Classified as a floor plan (relevant)." },
   { id: "section", term: "Section (A-A, B-B)", definition: "Vertical heights — height to soffit / U-S wallplate, FFL, floor-to-floor storey heights." },
-  { id: "strike", term: "Strike", definition: "The incumbent desktop software being replaced (Alpha Estimator + Job Manager). Outputs must be keyable into it — its item names, and it wants the total metreage, not per-lift." },
   { id: "tg20", term: "TG20 (TG20:21)", definition: "The industry scaffold design-compliance standard. A constraint, not a measurement." },
-  { id: "confidence", term: "Confidence", definition: "Every value carries high / medium / low / unknown. 'high' = the printed value is certain. Below threshold → blank + flag, never guess." },
-  { id: "provenance", term: "Provenance", definition: "Where a value came from — the sheet, the exact printed dimension string, and the page — recorded on every number so a human can trace it." },
 ];
