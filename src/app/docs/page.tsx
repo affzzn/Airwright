@@ -11,6 +11,11 @@ import {
   OVERVIEW_INTRO,
   PIPELINE,
   SCHEMA_FIELDS,
+  SMART_UPLOAD_INTRO,
+  SMART_UPLOAD_IDEAS,
+  SMART_UPLOAD_PIPELINE,
+  SMART_UPLOAD_AI_NOTE,
+  SMART_UPLOAD_GATE_NOTE,
 } from "@/lib/dev-spec";
 import { Badge } from "@/components/ui/badge";
 import { SpecShell, type NavGroup } from "@/components/dev/spec-shell";
@@ -31,6 +36,10 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "overview", title: "Overview" },
       { id: "classification", title: "Which pages" },
     ],
+  },
+  {
+    label: "Smart upload",
+    items: [{ id: "smart-upload", title: "Smart upload & grouping" }],
   },
   {
     label: "Reading the drawing",
@@ -174,6 +183,41 @@ export default function DevSpecPage() {
               it is a civils one. Internal room elevations (Kitchen / Cloak) and civils long-sections are excluded. Pages are
               then grouped into house types by NAME. Source: <span className="font-mono text-xs">extract/classify-rules.ts</span>.
             </p>
+          </Section>
+
+          {/* Smart upload & grouping */}
+          <Section
+            id="smart-upload"
+            eyebrow="Before the extractor"
+            title="Smart upload & grouping"
+            intro={SMART_UPLOAD_INTRO}
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              {SMART_UPLOAD_IDEAS.map((idea) => (
+                <div key={idea.title} className="rounded-lg border border-hairline bg-canvas p-4">
+                  <p className="text-sm font-medium text-ink">{idea.title}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-muted">{idea.body}</p>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="mt-8 text-sm font-semibold text-ink">The pipeline</h3>
+            <div className="mt-3">
+              <SpecTable
+                head={["Step", "By", "What happens"]}
+                colClass={["w-40", "w-24", undefined]}
+                rows={SMART_UPLOAD_PIPELINE.map((s) => [
+                  <span key="s" className="font-medium text-ink">{s.step}</span>,
+                  <Badge key="b" variant={s.by === "Human" ? "solid" : s.by === "Code" ? "muted" : "outline"}>{s.by}</Badge>,
+                  s.what,
+                ])}
+              />
+            </div>
+
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              <Callout label="AI vs deterministic">{SMART_UPLOAD_AI_NOTE}</Callout>
+              <Callout label="The human gate">{SMART_UPLOAD_GATE_NOTE}</Callout>
+            </div>
           </Section>
 
           {/* Measurements */}

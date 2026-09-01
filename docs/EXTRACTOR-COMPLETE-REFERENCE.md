@@ -51,6 +51,9 @@ produce it).
 - **Part 11 — Builder profiles**.
 - **Part 12 — Validation & tooling**.
 - **Part 13 — Quick-reference tables** (all formulas, constants, enums).
+- **Part 14 — Smart Upload & Grouping**: the layer *upstream* of the extractor —
+  how a raw uploaded tender folder becomes one clean dossier per house type, with
+  the scaffold-relevant pages tagged and a human confirm before any paid extraction.
 
 ---
 ---
@@ -1653,10 +1656,178 @@ heightSoffit = directRead, cross-checked vs Σ storeyHeightsM (flag if different
 - **GarageType:** SINGLE · TWIN · CAR_PORT.
 
 ---
+---
+
+# PART 14 — SMART UPLOAD & GROUPING (getting a pack ready for the extractor)
+
+Everything so far assumes the extractor is handed a clean set of drawings for one
+house type. **This part is how that clean set comes to exist.** It sits *upstream*
+of Parts 2–13: it turns a raw uploaded tender folder into one tidy dossier per
+house type, tags which pages a scaffolder needs, and gets a human sign-off — all
+*before* a penny is spent on AI extraction. Downstream of the tagged relevant
+pages, nothing changes: the extractor and engine (Parts 3–13) run exactly as
+described. (Canonical spec: `docs/17-smart-upload-and-grouping.md`. Code:
+`src/lib/ingest/*`, `src/lib/upload/*`, `src/server/grouping.ts`,
+`src/server/actions/{upload,grouping}.ts`, `src/worker/processPack.ts`,
+`src/components/{upload-form,grouping-confirm}.tsx`.)
+
+## 14.1 The problem, and the two ideas that solve it
+
+**The problem.** A real tender pack is a whole *folder* — often hundreds of PDFs,
+single- or multi-page, buried under trade sub-folders (kitchens, SAP, roofs), with
+revisions and material/handing variants of the same sheet. And **every builder
+packages it differently** — there are no "known builders" to hand-configure; in
+production every pack shape is effectively new. Someone used to sort out "which
+files belong to which house type" by hand.
+
+**Two ideas make it reliable, not just clever:**
+
+1. **Grouping = identity only; relevance = a separate per-page tag.** Grouping just
+   answers *"which house type is this file?"* and puts **every** file for a type —
+   relevant or not — into **one combined PDF** (the complete "dossier"). A separate
+   per-page **relevant?** flag then decides which pages the extractor reads and
+   which the review preview shows. Nothing is ever discarded: "Open full drawing"
+   always shows the entire dossier.
+
+2. **The AI infers the *rule*; plain code applies it.** This is the key reliability
+   trick. Asked to place 500 files in one pass, an LLM **silently drops items** — a
+   dropped house type is a missing line on the quote. So instead the AI reads a
+   compact **text** summary of the pack and returns a small **recipe** ("house types
+   are the folder under `Scaffold/`; these folders are junk; the names look like
+   X"), and **deterministic code applies that recipe to every single file**, with a
+   guarantee that every file is accounted for exactly once. Smart where it needs to
+   be, deterministic where it counts. It's the same doctrine as the rest of this
+   document: **read many signals → reconcile in code → flag, never silently drop.**
+
+## 14.2 The pipeline, step by step
+
+The worker (`processPack.ts`) runs these in order. AI steps are marked **[AI]**;
+everything else is deterministic.
+
+| Step | What happens |
+|---|---|
+| **Upload** | A folder-first, resumable uploader (drag a folder, pick one, or drop loose files / a ZIP). Files upload in parallel with retry/backoff and are **registered as they finish**, so an interrupted session resumes by re-dropping — only the missing files re-upload. |
+| **Ingest** | ZIPs are expanded; a zip-vs-unzipped duplicate is deduped by **content hash**; each file keeps its folder path (the main grouping signal). |
+| **Classify (Tier 1, free)** | Read each page's **text layer**, find the title block, and tag the drawing type + relevance deterministically (the same classifier as Part 2). Most pages settle here for nothing. A page with **no text layer** (scanned/raster) is flagged for a human — not OCR'd. |
+| **Relevance triage [AI]** | Only *ambiguous* pages (weak/unfamiliar title text) get a small LLM look — and it can **only rescue** a page (flip a missed drawing to relevant), never remove one. **Recall beats precision:** a wrongly-included page wastes a few tokens; a wrongly-excluded one is a silent hole in the take-off. |
+| **Infer the recipe [AI]** | The pack's folder tree + a sample of filenames and title blocks are summarised as **text** and handed to the model (forced tool + strict schema, low variance). It returns the packaging strategy, the junk folders/keywords, and the list of distinct house-type names — and **explicitly does not place files**. |
+| **Apply the recipe** | Code compiles the recipe into the same profile shape the built-in profiles use, then assigns **every** file to a house type (or to "junk / pack-level"). Within each house type it then tightens the set (§14.5). |
+| **Assemble** | Each house type's chosen pages are merged into **one combined PDF**, relevant pages **first**, with a **page manifest** tracing every page back to its source file + page. |
+| **Answer-key self-check [AI]** | Many packs contain a take-off / plot-schedule / drawing-register sheet. The sheet is found deterministically, its house-type list is read **[AI]**, and code cross-checks it against our grouping → *expected / matched / missing / extra* ("expected 16, found 15"). |
+| **Propose → confirm** | The worker **stops** at a `PROPOSED` state and creates *pending* extractions. A human reviews the confirm screen and only then approves — which enqueues the paid extraction (§14.6). |
+
+## 14.3 What's AI vs deterministic
+
+There are exactly **three** AI touch-points, all **text-based**, all forced-tool +
+schema, all on the grouping model (`ANTHROPIC_GROUPING_MODEL`, defaulting to the
+extraction model `claude-opus-4-8`):
+
+1. **Recipe inference** (`inferRecipe.ts`) — picks the packaging strategy + junk +
+   house-type names from a text manifest. Never places files.
+2. **Relevance triage** (`relevanceTriage.ts`) — rescue-only re-judging of
+   ambiguous pages, batched, never removes a page.
+3. **Answer-key list** (`answerKey.ts`) — reads the house-type names off a schedule
+   sheet for the cross-check.
+
+**Everything else is deterministic:** path/filename/title-block parsing
+(`parsePath.ts`), revision/variant/canonical-role dedup, file placement
+(`group.ts`), recipe compilation (`recipe.ts`), the built-in builder profiles and
+detection (`profiles.ts`), Tier-1 classification, PDF assembly/merge
+(`assemble.ts`), the answer-key comparison, and the whole confirm / override /
+enqueue gate.
+
+All three AI steps are gated by one env flag, **`INGEST_GROUPING_AI`** (default
+**on**; set to `false` to run the fully deterministic path — offline, free,
+identical every time). **Fallbacks:** if the AI is off or the recipe inference
+fails, code falls back to a built-in **deterministic builder profile**; if neither
+resolves a pack, it falls back to the legacy per-file segmentation and marks the
+pack `FALLBACK` (auto-queued). Grouping degrades safely; it never stalls.
+
+## 14.4 Grouping = identity, relevance = a per-page tag
+
+The output of grouping is, per house type: **one combined PDF (the complete
+dossier)** + a **page manifest** recording, for every page, its source (file +
+page) and a **`relevant`** flag. That manifest drives everything:
+
+- **Extraction** reads only the **relevant** pages — and because they're ordered
+  **first**, that's a clean contiguous page range.
+- **Review — the left preview** shows only the relevant pages (just the scaffold
+  drawings).
+- **"Open full drawing"** opens the **entire** dossier (every page, trades and
+  all). It's built lazily and cached only when someone actually clicks it, so the
+  eager assembled PDF stays small. This is also the **safety net**: if the relevant
+  tag ever wrongly hides a page, it's still there in the full PDF and can be flipped
+  on.
+
+## 14.5 Keeping the extraction set tight
+
+A house type's material (brick/stone/render) and handing (LH/RH) options repeat the
+**same** plans and sections many times, so the *relevant* page count can balloon
+(real packs hit 18–26 pages where a take-off needs ~10–14). Three deterministic
+collapses trim it, in the dossier's grouping step:
+
+- **Latest revision wins** — `ISSUE 7.2` supersedes `ISSUE 7.1` of the same sheet.
+- **Config/variant collapse** — one *primary* file per variant is chosen for
+  extraction (preferring the non-"affordable" variant), while **all** variants stay
+  in the full dossier.
+- **Canonical-role dedup** — among the relevant pages, keep **one per canonical
+  geometry role**: floor plan *by level* (GF/FF/SF/TF), setting-out, roof, section.
+  Duplicates are demoted to dossier-only (`relevant = false`) — still in the full
+  PDF, just not re-read. This is informational; it does **not** lower a group's
+  confidence.
+
+> ⚠️ **Elevations are never collapsed — deliberately.** On real packs the text layer
+> labels every elevation identically ("FRONT ELEVATION", or a bare "ELEVATION") and
+> does **not** name the rear/side/gable faces. Two pages that *read* the same may be
+> different faces or a render variant, so dropping one could silently lose a face's
+> apex / render / height read — a hole in the take-off. An extra elevation page
+> wastes a few tokens; a missing one mis-prices the quote. A page whose role can't
+> be *positively* identified is likewise left relevant. The only ceiling on
+> elevations is a hard page cap (`MAX_EXTRACTION_PAGES`).
+
+## 14.6 The self-checks and the human gate
+
+Two things make grouping trustworthy before any money is spent:
+
+- **The in-pack answer key** (§14.2) surfaces "expected 16 house types, found 15"
+  right when a human can fix it — a free ground-truth check at runtime, no separate
+  test suite.
+- **The confirm screen is a hard gate.** The worker produces only *pending*
+  extractions and stops at `PROPOSED`. The confirm screen sorts **low-confidence
+  groups to the top**, shows the answer-key mismatch banner and any unplaced files,
+  and lets a human **rename / merge / exclude** groups. **Only "Confirm & extract"
+  enqueues the paid extraction** — nothing costs money until a person approves.
+  (This mirrors the whole platform's rule: nothing is ever auto-priced; a human
+  confirms first.)
+
+## 14.7 What's built vs later
+
+- ✅ **Built (all five near-term features):** folder-first resumable upload;
+  group-everything + per-page relevance tag with the preview-relevant /
+  open-full-everything split; AI-first grouping (infer recipe → deterministic
+  apply, with profile/legacy fallbacks); the in-pack answer-key cross-check;
+  Tier-2 rescue-only relevance triage; and the rename/merge/exclude override UI.
+  Verified end-to-end on the four real fixture packs (Vistry, Bloor, Tilia, Taylor
+  Wimpey — gitignored PII).
+- ⚠️/🔭 **Later or optional:** *recipe caching* (persist a confirmed recipe and
+  reuse it on repeat packs — deferred because inference is already cheap and a
+  *stale* cached recipe could silently mis-group when a builder changes their
+  packaging); *OCR / vision rescue* of raster (image-only) PDFs (today they're
+  flagged for a human, not read); and an offline *grading harness*. File-level
+  reassign / split in the confirm UI is a follow-up to the rename/merge/exclude
+  already shipped.
+
+**Data model (migration `smart_upload_grouping`):** `PackUpload.relativePath`;
+`Document.relativePath` + `contentHash` + `pageManifest`; `DocumentKind.ASSEMBLED`
+(the synthetic combined PDF); `TenderPack.groupingStatus` (`PROPOSED` / `CONFIRMED`
+/ `FALLBACK`, plus a transient `GROUPING`) + `groupingData` + `builderProfileId`;
+`BuilderProfile.ingestProfile` (reserved for the later recipe cache).
+
+---
 
 *Ground truth: `src/lib/extract/*` + `src/lib/takeoff/*` at `PROMPT_VERSION
 2026-08-26.2`, model `claude-opus-4-8`. Companion docs: `docs/13` (the playbook the
 prompt projects), `docs/12` (the live prompt/contract mirror), `docs/11` (rules +
-open questions), `docs/03` (glossary). This file is the single self-contained
-reference; if it and the code disagree, the code wins — and this file should be
-re-synced.*
+open questions), `docs/03` (glossary), `docs/17` (smart upload & grouping — Part 14).
+This file is the single self-contained reference; if it and the code disagree, the
+code wins — and this file should be re-synced.*

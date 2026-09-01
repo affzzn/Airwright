@@ -10,3 +10,10 @@ export { ENGINE_RULES } from "./engine-rules";
 export { GLOSSARY } from "./glossary";
 export { PIPELINE, SCHEMA_FIELDS } from "./pipeline";
 export { LAYERS, DOCTRINES, OVERVIEW_INTRO } from "./overview";
+export {
+  SMART_UPLOAD_INTRO,
+  SMART_UPLOAD_IDEAS,
+  SMART_UPLOAD_PIPELINE,
+  SMART_UPLOAD_AI_NOTE,
+  SMART_UPLOAD_GATE_NOTE,
+} from "./smart-upload";
