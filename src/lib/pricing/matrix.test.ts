@@ -45,6 +45,7 @@ const RATES = [
   { component: "BIRDCAGE_FF", action: "DISMANTLE", band: "MEDIUM", rate: 1.5 },
   { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120.0 },
   { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
+  { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", rate: 165.0 },
 ];
 const SPLITS = [
   { name: "Plot Erect", percent: 50 },
@@ -87,6 +88,7 @@ describe("buildClientMatrix — Traditional", () => {
     expect(keys).toContain("apexRails");
     expect(keys).toContain("bcageErectGF");
     expect(keys).toContain("bcageStripTF");
+    expect(keys).toContain("partyWall");
     expect(keys).toContain("dismantle");
     expect(keys).toContain("stage:Plot Erect");
     expect(keys.at(-1)).toBe("total");
@@ -156,6 +158,7 @@ describe("buildClientMatrix — Timber Frame", () => {
     const keys = m.columns.map((c) => c.key);
     expect(keys).toContain("externalErect");
     expect(keys).toContain("apexHandrails");
+    expect(keys).toContain("partyWall");
     expect(keys).toContain("adaption1");
     expect(keys).not.toContain("lift1"); // no per-lift erect columns
     expect(keys).not.toContain("bcageErectGF"); // no birdcage in TF plot rows
@@ -185,7 +188,6 @@ describe("standard inclusions (P6) — excluded from every total, listed once", 
   const RATES_WITH_INCL = [
     ...RATES,
     { component: "LOW_LEVEL", action: "ERECT", band: "MEDIUM", rate: 150.0 },
-    { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", rate: 80.0 },
   ];
   const resolveIncl = buildRateResolver(RATES_WITH_INCL, "MEDIUM");
   const price = (config: TakeoffInput["config"], plotNumber: string): PricedPlot => {
@@ -250,8 +252,16 @@ describe("standard inclusions (P6) — excluded from every total, listed once", 
     expect(low.label).toMatch(/low-level/i);
     expect(low.totalQty).toBe(2); // one per plot
     expect(low.plots).toEqual(["1", "2"]);
-    const party = inc.find((i) => i.component === "PARTY_WALL")!;
-    expect(party.plots).toEqual(["2"]); // only the semi
+    // Party wall is NO LONGER an inclusion — it's a priced column now (2026-09-01).
+    expect(inc.find((i) => i.component === "PARTY_WALL")).toBeUndefined();
+  });
+
+  it("party wall is priced into the semi's cost + column, not the detached's", () => {
+    const m = buildClientMatrix(plots, "TRADITIONAL");
+    const semi = m.rows.find((r) => r.plotNumber === "2")!;
+    const det = m.rows.find((r) => r.plotNumber === "1")!;
+    expect(semi.cells.partyWall).toBe(165); // £165 unit on the semi
+    expect(det.cells.partyWall ?? 0).toBe(0); // detached has none
   });
 
   it("carries the storey into the matrix row (fix C)", () => {

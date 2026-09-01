@@ -78,7 +78,7 @@ then `X = AA × 50%`, `Y = AA × 25%`, `Z = AA × 25%`. ✅ This is exactly our 
 1. **Per-lift-level pricing (E–L).** Each lift level is its own cost, and on the real Windermere data the **1st lift is dearer than upper lifts** (e.g. 234.5 vs 201). ✅ CONFIRMED. 🔧 **APP GAP: we use ONE `LIFT` rate for every lift.**
 2. **Table lift + gable rails were ONE column (M) in Colin's source matrix.** 🔧 **The app now SPLITS this into two client line items/columns — `TABLE_LIFT` ("Table Lifts to Gables") + `GABLE_RAILS` ("Apex Guard Rails to Gables")** (changed 2026-09-01). ⚠️ **RATES: each needs its OWN rate — both are unconfirmed placeholders (unpriced → £0 + flagged) until Colin's rate sheet gives how the one combined figure splits.**
 3. **Birdcage erect (O–R) AND strip (S–V) are per-floor, GF→TF.** 🔧 **APP GAP: we only handle GF/FF.**
-4. **There are NO columns for low level, party wall, chimney, or access (Haki/LB/chute).** 🔧 **APP GAP / ⚠️: our app prices `LOW_LEVEL`, `PARTY_WALL`, and chimney (`OTHER`) as separate lines — the client matrix does NOT. These are bundled into the rates (or a standard-inclusions list), so pricing them separately over-states the client quote.** Confirm with Colin whether low-level/party-wall are (a) bundled in the lift rate, (b) a separate inclusions list, or (c) genuinely absent.
+4. **Low level, chimney, access (Haki/LB/chute) are NOT client columns** — they're bundled into the rates / a standard-inclusions list, so `LOW_LEVEL` and chimney (`OTHER`) stay **inclusions** (priced as audit lines but excluded from the total). **PARTY WALL is NOW its own priced column (2026-09-01 call):** the inside apex (no rails) is a spec item at **£165/unit provisional**, **one unit per non-detached house** (detached = 0), removable per plot at spec stage (`Plot.includePartyWall`). Still confirm with Colin whether low-level/chimney are (a) bundled in the lift rate, (b) a separate inclusions list, or (c) absent.
 
 ---
 
@@ -187,7 +187,7 @@ plot-dependent.)
 | P3 | **NO_BIRDCAGE split = 75 / 0 / 25** | ✅ done (`93b3f7a`) | `StageScenario` += NO_BIRDCAGE / GARAGE(_NO_BCAGE) / TIMBER_FRAME, seeded; missing scenario now flags instead of silently STANDARD. |
 | P4 | **Table lift + gable rails split into TWO client columns** | ✅ done (2026-09-01) | `priceTakeoffLine` emits `TABLE_LIFT` + `GABLE_RAILS` separately; matrix has "Table Lifts to Gables" + "Apex Guard Rails to Gables". ⚠️ both rates unconfirmed — Colin. (Was one combined `GABLE` line; garage block still uses combined `GABLE`.) |
 | P5 | **Birdcage erect + strip per floor, GF→TF** | ✅ done (`93b3f7a`) | `ScaffoldComponent` += `BIRDCAGE_SF/TF`; each floor priced to its own component, erect + strip. |
-| P6 | **Low-level / party-wall / chimney are NOT client columns** | 🟠 OPEN — over-prices | ⚠️ needs Colin: bundled into the rate / separate inclusions / absent? Build a toggle (default = flag). Still priced as separate lines today. |
+| P6 | **Low-level / chimney are inclusions; party wall is now a priced column** | 🟢 party wall DONE (2026-09-01); low-level/chimney still OPEN | Party wall = £165 provisional spec item, one per non-detached house, per-plot `includePartyWall` toggle. Low-level/chimney stay inclusions pending Colin (bundled / list / absent?). |
 | P7 | **Garages priced (own columns + 65/10/25)** | ✅ done (`5e8b115`) | `takeoff/garage.ts` template + `priceGarageLine`; garages block in the matrix + folded into grand total. ⚠️ quantities are placeholders (no extracted geometry). |
 | P8 | **Access items (Haki/LB/chute) bundled for client, itemised + apportioned for gang** | 🟡 later | Build-1: fold into the rate. Build-2: itemise + apportion (JG rule). |
 | P9 | **Template = builder × storey × Render/Hipped/NO-BCAGE variants** | 🟢 mostly | Derived ops reconcile to the matching template row (Hipped → no table lift; NO-BCAGE → 75/0/25 via scenario). |
@@ -204,7 +204,7 @@ templates, the confirmations below).
 ## 11. ⚠️ Still needs Colin (house-build pricing)
 
 1. **The rate sheet** — £ per lift level (1st vs upper), £/m² birdcage erect & strip, £ table+rails, £/LM render, per band.
-2. **Are low-level / party-wall / chimney bundled** into the lift rate, a separate inclusions list, or absent from the client quote?
+2. **Are low-level / chimney bundled** into the lift rate, a separate inclusions list, or absent from the client quote? (Party wall is resolved: a priced £165 spec item, one per non-detached house.) Confirm the final **£165 party-wall rate**.
 3. **Per-builder lift templates** (we have Barratt 2→3, Standard 2→4; need the rest).
 4. ~~**The corner allowance quantum**~~ **RESOLVED**: 1 m per external corner (docs/11 §8 #2).
 5. **Render on 2-storey** — the "+1 table lift" rule (docs/11 §4), and whether the render £/LM equals the perimeter £/LM.

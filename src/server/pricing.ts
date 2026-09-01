@@ -85,6 +85,7 @@ export async function loadProjectPricing(
       houseTypeId: p.houseTypeId,
       configuration: p.configuration,
       isRendered: p.isRendered,
+      includePartyWall: p.includePartyWall,
       hasGarage: p.hasGarage,
       garageType: p.garageType,
     })),

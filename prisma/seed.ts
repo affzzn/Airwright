@@ -61,12 +61,19 @@ async function main() {
           { component: "LIFT", action: "DISMANTLE", band: "MEDIUM", unit: "LM", rate: 6.0, liftLevel: 0 },
           { component: "BIRDCAGE_GF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
           { component: "BIRDCAGE_FF", action: "ERECT", band: "MEDIUM", unit: "M2", rate: 9.0 },
+          // Apex split into two lines (2026-09-01): table lifts + apex guard rails.
+          // GABLE kept for the garage block's combined "Gable Lift & Rails" column.
+          { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 120.0 },
+          { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 40.0 },
           { component: "GABLE", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 120.0 },
+          // Party-wall spec item — inside apex, no rails; one per non-detached house.
+          // ⚠ £165 PROVISIONAL (Colin, 2026-09-01 call) — confirm on the rate sheet.
+          { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 165.0 },
           // Timber-frame placeholders (⚠ real TF rates owed by Colin — docs/15 §11.7).
           { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 12.0 },
           { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", unit: "LM", rate: 4.0 },
           { component: "ADAPTION", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 5.0, liftLevel: 0 },
-          { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 40.0 },
+          // (GABLE_RAILS defined above — shared by the traditional apex split and TF.)
         ],
       },
     },

@@ -36,6 +36,8 @@ export interface PlotForPricing {
   houseTypeId: string;
   configuration: string;
   isRendered: boolean;
+  /** Include the party-wall spec item (default true; a customer opt-out sets false). */
+  includePartyWall: boolean;
   hasGarage: boolean;
   garageType: string | null;
 }
@@ -172,6 +174,8 @@ export function priceProject(input: {
     );
     // Render is per plot — a non-rendered plot drops the house type's render.
     if (!plot.isRendered) engineInput.renderSegmentsM = [];
+    // Party wall is a per-plot spec item — a customer opt-out drops the unit.
+    engineInput.includePartyWall = plot.includePartyWall;
 
     const line = buildTakeoff(engineInput, params);
     const isTimberFrame = ht.buildType === "TIMBER_FRAME";

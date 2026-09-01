@@ -141,6 +141,7 @@ export default async function ProjectPage({
     houseTypeId: p.houseTypeId,
     configuration: p.configuration as string,
     isRendered: p.isRendered,
+    includePartyWall: p.includePartyWall,
   }));
 
   return (

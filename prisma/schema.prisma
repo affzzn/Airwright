@@ -524,6 +524,9 @@ model Plot {
   configuration Configuration   @default(DETACHED)
   blockGroup    String?
   isRendered    Boolean         @default(false)
+  // Party-wall scaffold (inside apex, no rails) is a priced spec item on every
+  // non-detached house; a customer can opt out at spec stage → set this false.
+  includePartyWall Boolean      @default(true)
   accessType    AccessType?
   hasGarage     Boolean         @default(false)
   garageType    GarageType?

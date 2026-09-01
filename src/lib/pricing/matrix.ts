@@ -117,6 +117,7 @@ function traditionalColumns(stageCols: StageCol[]): MatrixColumn[] {
     cols.push({ key: `bcageErect${f}`, header: FLOOR_ERECT_HEADER[f], kind: "cost" });
   for (const f of FLOORS)
     cols.push({ key: `bcageStrip${f}`, header: `Strip ${f} Birdcage`, kind: "cost" });
+  cols.push({ key: "partyWall", header: "Party Wall", kind: "cost" });
   cols.push({ key: "dismantle", header: "Dismantle", kind: "cost" });
   for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Erect & Strip Price", kind: "total" });
@@ -137,6 +138,7 @@ function timberFrameColumns(stageCols: StageCol[]): MatrixColumn[] {
   for (const lvl of TF_ADAPTION_LEVELS)
     cols.push({ key: `adaption${lvl}`, header: `Adaption ${ORDINAL[lvl]} Lift`, kind: "cost" });
   cols.push({ key: "render", header: "Render/Cladding Adaption", kind: "cost" });
+  cols.push({ key: "partyWall", header: "Party Wall", kind: "cost" });
   cols.push({ key: "dismantle", header: "Dismantle", kind: "cost" });
   for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Erect & Strip Price", kind: "total" });
@@ -166,6 +168,7 @@ function traditionalCells(lines: PricedLine[]): Record<string, number> {
     put(`bcageErect${f}`, sumPence(lines, (l) => l.component === `BIRDCAGE_${f}` && l.action === "ERECT"));
     put(`bcageStrip${f}`, sumPence(lines, (l) => l.component === `BIRDCAGE_${f}` && l.action === "DISMANTLE"));
   }
+  put("partyWall", sumPence(lines, (l) => l.component === "PARTY_WALL" && l.action === "ERECT"));
   // Dismantle = the external scaffold dismantle (the single LIFT DISMANTLE line).
   put("dismantle", sumPence(lines, (l) => l.component === "LIFT" && l.action === "DISMANTLE"));
   return cells;
@@ -181,6 +184,7 @@ function timberFrameCells(lines: PricedLine[]): Record<string, number> {
   put("externalErect", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "ERECT"));
   put("apexHandrails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
   put("render", sumPence(lines, (l) => l.component === "RENDER_ADAPTION" && l.action === "ERECT"));
+  put("partyWall", sumPence(lines, (l) => l.component === "PARTY_WALL" && l.action === "ERECT"));
   put("dismantle", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "DISMANTLE"));
   // Per-lift adaptions (cols G–L) — one column per lift level, priced by priceTimberFrameLine.
   for (const lvl of TF_ADAPTION_LEVELS)
@@ -245,10 +249,9 @@ export interface InclusionItem {
 
 const INCLUSION_LABEL: Record<string, string> = {
   LOW_LEVEL: "Low-level towers (porch / bay)",
-  PARTY_WALL: "Party-wall scaffold",
   OTHER: "Chimney scaffold",
 };
-const INCLUSION_ORDER = ["LOW_LEVEL", "PARTY_WALL", "OTHER"];
+const INCLUSION_ORDER = ["LOW_LEVEL", "OTHER"];
 
 /**
  * Aggregate raw inclusion entries (component + qty + plot) into the display list,

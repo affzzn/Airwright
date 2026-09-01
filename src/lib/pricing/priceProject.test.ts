@@ -30,9 +30,9 @@ const confirmed: HouseTypeForPricing = {
 const draft: HouseTypeForPricing = { ...confirmed, id: "ht2", name: "Dekker", takeoffStatus: "IN_REVIEW" };
 
 const plots: PlotForPricing[] = [
-  { id: "p1", plotNumber: "1", houseTypeId: "ht1", configuration: "DETACHED", isRendered: false, hasGarage: false, garageType: null },
-  { id: "p2", plotNumber: "2", houseTypeId: "ht2", configuration: "DETACHED", isRendered: false, hasGarage: false, garageType: null },
-  { id: "p3", plotNumber: "3", houseTypeId: "ht1", configuration: "SEMI_DETACHED", isRendered: false, hasGarage: true, garageType: "SINGLE" },
+  { id: "p1", plotNumber: "1", houseTypeId: "ht1", configuration: "DETACHED", isRendered: false, includePartyWall: true, hasGarage: false, garageType: null },
+  { id: "p2", plotNumber: "2", houseTypeId: "ht2", configuration: "DETACHED", isRendered: false, includePartyWall: true, hasGarage: false, garageType: null },
+  { id: "p3", plotNumber: "3", houseTypeId: "ht1", configuration: "SEMI_DETACHED", isRendered: false, includePartyWall: true, hasGarage: true, garageType: "SINGLE" },
 ];
 
 const rateItems = [

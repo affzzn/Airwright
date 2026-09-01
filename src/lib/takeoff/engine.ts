@@ -60,6 +60,9 @@ export interface TakeoffInput {
   lowLevelCount: number;
   chimney: boolean;
   config: Configuration;
+  /** Include the party-wall spec item (default true). A customer opt-out at spec
+   *  stage sets this false → no party-wall unit is priced (detached is 0 anyway). */
+  includePartyWall?: boolean;
 }
 
 /**
@@ -309,16 +312,21 @@ export function computeApex(input: TakeoffInput): ApexResult {
   return { count, tableLifts: count, handrails: count };
 }
 
-/** Party-wall scaffold count by config. */
+/**
+ * Party-wall scaffold count by config. The party wall is the INSIDE apex (apex
+ * shape, NO rails) on a shared wall — priced as a separate spec item. Colin's
+ * rule (2026-09-01 call): ONE unit for every non-detached house type, detached
+ * excluded — deliberately simple (a mid-terrace is still ONE, not two). A
+ * customer can opt out at spec stage (handled by `includePartyWall` upstream).
+ */
 export function partyWalls(config: Configuration): number {
   switch (config) {
     case "DETACHED":
       return 0;
     case "SEMI_DETACHED":
     case "END_TERRACE":
-      return 1;
     case "MID_TERRACE":
-      return 2;
+      return 1;
   }
 }
 
@@ -347,7 +355,10 @@ export function buildTakeoff(
   const birdcage = computeBirdcage(input);
   const render = computeRender(input);
   const apex = computeApex(input);
-  const pw = input.isApartmentBlock ? 0 : partyWalls(input.config);
+  const pw =
+    input.isApartmentBlock || input.includePartyWall === false
+      ? 0
+      : partyWalls(input.config);
 
   const flags: string[] = [];
   if (lifts.lifts === null) flags.push("No height or storeys read — cannot derive lifts.");

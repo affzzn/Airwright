@@ -4,6 +4,7 @@ import {
   computeApex,
   computeLifts,
   computePerimeter,
+  partyWalls,
   storeyLifts,
   DEFAULT_PARAMS,
   type TakeoffInput,
@@ -254,6 +255,30 @@ describe("computeApex reduces by configuration (Dekker: gable apex on each side)
         apexByFace: { front: 1, rear: 0, left: 1, right: 1, other: 0 },
       }).count,
     ).toBe(1);
+  });
+});
+
+describe("party wall — one spec unit per non-detached house (Colin, 2026-09-01)", () => {
+  it("detached has none", () => {
+    expect(partyWalls("DETACHED")).toBe(0);
+  });
+  it("semi / end / mid each get exactly ONE (mid is NOT two)", () => {
+    expect(partyWalls("SEMI_DETACHED")).toBe(1);
+    expect(partyWalls("END_TERRACE")).toBe(1);
+    expect(partyWalls("MID_TERRACE")).toBe(1);
+  });
+  it("buildTakeoff carries the unit for a non-detached plot", () => {
+    expect(buildTakeoff({ ...base, config: "SEMI_DETACHED" }).partyWalls).toBe(1);
+  });
+  it("a customer opt-out (includePartyWall=false) drops the unit", () => {
+    expect(
+      buildTakeoff({ ...base, config: "SEMI_DETACHED", includePartyWall: false }).partyWalls,
+    ).toBe(0);
+  });
+  it("an apartment block never gets a party-wall unit", () => {
+    expect(
+      buildTakeoff({ ...base, isApartmentBlock: true, config: "SEMI_DETACHED" }).partyWalls,
+    ).toBe(0);
   });
 });
 

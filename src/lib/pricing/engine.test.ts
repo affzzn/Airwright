@@ -43,6 +43,7 @@ const RATES = [
   { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120.0 },
   { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
   { component: "LOW_LEVEL", action: "ERECT", band: "MEDIUM", rate: 150.0 },
+  { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", rate: 165.0 },
 ];
 const SPLITS = [
   { name: "Plot Erect", percent: 50 },
@@ -80,6 +81,29 @@ describe("priceTakeoffLine", () => {
     expect(result.lines.find((l) => l.component === "TABLE_LIFT" && l.action === "ERECT")?.quantity).toBe(2);
     expect(result.lines.find((l) => l.component === "GABLE_RAILS" && l.action === "ERECT")?.quantity).toBe(2);
     expect(result.lines.find((l) => l.component === "GABLE")).toBeUndefined();
+  });
+
+  it("detached has no party-wall line", () => {
+    expect(result.lines.find((l) => l.component === "PARTY_WALL")).toBeUndefined();
+  });
+
+  it("party wall is a PRICED spec item (not a free inclusion) on a non-detached plot", () => {
+    const semi = priceTakeoffLine(buildTakeoff({ ...base, config: "SEMI_DETACHED" }), {
+      resolveRate: resolve,
+      stageSplits: SPLITS,
+    });
+    const pw = semi.lines.find((l) => l.component === "PARTY_WALL" && l.action === "ERECT");
+    expect(pw?.quantity).toBe(1); // one unit per non-detached house
+    expect(pw?.amount).toBe(165); // £165 provisional
+    expect(pw?.inclusion).toBe(false); // counts toward the total, not bundled/free
+
+    // Opting out drops the unit AND exactly £165 off the subtotal (nothing else changes).
+    const semiNo = priceTakeoffLine(
+      buildTakeoff({ ...base, config: "SEMI_DETACHED", includePartyWall: false }),
+      { resolveRate: resolve, stageSplits: SPLITS },
+    );
+    expect(semiNo.lines.find((l) => l.component === "PARTY_WALL")).toBeUndefined();
+    expect(Math.round((semi.subtotal - semiNo.subtotal) * 100)).toBe(16500);
   });
 
   it("stages always reconcile back to the subtotal (to the penny)", () => {

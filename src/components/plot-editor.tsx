@@ -12,6 +12,7 @@ export interface PlotRow {
   houseTypeId: string;
   configuration: string;
   isRendered: boolean;
+  includePartyWall: boolean;
 }
 export interface HouseTypeOption {
   id: string;
@@ -61,6 +62,7 @@ export function PlotEditor({
   const [bulkHt, setBulkHt] = useState("");
   const [bulkConfig, setBulkConfig] = useState("");
   const [bulkRender, setBulkRender] = useState("");
+  const [bulkPartyWall, setBulkPartyWall] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   // Add-plot form (default to the top house type — usually the confirmed one)
@@ -111,12 +113,18 @@ export function PlotEditor({
 
   const applyBulk = () => {
     if (selected.size === 0) return;
-    const patch: { houseTypeId?: string; configuration?: string; isRendered?: boolean } = {};
+    const patch: {
+      houseTypeId?: string;
+      configuration?: string;
+      isRendered?: boolean;
+      includePartyWall?: boolean;
+    } = {};
     if (bulkHt) patch.houseTypeId = bulkHt;
     if (bulkConfig) patch.configuration = bulkConfig;
     if (bulkRender) patch.isRendered = bulkRender === "yes";
+    if (bulkPartyWall) patch.includePartyWall = bulkPartyWall === "yes";
     if (Object.keys(patch).length === 0) {
-      setError("Choose a house type, configuration or render to apply.");
+      setError("Choose a house type, configuration, render or party wall to apply.");
       return;
     }
     run(async () => {
@@ -126,6 +134,7 @@ export function PlotEditor({
         setBulkHt("");
         setBulkConfig("");
         setBulkRender("");
+        setBulkPartyWall("");
       }
       return res;
     });
@@ -197,6 +206,30 @@ export function PlotEditor({
       {p.isRendered ? "Rendered" : "Render"}
     </button>
   );
+
+  // Party-wall spec item — one £165 unit on every non-detached plot. Detached has
+  // no party wall, so the toggle is disabled there (it prices to £0 regardless).
+  const partyWallToggle = (p: PlotRow) => {
+    const detached = p.configuration === "DETACHED";
+    return (
+      <button
+        type="button"
+        disabled={pending || detached}
+        title={detached ? "Detached — no party wall" : "Party-wall spec item (£165/unit)"}
+        onClick={() =>
+          run(() => updatePlot(p.id, { includePartyWall: !p.includePartyWall }))
+        }
+        className={cn(
+          "rounded border px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+          !detached && p.includePartyWall
+            ? "border-transparent bg-ink text-canvas hover:opacity-90"
+            : "border-hairline-strong bg-canvas text-ink-muted hover:bg-surface",
+        )}
+      >
+        {detached ? "—" : p.includePartyWall ? "Party wall" : "No party wall"}
+      </button>
+    );
+  };
 
   const deleteBtn = (p: PlotRow) => (
     <button
@@ -278,6 +311,7 @@ export function PlotEditor({
                   </div>
                   {configSelect(p)}
                   {renderToggle(p)}
+                  {partyWallToggle(p)}
                   {deleteBtn(p)}
                 </li>
               );
@@ -331,6 +365,17 @@ export function PlotEditor({
                 <option value="yes">Rendered</option>
                 <option value="no">Not rendered</option>
               </select>
+              <select
+                aria-label="Set party wall"
+                value={bulkPartyWall}
+                onChange={(e) => setBulkPartyWall(e.target.value)}
+                disabled={pending}
+                className={selectClass}
+              >
+                <option value="">Party wall…</option>
+                <option value="yes">Party wall</option>
+                <option value="no">No party wall</option>
+              </select>
               <button
                 type="button"
                 onClick={applyBulk}
@@ -367,6 +412,7 @@ export function PlotEditor({
                   <th className="px-3 py-2.5 font-medium text-ink-subtle">House type</th>
                   <th className="px-3 py-2.5 font-medium text-ink-subtle">Configuration</th>
                   <th className="px-3 py-2.5 font-medium text-ink-subtle">Render</th>
+                  <th className="px-3 py-2.5 font-medium text-ink-subtle">Party wall</th>
                   <th className="px-3 py-2.5" />
                 </tr>
               </thead>
@@ -408,6 +454,7 @@ export function PlotEditor({
                       </td>
                       <td className="px-3 py-2">{configSelect(p)}</td>
                       <td className="px-3 py-2">{renderToggle(p)}</td>
+                      <td className="px-3 py-2">{partyWallToggle(p)}</td>
                       <td className="px-3 py-2 text-right">{deleteBtn(p)}</td>
                     </tr>
                   );

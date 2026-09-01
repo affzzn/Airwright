@@ -45,8 +45,10 @@ export interface PricedLine {
   note?: string;
 }
 
-/** Components the client matrix has no column for — listed as standard inclusions. */
-export const INCLUSION_COMPONENTS = new Set(["LOW_LEVEL", "PARTY_WALL", "OTHER"]);
+/** Components the client matrix has no column for — listed as standard inclusions.
+ *  PARTY_WALL was moved OUT (2026-09-01 call): it is now a PRICED spec item with
+ *  its own column (£165/unit, one per non-detached house), not a free inclusion. */
+export const INCLUSION_COMPONENTS = new Set(["LOW_LEVEL", "OTHER"]);
 export const isInclusionComponent = (component: string): boolean =>
   INCLUSION_COMPONENTS.has(component);
 
@@ -198,7 +200,10 @@ export function priceTakeoffLine(line: TakeoffLine, opts: PriceOpts): PriceResul
 
   // --- Low level, party walls, chimney ---
   if (line.lowLevel > 0) add("LOW_LEVEL", "ERECT", line.lowLevel, "EACH");
-  if (line.partyWalls > 0) add("PARTY_WALL", "ERECT", line.partyWalls, "EACH");
+  // Party wall = inside apex (no rails), a priced spec item, one per non-detached
+  // house (docs/15 §3). ⚠ RATE £165 provisional — confirm with Colin.
+  if (line.partyWalls > 0)
+    add("PARTY_WALL", "ERECT", line.partyWalls, "EACH", null, "party-wall inside apex (no rails)");
   if (line.chimney) add("OTHER", "ERECT", 1, "EACH", null, "chimney scaffold"); // ⚠ no CHIMNEY enum
 
   // --- Subtotal (pence, then pounds) ---
@@ -289,6 +294,10 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
       null,
       `render ${line.render.lengthM} m × ${line.render.lifts} lifts`,
     );
+  // Party wall = inside apex (no rails), one per non-detached house — same spec
+  // item as the traditional path. ⚠ RATE £165 provisional — confirm with Colin.
+  if (line.partyWalls > 0)
+    add("PARTY_WALL", "ERECT", line.partyWalls, "EACH", null, "party-wall inside apex (no rails)");
   // Single external dismantle (matrix col N). No birdcage in the TF plot matrix.
   if (totalExternal > 0) add("TF_EXTERNAL", "DISMANTLE", totalExternal, "LM", null, "dismantle");
 

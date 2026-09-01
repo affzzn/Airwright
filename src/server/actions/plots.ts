@@ -33,6 +33,7 @@ export async function updatePlot(
     houseTypeId?: string;
     configuration?: string;
     isRendered?: boolean;
+    includePartyWall?: boolean;
     hasGarage?: boolean;
   },
 ): Promise<{ ok: boolean; error?: string }> {
@@ -43,6 +44,7 @@ export async function updatePlot(
     houseTypeId?: string;
     configuration?: Configuration;
     isRendered?: boolean;
+    includePartyWall?: boolean;
     hasGarage?: boolean;
   } = {};
 
@@ -60,6 +62,7 @@ export async function updatePlot(
     data.configuration = patch.configuration as Configuration;
   }
   if (patch.isRendered !== undefined) data.isRendered = patch.isRendered;
+  if (patch.includePartyWall !== undefined) data.includePartyWall = patch.includePartyWall;
   if (patch.hasGarage !== undefined) data.hasGarage = patch.hasGarage;
 
   if (Object.keys(data).length === 0) return { ok: true };
@@ -77,7 +80,12 @@ export async function updatePlot(
  */
 export async function bulkUpdatePlots(
   plotIds: string[],
-  patch: { houseTypeId?: string; configuration?: string; isRendered?: boolean },
+  patch: {
+    houseTypeId?: string;
+    configuration?: string;
+    isRendered?: boolean;
+    includePartyWall?: boolean;
+  },
 ): Promise<{ ok: boolean; error?: string; updated?: number }> {
   if (plotIds.length === 0) return { ok: false, error: "No plots selected." };
 
@@ -94,6 +102,7 @@ export async function bulkUpdatePlots(
     houseTypeId?: string;
     configuration?: Configuration;
     isRendered?: boolean;
+    includePartyWall?: boolean;
   } = {};
   if (patch.houseTypeId !== undefined) {
     const ht = await prisma.houseType.findFirst({
@@ -109,6 +118,7 @@ export async function bulkUpdatePlots(
     data.configuration = patch.configuration as Configuration;
   }
   if (patch.isRendered !== undefined) data.isRendered = patch.isRendered;
+  if (patch.includePartyWall !== undefined) data.includePartyWall = patch.includePartyWall;
   if (Object.keys(data).length === 0) return { ok: true, updated: 0 };
 
   const res = await prisma.plot.updateMany({
