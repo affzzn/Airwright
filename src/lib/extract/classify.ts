@@ -49,41 +49,51 @@ export async function classifyPdf(
   const pages: PageClass[] = [];
   let textChars = 0;
 
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const raw = content.items
-      .map((it: unknown) =>
-        it && typeof it === "object" && "str" in it
-          ? String((it as { str: string }).str)
-          : "",
-      )
-      .join(" ");
-    textChars += raw.replace(/\s/g, "").length;
+  try {
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const raw = content.items
+        .map((it: unknown) =>
+          it && typeof it === "object" && "str" in it
+            ? String((it as { str: string }).str)
+            : "",
+        )
+        .join(" ");
+      // Release the page's parsed resources before moving on — pdfjs otherwise
+      // retains every page's objects/fonts for the doc's lifetime, which piles up
+      // fast on multi-page packs and OOM-kills a small worker instance.
+      page.cleanup();
+      textChars += raw.replace(/\s/g, "").length;
 
-    const titleRaw = drawingTitle(raw);
-    let kind = classifyTitle(titleRaw);
-    let title = titleRaw;
-    // If the title block wasn't parseable (unfamiliar builder), fall back to a
-    // direct text scan for drawing-type labels — and prefer its clean label over
-    // any letter-spaced gibberish the title fallback produced.
-    if (kind === "OTHER") {
-      const fb = classifyByText(raw);
-      if (fb.kind !== "OTHER") {
-        kind = fb.kind;
-        title = fb.label;
+      const titleRaw = drawingTitle(raw);
+      let kind = classifyTitle(titleRaw);
+      let title = titleRaw;
+      // If the title block wasn't parseable (unfamiliar builder), fall back to a
+      // direct text scan for drawing-type labels — and prefer its clean label over
+      // any letter-spaced gibberish the title fallback produced.
+      if (kind === "OTHER") {
+        const fb = classifyByText(raw);
+        if (fb.kind !== "OTHER") {
+          kind = fb.kind;
+          title = fb.label;
+        }
       }
-    }
-    const ref = extractHouseTypeRef(raw);
+      const ref = extractHouseTypeRef(raw);
 
-    pages.push({
-      page: i,
-      kind,
-      relevant: TAKEOFF_KINDS.includes(kind),
-      houseTypeCode: ref.code,
-      houseTypeName: ref.name,
-      title: title || null2str(kind),
-    });
+      pages.push({
+        page: i,
+        kind,
+        relevant: TAKEOFF_KINDS.includes(kind),
+        houseTypeCode: ref.code,
+        houseTypeName: ref.name,
+        title: title || null2str(kind),
+      });
+    }
+  } finally {
+    // Free the whole pdfjs document (and its worker) so its memory is reclaimed
+    // immediately, not left for GC to find under memory pressure.
+    await doc.destroy();
   }
 
   const hasText = textChars > doc.numPages * 15;
@@ -107,19 +117,24 @@ export async function extractDimensionsByPage(buffer: Buffer): Promise<PageDims[
   }).promise;
 
   const out: PageDims[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const raw = content.items
-      .map((it: unknown) =>
-        it && typeof it === "object" && "str" in it
-          ? String((it as { str: string }).str)
-          : "",
-      )
-      .join(" ");
-    const set = new Set<string>();
-    for (const m of raw.match(/\d{3,5}/g) ?? []) set.add(m);
-    out.push({ page: i, tokens: [...set].sort((a, b) => Number(a) - Number(b)) });
+  try {
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const raw = content.items
+        .map((it: unknown) =>
+          it && typeof it === "object" && "str" in it
+            ? String((it as { str: string }).str)
+            : "",
+        )
+        .join(" ");
+      page.cleanup();
+      const set = new Set<string>();
+      for (const m of raw.match(/\d{3,5}/g) ?? []) set.add(m);
+      out.push({ page: i, tokens: [...set].sort((a, b) => Number(a) - Number(b)) });
+    }
+  } finally {
+    await doc.destroy();
   }
   return out;
 }

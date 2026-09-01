@@ -226,7 +226,12 @@ function sanitizeKey(name: string): string {
 
 // --- 2. Download-once + classify pass (parallel; page count comes from the parse) ---
 
-const PARSE_CONCURRENCY = 8; // ≤ the DB pooled connection limit
+// Kept low on purpose: the classify pass holds each PDF's bytes + its pdfjs-parsed
+// structures (which can be many× the file size) in memory at once, so N-way
+// concurrency is N PDFs resident together. On a small worker instance (512MB-2GB)
+// too high a value OOM-kills the process mid-pack. 3 balances throughput vs peak
+// RAM; also ≤ the DB pooled connection limit.
+const PARSE_CONCURRENCY = 3;
 // Cap on pages sent to the extractor per house type (Anthropic PDF limit ~100pp/32MB).
 const MAX_EXTRACTION_PAGES = 30;
 

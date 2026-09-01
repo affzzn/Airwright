@@ -7,7 +7,11 @@ services:
     name: airwright-web
     runtime: node
     region: frankfurt
-    plan: starter
+    # standard (2GB RAM): the ingest pipeline holds multi-MB PDFs + their
+    # pdfjs/pdf-lib parsed structures in memory; starter (512MB) OOM-killed the
+    # worker mid-pack. Web is bumped too — "Open full drawing" assembles a full
+    # dossier (many source PDFs) on the web service.
+    plan: standard
     # --include=dev: Render sets NODE_ENV=production, which would otherwise make
     # npm skip devDeps (tailwind, typescript, prisma) needed to build.
     buildCommand: npm ci --include=dev && npm run build
@@ -19,6 +23,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Cap V8's old-space at 1.5GB, leaving headroom on the 2GB instance for PDF
+      # buffers + native (pdfjs/pdf-lib) allocations so we fail soft, not OOM-kill.
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1536"
       - fromGroup: airwright-secrets
 
   # pg-boss extraction worker (separate process, connects on DIRECT_URL)
@@ -26,7 +34,11 @@ services:
     name: airwright-worker
     runtime: node
     region: frankfurt
-    plan: starter
+    # standard (2GB RAM): the ingest pipeline holds multi-MB PDFs + their
+    # pdfjs/pdf-lib parsed structures in memory; starter (512MB) OOM-killed the
+    # worker mid-pack. Web is bumped too — "Open full drawing" assembles a full
+    # dossier (many source PDFs) on the web service.
+    plan: standard
     # tsx (used to run the worker) is a devDep — include dev deps at build so it
     # is present at runtime too (build and runtime share the filesystem).
     buildCommand: npm ci --include=dev && npm run db:generate
@@ -34,4 +46,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Cap V8's old-space at 1.5GB, leaving headroom on the 2GB instance for PDF
+      # buffers + native (pdfjs/pdf-lib) allocations so we fail soft, not OOM-kill.
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1536"
       - fromGroup: airwright-secrets
