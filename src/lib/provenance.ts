@@ -35,6 +35,70 @@ export interface ProvContent {
   steps: ProvStep[];
   footnotes: string[];
   confidenceLabel: string | null;
+  /** A short plain-language line explaining WHY the confidence is that level
+   *  (shown under the label in the hover). Only set when there is a confidenceLabel. */
+  reason?: string | null;
+}
+
+/**
+ * A short plain-language line explaining WHY a measurement carries its confidence
+ * level — shown under the label in the provenance hover. It always starts with the
+ * level word so it reads clearly on its own. `detail` overrides the generic wording
+ * when we know the specific reason (a divergent cross-check, a legend-wall fallback,
+ * disagreeing lift counts…).
+ */
+export function confidenceReason(
+  label: string | null | undefined,
+  opts?: { method?: ProvContent["method"]; crossChecked?: boolean; detail?: string | null },
+): string | null {
+  if (!label) return null;
+  if (opts?.detail) return opts.detail;
+  const method = opts?.method ?? "read";
+  switch (label) {
+    case "high":
+      return opts?.crossChecked
+        ? "High — confirmed by a second, independent source on the drawing."
+        : method === "counted"
+          ? "High — clearly countable on the drawing."
+          : "High — clearly legible on the drawing.";
+    case "medium":
+      return method === "computed"
+        ? "Medium — derived from the drawing, but not independently cross-checked."
+        : method === "counted"
+          ? "Medium — counted, but a detail here is easy to miss — worth a glance."
+          : "Medium — read directly off the plan, but not independently confirmed.";
+    case "low":
+      return "Low — hard to read or unverified. Please check this value against the drawing.";
+    case "unknown":
+      return "Unknown — not legible on the drawing. Please enter it manually.";
+    default:
+      return null;
+  }
+}
+
+/** Birdcage-specific reason, keyed off the computed result so it always matches the label. */
+function birdcageReason(r: {
+  confidence: string;
+  reconciled: boolean | null;
+  usedLegendWall: boolean;
+  assumedSymmetric: boolean;
+}): string {
+  switch (r.confidence) {
+    case "high":
+      return "High — the internal span is corroborated by the overall-minus-walls derivation.";
+    case "medium":
+      return r.assumedSymmetric
+        ? "Medium — a wall was dimensioned on only one side, so the other was assumed equal."
+        : "Medium — derived from the printed dimensions, with no second source to cross-check.";
+    case "low":
+      return r.reconciled === false
+        ? "Low — the internal span and the overall-minus-walls check disagree. Check the dimensions."
+        : r.usedLegendWall
+          ? "Low — no structural wall was dimensioned, so the finished-face legend wall was used. Confirm."
+          : "Low — please check this floor's dimensions against the drawing.";
+    default:
+      return "Unknown — no wall thickness to derive the footprint. Please enter the area manually.";
+  }
 }
 
 export interface PageRef {
@@ -156,6 +220,7 @@ export function buildProvenanceCards(
         "Observed, not priced directly — it cross-checks the height-based lift count.",
       ],
       confidenceLabel: raw.storeys.confidence,
+      reason: confidenceReason(raw.storeys.confidence, { method: "read" }),
     };
   }
 
@@ -192,6 +257,13 @@ export function buildProvenanceCards(
           "The lift count divides this by 1.5 m. Datum = soffit / underside of wallplate (confirmed).",
         ],
         confidenceLabel: hr.confidence,
+        reason:
+          hr.confidence === "low"
+            ? "Low — the direct read and the storey ladder imply different lift counts. Check the height."
+            : confidenceReason(hr.confidence, {
+                method: raw.storeyHeightsM.length > 0 ? "computed" : "read",
+                crossChecked: hr.reconciled === true,
+              }),
       };
     }
   }
@@ -212,6 +284,7 @@ export function buildProvenanceCards(
         "External returns only. Each external corner adds a 1 m scaffold allowance.",
       ],
       confidenceLabel: raw.cornerCount.confidence,
+      reason: confidenceReason(raw.cornerCount.confidence, { method: "counted" }),
     };
   }
 
@@ -239,6 +312,7 @@ export function buildProvenanceCards(
         "A table lift is an extra lift above the main scaffold to reach brickwork at a gable. A hip roof needs none.",
       ],
       confidenceLabel: raw.roof.confidence,
+      reason: confidenceReason(raw.roof.confidence, { method: "counted" }),
     };
   }
 
@@ -260,6 +334,7 @@ export function buildProvenanceCards(
         "Render is a separate work type: only the rendered part of the wall is measured, and it is re-erected in 2 m boarded lifts (not 1.5 m).",
       ],
       confidenceLabel: rendered[0]?.confidence ?? null,
+      reason: confidenceReason(rendered[0]?.confidence ?? null, { method: "read" }),
     };
   }
 
@@ -346,6 +421,7 @@ export function buildProvenanceCards(
       steps,
       footnotes,
       confidenceLabel: r.confidence,
+      reason: birdcageReason(r),
     };
   }
 
@@ -390,6 +466,7 @@ export function buildProvenanceCards(
       steps,
       footnotes,
       confidenceLabel: ll.confidence,
+      reason: confidenceReason(ll.confidence, { method: "counted" }),
     };
   }
 
@@ -409,6 +486,7 @@ export function buildProvenanceCards(
         "Pitched (brickwork to the apex) needs a table lift; hipped slopes back on all sides and needs none.",
       ],
       confidenceLabel: raw.roof.confidence,
+      reason: confidenceReason(raw.roof.confidence, { method: "read" }),
     };
   }
 
@@ -428,6 +506,7 @@ export function buildProvenanceCards(
       steps: [{ text: label }],
       footnotes: [foot],
       confidenceLabel: raw.structure.confidence,
+      reason: confidenceReason(raw.structure.confidence, { method: "read" }),
     };
   }
 
@@ -442,6 +521,7 @@ export function buildProvenanceCards(
       ],
       footnotes: ["A room in the roof adds one lift and one birdcage floor."],
       confidenceLabel: raw.roomInRoof.confidence,
+      reason: confidenceReason(raw.roomInRoof.confidence, { method: "read" }),
     };
   }
 
@@ -480,6 +560,7 @@ export function buildProvenanceCards(
         "If a spec asks for a chimney scaffold but none is drawn, that is flagged rather than priced.",
       ],
       confidenceLabel: raw.chimney.confidence,
+      reason: confidenceReason(raw.chimney.confidence, { method: "read" }),
     };
   }
 

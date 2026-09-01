@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolvePage, type PageRef } from "./provenance";
+import { resolvePage, confidenceReason, type PageRef } from "./provenance";
 
 const pages: PageRef[] = [
   { pageNumber: 7, sheetTitle: "Ground Floor Plan" },
@@ -29,5 +29,34 @@ describe("resolvePage", () => {
     // Front Elevation is p.14, but only pages 7 and 15 were relevant here.
     expect(resolvePage("Front Elevation", pages, [7, 15])).toBeNull();
     expect(resolvePage("Front Elevation", pages, [7, 14, 15])).toBe(14);
+  });
+});
+
+describe("confidenceReason", () => {
+  it("always begins with the level word, so it reads on its own", () => {
+    expect(confidenceReason("high")).toMatch(/^High —/);
+    expect(confidenceReason("medium")).toMatch(/^Medium —/);
+    expect(confidenceReason("low")).toMatch(/^Low —/);
+    expect(confidenceReason("unknown")).toMatch(/^Unknown —/);
+  });
+
+  it("returns null when there is no confidence label", () => {
+    expect(confidenceReason(null)).toBeNull();
+    expect(confidenceReason(undefined)).toBeNull();
+  });
+
+  it("high mentions the second-source cross-check only when there was one", () => {
+    expect(confidenceReason("high", { crossChecked: true })).toMatch(/second, independent source/i);
+    expect(confidenceReason("high", { crossChecked: false })).toMatch(/clearly legible/i);
+  });
+
+  it("medium wording follows the method (read vs computed)", () => {
+    expect(confidenceReason("medium", { method: "read" })).toMatch(/not independently confirmed/i);
+    expect(confidenceReason("medium", { method: "computed" })).toMatch(/not independently cross-checked/i);
+  });
+
+  it("a specific `detail` overrides the generic wording", () => {
+    const detail = "Low — the two reads disagree; check the dimensions.";
+    expect(confidenceReason("low", { detail })).toBe(detail);
   });
 });

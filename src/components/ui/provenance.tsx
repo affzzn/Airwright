@@ -173,6 +173,10 @@ function ProvCard({
           </span>
         )}
       </div>
+      {/* Why the confidence is what it is — plain language, tied to the label above. */}
+      {content.reason && (
+        <p className="text-[11px] leading-snug text-ink-muted">{content.reason}</p>
+      )}
       <p className="text-[11px] text-ink-subtle">{content.summary}</p>
 
       <ol className="space-y-1.5">
