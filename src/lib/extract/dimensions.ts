@@ -85,3 +85,117 @@ export function makeDimensionVerifier(
     return runs.some((r) => pageSet?.has(r) || all.has(r));
   };
 }
+
+// --- Internal ↔ overall role reconciliation (birdcage) ----------------------
+//
+// The model sometimes files a printed INTERNAL span (the middle of a
+// `[wall | span | wall]` line) into `overallWidthM`/`overallDepthM`, so the
+// engine strips walls it shouldn't and the area comes out too small (or the
+// reverse). We catch that deterministically against the printed dimension
+// tokens, using the identity `internal + 2·wall = overall`.
+
+import type { BirdcageRectInput } from "./birdcage";
+
+const posn = (x: number | null | undefined): number | null => (x != null && x > 0 ? x : null);
+
+/**
+ * A matcher over every printed 3–5 digit dimension (in mm), tolerant of ±`tol`
+ * mm (walls sum to the overall exactly, but allow rounding). Null pages → a
+ * matcher that always returns false (no text layer → we can't reconcile).
+ */
+export function makeTokenMatcher(pages: PageDims[] | undefined, tol = 2): (mm: number) => boolean {
+  const nums: number[] = [];
+  for (const p of pages ?? [])
+    for (const t of p.tokens) {
+      const n = Number(t);
+      if (Number.isFinite(n)) nums.push(n);
+    }
+  if (nums.length === 0) return () => false;
+  return (mm) => nums.some((n) => Math.abs(n - mm) <= tol);
+}
+
+/** The two walls on an axis, summed (mm) — mirrors birdcage.ts `resolveAxisWalls`
+ *  (prefer the printed plan/per-side walls; the legend finished-face wall only if
+ *  no plan wall is given). null when the axis has no usable wall. */
+function axisWallSumMm(
+  side1: number | null | undefined,
+  side2: number | null | undefined,
+  legacy: number | null | undefined,
+  legend: number | null | undefined,
+): number | null {
+  const s1 = posn(side1), s2 = posn(side2), lg = posn(legacy), leg = posn(legend);
+  if (s1 != null || s2 != null || lg != null) {
+    const a = s1 ?? s2 ?? lg;
+    const b = s2 ?? s1 ?? lg;
+    if (a != null && b != null) return a + b;
+  }
+  if (leg != null) return leg * 2;
+  return null;
+}
+
+export interface RectRoleFix {
+  rect: BirdcageRectInput;
+  notes: string[];
+}
+
+/**
+ * Reconcile a birdcage rectangle's internal/overall roles against the printed
+ * dimensions. Two-sided so it can't misfire:
+ *   - an axis reported ONLY as `overall` (+ a wall) whose `overall + 2·wall` IS
+ *     printed but `overall − 2·wall` is NOT → the "overall" is really the
+ *     internal → move it to `internal`, set the true overall to `overall + 2·wall`.
+ *   - an axis reported ONLY as `internal` whose `internal − 2·wall` IS printed but
+ *     `internal + 2·wall` is NOT → the "internal" is really the overall → move it
+ *     to `overall` (the engine then strips to the real internal).
+ * A genuine overall (its `−2·wall` internal is printed) or genuine internal (its
+ * `+2·wall` overall is printed) is left untouched. Returns the corrected rect +
+ * one note per axis it changed.
+ */
+export function reconcileRectRoles(
+  rect: BirdcageRectInput,
+  isPrinted: (mm: number) => boolean,
+): RectRoleFix {
+  const out: BirdcageRectInput = { ...rect };
+  const notes: string[] = [];
+
+  const fix = (
+    axis: "width" | "depth",
+    overall: number | null | undefined,
+    internal: number | null | undefined,
+    wallSum: number | null,
+  ): { internalM?: number | null; overallM?: number | null } | null => {
+    if (wallSum == null) return null;
+    const o = posn(overall);
+    const i = posn(internal);
+    // Case A: overall-only, but it's actually the internal span.
+    if (o != null && i == null) {
+      const oMm = Math.round(o * 1000);
+      if (isPrinted(oMm + wallSum) && !isPrinted(oMm - wallSum)) {
+        notes.push(`${axis}: reported overall ${oMm}mm is the INTERNAL span (overall ${oMm + wallSum}mm is printed, ${oMm - wallSum}mm is not) — used directly`);
+        return { internalM: o, overallM: (oMm + wallSum) / 1000 };
+      }
+    }
+    // Case B: internal-only, but it's actually the overall envelope.
+    if (i != null && o == null) {
+      const iMm = Math.round(i * 1000);
+      if (isPrinted(iMm - wallSum) && !isPrinted(iMm + wallSum)) {
+        notes.push(`${axis}: reported internal ${iMm}mm is the OVERALL envelope (internal ${iMm - wallSum}mm is printed, ${iMm + wallSum}mm is not) — walls stripped`);
+        return { internalM: null, overallM: i };
+      }
+    }
+    return null;
+  };
+
+  const wFix = fix("width", rect.overallWidthM, rect.internalWidthM, axisWallSumMm(rect.wallWidthLeftMm, rect.wallWidthRightMm, rect.wallThicknessMm, rect.legendWallThicknessMm));
+  if (wFix) {
+    if ("internalM" in wFix) out.internalWidthM = wFix.internalM;
+    if ("overallM" in wFix) out.overallWidthM = wFix.overallM;
+  }
+  const dFix = fix("depth", rect.overallDepthM, rect.internalDepthM, axisWallSumMm(rect.wallDepthFrontMm, rect.wallDepthRearMm, rect.wallThicknessMm, rect.legendWallThicknessMm));
+  if (dFix) {
+    if ("internalM" in dFix) out.internalDepthM = dFix.internalM;
+    if ("overallM" in dFix) out.overallDepthM = dFix.overallM;
+  }
+
+  return { rect: out, notes };
+}

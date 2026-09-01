@@ -11,7 +11,29 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-08-25
+Last updated: 2026-09-01
+
+### 2026-09-01 — birdcage internal↔overall role reconciliation (dimension double-strip fix)
+
+The model sometimes filed an INTERNAL span into the `overall` field, so the engine stripped
+walls off an already-internal number and the birdcage came out too small (Tilia Thurlwood:
+`327 | 8111 | 327 = 8765` — read 8111 as overall → `8111 − 654` → wrong; should read 8111
+directly). Same family as the pair-scope issues (model mis-identifies a number's role).
+
+- **Two layers.** (1) **Prompt `2026-09-01.1`** teaches `internal + 2·wall = overall` — the
+  middle of `[wall|span|wall]` is ALREADY internal, never strip it; the overall is the
+  outermost/largest. (2) **Deterministic guard** (`reconcileRectRoles` in `dimensions.ts`,
+  run in `persist.ts`): reconciles internal↔overall against the printed dimension tokens
+  (`makeTokenMatcher`) — if `overall + 2·wall` IS printed but `overall − 2·wall` is NOT, the
+  "overall" is really the internal → auto-corrected (+ reverse). Two-sided so a genuine
+  overall/internal is untouched. Flagged in `warnings.birdcageRoleReclassified`.
+- **Validated live** (Thurlwood): the model now reads `internalWidth 8.111` directly →
+  footprint **45.714 m²** ✓ (was double-stripped). +6 dimension tests, 251 total green,
+  typecheck + lint + build clean.
+- **Surfaced a SEPARATE issue** (parked in `docs/doubts.md`): the model also read the
+  whole-house GIA total (91.42, both floors) as the per-floor stated area → "stated wins"
+  kept 91.42 and flagged the 50% divergence vs the correct footprint. A stated-area *scope*
+  bug (per-floor vs whole-house total), distinct from the dimension fix — not yet actioned.
 
 ### 2026-08-25 (d) — UI/UX pass: warm paper palette, nav underline, one-scroll review
 

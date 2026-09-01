@@ -3,7 +3,13 @@ import { lowLevelQty, type ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
 import { computeBirdcageFloor } from "./birdcage";
 import { computeHeight } from "./height";
-import { makeDimensionVerifier, dimRuns, type PageDims } from "./dimensions";
+import {
+  makeDimensionVerifier,
+  makeTokenMatcher,
+  reconcileRectRoles,
+  dimRuns,
+  type PageDims,
+} from "./dimensions";
 import { resolveHouseTypeIdentity } from "./houseTypeIdentity";
 import { parseRangeString } from "@/lib/pdf";
 
@@ -260,6 +266,11 @@ export async function persistExtraction(
       FF: "BIRDCAGE_FF_M2",
       SF: "BIRDCAGE_SF_M2",
     };
+    // Matcher over the printed dimension tokens, used to catch the model filing an
+    // internal span into the `overall` field (or vice-versa) — see reconcileRectRoles.
+    const isPrintedDim = makeTokenMatcher(dimensions);
+    const roleReclassified: string[] = [];
+
     const birdcageDerivation: Prisma.JsonObject[] = [];
     for (const fa of result.floorAreas) {
       const key = BIRDCAGE_KEY[fa.level];
@@ -271,11 +282,18 @@ export async function persistExtraction(
         if (!checkDim(rect.sourceDimension, rect.sourcePage, `Birdcage ${fa.level}`))
           readConf = capLow(readConf);
       }
+      // Reconcile internal↔overall roles against the printed dimensions BEFORE the
+      // geometry (catches an internal span mislabeled as overall → double-strip).
+      const fixedRects = (fa.rectangles ?? []).map((rect) => {
+        const { rect: fixed, notes } = reconcileRectRoles(rect, isPrintedDim);
+        for (const n of notes) roleReclassified.push(`${fa.level} ${n}`);
+        return fixed;
+      });
       // The birdcage is per-house — no dwellings division (that's the perimeter).
       const r = computeBirdcageFloor({
         statedGrossInternalM2: fa.statedGrossInternalM2,
         statedNdssM2: fa.statedNdssM2 ?? null,
-        rectangles: fa.rectangles,
+        rectangles: fixedRects,
         readConfidence: readConf,
       });
       if (r.m2 === null) continue;
@@ -447,6 +465,8 @@ export async function persistExtraction(
     }
     // The step-by-step birdcage derivation (per floor) for the review tooltip.
     if (birdcageDerivation.length > 0) warnings.birdcageDerivation = birdcageDerivation;
+    // Birdcage dims where we auto-corrected an internal↔overall mislabel.
+    if (roleReclassified.length > 0) warnings.birdcageRoleReclassified = roleReclassified;
     // Dimensions the model cited that aren't in the PDF text layer (likely misreads).
     if (unverifiedDimensions.length > 0) warnings.unverifiedDimensions = unverifiedDimensions;
     // Walls whose length was read off an elevation page (roof-overhang risk).
