@@ -28,12 +28,11 @@ export const SMART_UPLOAD_PIPELINE: { step: string; by: "AI" | "Code" | "AI + Co
   { step: "Infer recipe", by: "AI", what: "From a text summary of the pack, return the packaging strategy + junk folders + house-type names. It explicitly does NOT place files." },
   { step: "Apply + tighten", by: "Code", what: "Assign every file to a house type, then keep the latest revision, collapse material/handing variants, and one page per role — but never collapse elevations." },
   { step: "Assemble", by: "Code", what: "Merge each type's chosen pages into one PDF, relevant pages first, with a manifest tracing every page to its source file + page." },
-  { step: "Answer-key check", by: "AI + Code", what: "Read the pack's own take-off / schedule sheet and cross-check against our grouping: expected vs found (“expected 16, found 15”)." },
   { step: "Confirm", by: "Human", what: "The worker stops at PROPOSED with pending extractions; the confirm screen lets a human rename / merge / exclude. Only “Confirm & extract” spends money." },
 ];
 
 export const SMART_UPLOAD_AI_NOTE =
-  "Exactly three AI touch-points — all text-based, forced-tool + schema, on the grouping model (defaults to the extraction model): (1) infer the grouping recipe, (2) rescue-only relevance triage, (3) read the answer-key house-type list. Everything else — path parsing, dedup, file placement, PDF assembly, the cross-check, and the whole confirm gate — is deterministic. All three are gated by the INGEST_GROUPING_AI flag (default on); off falls back to a fully deterministic path.";
+  "Two AI touch-points — both text-based, forced-tool + schema, on the grouping model (defaults to the extraction model): (1) infer the grouping recipe, and (2) rescue-only relevance triage. Everything else — path parsing, dedup, file placement, PDF assembly, and the whole confirm gate — is deterministic. Both are gated by the INGEST_GROUPING_AI flag (default on); off falls back to a fully deterministic path.";
 
 export const SMART_UPLOAD_GATE_NOTE =
-  "Nothing costs money until a person approves. Grouping produces only pending extractions and stops at a PROPOSED state; the confirm screen sorts low-confidence groups to the top and surfaces the answer-key mismatch and any unplaced files. Only “Confirm & extract” enqueues the paid extraction — the same rule as the rest of the platform: a human confirms first.";
+  "Nothing costs money until a person approves. Grouping produces only pending extractions and stops at a PROPOSED state; the confirm screen sorts low-confidence groups to the top and surfaces any unplaced files. Only “Confirm & extract” enqueues the paid extraction — the same rule as the rest of the platform: a human confirms first.";
