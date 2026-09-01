@@ -33,6 +33,7 @@ export function ReviewWorkspace({
   title,
   subtitle,
   pdfUrl,
+  fullDrawingHref,
   relevantPages,
   takeoffId,
   status,
@@ -50,6 +51,7 @@ export function ReviewWorkspace({
   title: string;
   subtitle: string;
   pdfUrl: string | null;
+  fullDrawingHref?: string | null;
   relevantPages?: number[];
   takeoffId: string;
   status: string;
@@ -98,14 +100,15 @@ export function ReviewWorkspace({
         <div className="flex h-[55vh] flex-col overflow-hidden border-b border-hairline p-4 lg:h-auto lg:border-b-0 lg:border-r">
           <div className="flex shrink-0 items-center justify-between pb-3">
             <h2 className="text-sm font-semibold text-ink">Drawing</h2>
-            {pdfUrl && (
+            {(fullDrawingHref || pdfUrl) && (
               <a
-                href={pdfUrl}
+                href={fullDrawingHref || pdfUrl || "#"}
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs text-ink-muted hover:text-ink"
+                title="Open the full drawing (every page of the whole house-type dossier) in a new tab"
               >
-                Open original ↗
+                Open full drawing ↗
               </a>
             )}
           </div>

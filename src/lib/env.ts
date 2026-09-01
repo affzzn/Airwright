@@ -28,6 +28,17 @@ export const env = {
   get extractionModel() {
     return process.env.ANTHROPIC_EXTRACTION_MODEL ?? "claude-opus-4-8";
   },
+  /** Model for the AI grouping structure pass (docs/17 §4) — text-only, so a
+   *  smaller/faster model is fine. Defaults to the extraction model (guaranteed
+   *  available); override with a cheaper model to cut cost. */
+  get groupingModel() {
+    return process.env.ANTHROPIC_GROUPING_MODEL ?? this.extractionModel;
+  },
+  /** AI-first grouping (docs/17). Set INGEST_GROUPING_AI=false to force the
+   *  deterministic profile path (offline / cost-free). */
+  get groupingAI() {
+    return process.env.INGEST_GROUPING_AI !== "false";
+  },
   get directUrl() {
     return required("DIRECT_URL");
   },

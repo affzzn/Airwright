@@ -2,12 +2,15 @@
 
 Read this first, every session. Then read **`docs/11-takeoff-engine-spec.md`** (the
 canonical take-off spec — Colin's confirmed rules, the extractor field set, the
-validation results, the 16 open questions that must NOT be guessed) and
+validation results, the open questions that must NOT be guessed) and
 **`docs/13-extraction-playbook.md`** (how the model reads each measurement — the
 single source the prompt is generated from). For the priced side, **`docs/15-pricing-spec.md`** (the canonical house-build
 pricing structure, decoded from Colin's real matrices in `data/pricing-data/` —
 per-lift columns, table+rails, birdcage per floor, stage splits, garages,
 Traditional vs Timber-Frame; supersedes the provisional `docs/14-pricing-and-quote.md`).
+For how packs are ingested (the **smart upload + cross-file grouping** layer — upload any
+folder tree of loose single-page PDFs, group pages into house types per a builder profile,
+assemble one combined PDF per type), see **`docs/17-smart-upload-and-grouping.md`**.
 For status + next steps: `PROGRESS.md` and `TODO.md`. For depth: `docs/02-prd-build1.md`,
 `docs/04-data-model.md`. (Docs 09/10 were pre-call drafts and were deleted — superseded
 by 11 + the call checklist `docs/Airwright-Estimator-Build-Checklist_from_call.docx`.)
@@ -40,9 +43,11 @@ rate sheet (owed by Colin/Laura) is the one thing gating correct pricing. See
 
 1. **Web** — `npm run dev` (the Next.js app; uploads go browser→Storage directly via a
    signed URL, then the app enqueues a `process-pack` job).
-2. **Worker** — `npm run worker:dev` (runs 3 pg-boss job handlers: `process-pack`
-   ingests/classifies/segments a pack, `extract-drawing` and `extract-plot-list` call
-   Claude). Nothing gets read/extracted unless the worker is running.
+2. **Worker** — `npm run worker:dev` (runs 2 pg-boss job handlers: `process-pack`
+   ingests/classifies/segments a pack, `extract-drawing` calls Claude). The AI
+   plot-list extractor was removed (2026-08-26) — plots now come from confirming a
+   take-off (`src/server/plots.ts`), or are added by hand. Nothing gets read/extracted
+   unless the worker is running.
 
 See `ARCHITECTURE.md` for the full pipeline.
 

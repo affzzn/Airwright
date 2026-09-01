@@ -13,6 +13,7 @@ import { ExtractionProgress } from "@/components/extraction-progress";
 import { PlotEditor } from "@/components/plot-editor";
 import { HouseTypeDelete } from "@/components/house-type-delete";
 import { AddAsPlot } from "@/components/add-as-plot";
+import { GroupingConfirm } from "@/components/grouping-confirm";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
@@ -69,24 +70,37 @@ export default async function ProjectPage({
   if (!project) notFound();
 
   const pack = project.packs[0];
+  // Synthetic combined-PDFs (docs/17) are not shown in the source Documents list.
+  const sourceDocuments = pack.documents.filter((d) => d.kind !== "ASSEMBLED");
+  const groupingInProgress = pack.groupingStatus === "GROUPING";
+  const awaitingConfirm = pack.groupingStatus === "PROPOSED";
+  const groupingData = awaitingConfirm
+    ? (pack.groupingData as unknown as import("@/components/grouping-confirm").GroupingData | null)
+    : null;
+
   const uploadsPending = pack.uploads.some((u) => u.status === "PENDING");
-  const unclassified = pack.documents.some(
+  const unclassified = sourceDocuments.some(
     (d) => d.classifiedAt === null && d.isReadable,
   );
   const extractionsRunning = project.houseTypes.some((ht) =>
     ht.extractions.some(
-      (e) => e.status === "PENDING" || e.status === "PROCESSING",
+      (e) =>
+        e.status === "PROCESSING" ||
+        (e.status === "PENDING" && !awaitingConfirm),
     ),
   );
-  const processing = uploadsPending || unclassified || extractionsRunning;
+  // While awaiting confirmation the pending extractions are NOT running.
+  const processing =
+    !awaitingConfirm &&
+    (uploadsPending || unclassified || extractionsRunning || groupingInProgress);
 
   const { steps: progressSteps } = computePackProgress({
     uploads: pack.uploads,
-    documents: pack.documents,
+    documents: sourceDocuments,
     extractions: project.houseTypes.flatMap((ht) => ht.extractions),
   });
 
-  const usedFiles = pack.documents.filter((d) => d.included).length;
+  const usedFiles = sourceDocuments.filter((d) => d.included).length;
 
   // Expected read duration for the live per-file progress bars, calibrated from
   // this project's own completed extractions (fallback to a sensible default).
@@ -162,12 +176,21 @@ export default async function ProjectPage({
       {processing && (
         <div className="mb-8">
           <PackProgress steps={progressSteps} />
+          {groupingInProgress && (
+            <p className="mt-3 text-center text-xs text-ink-subtle">
+              Grouping pages into house types…
+            </p>
+          )}
         </div>
       )}
 
       <div className="mb-8">
         <UploadForm packId={pack.id} />
       </div>
+
+      {awaitingConfirm && groupingData && (
+        <GroupingConfirm packId={pack.id} data={groupingData} />
+      )}
 
       {/* House types */}
       <Card className="mb-6">
@@ -287,12 +310,12 @@ export default async function ProjectPage({
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Documents</h2>
           <span className="text-xs text-ink-subtle">
-            Using {usedFiles} of {pack.documents.length} file
-            {pack.documents.length === 1 ? "" : "s"}
+            Using {usedFiles} of {sourceDocuments.length} file
+            {sourceDocuments.length === 1 ? "" : "s"}
           </span>
         </CardHeader>
         <CardBody className="p-0">
-          {pack.documents.length === 0 ? (
+          {sourceDocuments.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-ink-subtle">
               {uploadsPending
                 ? "Unpacking upload…"
@@ -300,7 +323,7 @@ export default async function ProjectPage({
             </p>
           ) : (
             <ul className="divide-y divide-hairline">
-              {pack.documents.map((doc) => {
+              {sourceDocuments.map((doc) => {
                 return (
                   <li
                     key={doc.id}

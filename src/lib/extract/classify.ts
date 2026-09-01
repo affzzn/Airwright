@@ -115,6 +115,17 @@ export function classifyTitle(titleRaw: string): PageKind {
   )
     return "OTHER";
 
+  // Non-drawing sheets bound INSIDE a combined working-drawings PDF (index /
+  // notes / registers / key & location plans / street scenes) — carry no take-off
+  // measurement, so they must not be tagged relevant.
+  if (title.includes("INDEX")) return "OTHER";
+  if (title.includes("CONTENTS")) return "OTHER";
+  if (title.includes("DRAWINGREGISTER") || title.includes("DRAWINGSCHEDULE") || title.includes("DRAWINGINDEX")) return "OTHER";
+  if (title.includes("REVISIONSCHEDULE") || title.includes("REVISIONHISTORY")) return "OTHER";
+  if (title === "NOTES" || title.includes("GENERALNOTES")) return "OTHER";
+  if (title.includes("KEYPLAN") || title.includes("LOCATIONPLAN")) return "OTHER";
+  if (title.includes("STREETSCENE") || title.includes("STREETSCAPE")) return "OTHER";
+
   // Exclusions — sheets a take-off does NOT need.
   if (title.includes("CUSTOMEROPTION")) return "OTHER";
   if (title.includes("SWIFTBRICK")) return "OTHER";
