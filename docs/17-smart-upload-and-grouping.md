@@ -32,9 +32,18 @@ rules are only a caching optimisation (§9), never the core.
 > fixtures + a cross-check**. **✅ Feature 3 — in-pack answer-key cross-check** (§7);
 > **✅ Feature 4 — Tier-2 LLM relevance triage** (§6, rescue-only); **✅ Feature 5 —
 > override UI** (§4.7, rename / merge / exclude). Verified group-everything on the four
-> real packs. **All five near-term features shipped.** Follow-ups: file-level reassign /
-> split; the later/optional items (§8, and the descoped grading harness + OCR/raster).
-> Build order in §12.
+> real packs. **All five near-term features shipped.**
+>
+> **UPDATE 2026-09-01 — canonical-role dedup (§5.1).** A combined PDF's relevant page
+> count was ballooning to 18-26 (repeated per-option floor plans). `groupPack` now keeps
+> ONE page per canonical *geometry* role (floor-plan-by-level / setting-out / roof /
+> section) and demotes duplicates to dossier-only; **elevations are never collapsed**
+> (the text layer doesn't name faces, so collapsing risks a silent hole). + Tier-1
+> exclusions for index/notes/register/street-scene pages. **Verified full end-to-end on
+> the real Tilia Hawkesbury pack** (`scripts/e2e-tilia.mts`: 326 PDFs → 14 house types,
+> 14/14 extracted, relevant pages 18-26 → 7-14/type, full dossier unchanged). Follow-ups:
+> file-level reassign / split; the later/optional items (§8, and the descoped grading
+> harness + OCR/raster). Build order in §12.
 >
 > **Out of scope for now (by decision 2026-08-29):** an offline **grading harness**
 > and **OCR/vision rescue of raster (image-only) PDFs**. Raster pages with no text
@@ -170,6 +179,42 @@ then the rest of the dossier after. "Open full" shows scaffold pages first, trad
 **Size.** A full Taylor-Wimpey dossier can be 40+ pages / tens of MB. Fine (bucket is
 250 MB), but assembly must merge efficiently and the UI should show a page count so the
 size isn't a surprise.
+
+### 5.1 Canonical-role dedup — keep the extraction set tight (✅ 2026-09-01)
+
+A combined working-drawings PDF repeats the **same** floor plan / section across a house
+type's material (brick/stone/render) and handing (LH/RH) options. So the *relevant* page
+count balloons far past the ~10-14 a take-off needs — on the real Taylor-Wimpey and Tilia
+packs a single house-type PDF carried **18-26 relevant pages** (one had ELEVEN floor-plan
+pages), pushing right against the extractor's page limit where the `MAX_EXTRACTION_PAGES`
+cap was the only guard. The bloat is duplicated **plans**, not distinct drawings.
+
+**The rule (`canonicalPageRole` in `parsePath.ts`, applied in `groupPack`):** among a house
+type's relevant pages, keep **ONE per canonical geometry role** — floor plan *by level*
+(GF/FF/SF/TF), setting-out, roof, section (`SECTION`, or `SECTION_A-A` when labelled) — and
+demote the duplicates to **dossier-only** (`relevant = false`, still in `pages`, so the full
+dossier and "Open full drawing" are untouched). It's the page-level analogue of the
+file-level config-variant collapse (docs §4.4), driven by each page's title-block text
+(threaded through as `sheetTitle`; no schema change). The dedup is **informational** — it
+does not downgrade a group's confidence (a routine collapse, not a warning), though it adds
+a note flag.
+
+**ELEVATIONS ARE NEVER COLLAPSED — this is deliberate.** On real packs the text layer labels
+every elevation page identically ("FRONT ELEVATION", or a bare "ELEVATION") and does **not**
+name the rear/side/gable faces, so two pages that *read* the same may be different faces or a
+render variant. Collapsing them would silently drop a face's apex / render / height read — a
+hole in the take-off, the exact failure recall-over-precision guards against (§6). An extra
+elevation page only wastes a few tokens; a missing one mis-prices the quote. So every
+elevation page is kept and the `MAX_EXTRACTION_PAGES` cap remains the only ceiling on them.
+A page whose role can't be positively identified (generic elevation, an illegible floor
+level) is likewise **left relevant** — never collapse what you can't positively identify.
+
+**Verified live** on the real Tilia Hawkesbury pack (`scripts/e2e-tilia.mts`, 326 PDFs → 14
+house types, 14/14 extracted): relevant pages fell to **7-14 per type** (was 18-26), every
+elevation face preserved, the full dossier byte-identical. Complements the Tier-1
+title-block exclusions for non-drawing pages bound inside a combined PDF (index / contents /
+drawing register / revision schedule / general notes / key & location plan / street scene —
+`classify.ts`).
 
 **Safety net.** "Open full drawing" is also the backstop for relevance mistakes: if the
 tag ever wrongly hides a page, Colin still sees it in the full PDF and can flip it on.
