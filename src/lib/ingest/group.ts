@@ -18,6 +18,7 @@ import {
   parsePath,
   revisionStrippedKey,
   variantStrippedKey,
+  canonicalPageRole,
   type DrawingKind,
 } from "./parsePath";
 import { isIgnoredPath, type BuilderIngestProfile } from "./profiles";
@@ -27,6 +28,7 @@ export interface IngestPage {
   page: number; // 1-based within the file
   relevant: boolean; // scaffold-relevant (drives extraction + preview)
   houseTypeName?: string | null; // title-block name, if the classifier read one
+  sheetTitle?: string | null; // title-block drawing title — drives canonical-role dedup
 }
 
 /** One source file in the uploaded pack. */
@@ -42,6 +44,7 @@ export interface GroupedPage {
   page: number; // 1-based within the source file
   drawingKind: DrawingKind;
   relevant: boolean; // scaffold-relevant tag for this page
+  sheetTitle?: string | null; // title-block drawing title (for canonical-role dedup)
 }
 
 export interface HouseTypeGrouping {
@@ -182,9 +185,39 @@ export function groupPack(
           page: p.page,
           drawingKind: kind,
           relevant: p.relevant && !c.junkFile,
+          sheetTitle: p.sheetTitle ?? null,
         });
       }
     }
+
+    // Canonical-role dedup for the EXTRACTION set: inside a combined
+    // working-drawings PDF the same face / plan / section repeats across material
+    // and handing options, so its relevant page count balloons past the ~10-14 a
+    // take-off needs. Keep ONE relevant page per canonical role (render kept apart
+    // from plain — it carries the render meterage); demote the duplicates to
+    // dossier-only (relevant = false, still present in `pages`). Pages whose role
+    // can't be positively identified are left relevant (recall > precision).
+    const primaryByRole = new Map<string, GroupedPage>();
+    let duplicatePagesDropped = 0;
+    for (const p of pages) {
+      if (!p.relevant) continue;
+      const role = canonicalPageRole(p.sheetTitle ?? "");
+      if (!role) continue;
+      const prev = primaryByRole.get(role);
+      if (!prev) {
+        primaryByRole.set(role, p);
+        continue;
+      }
+      // Keep the earlier page (stable); demote the other to dossier-only.
+      if (prev.page <= p.page) {
+        p.relevant = false;
+      } else {
+        prev.relevant = false;
+        primaryByRole.set(role, p);
+      }
+      duplicatePagesDropped++;
+    }
+
     // Ordering: relevant pages FIRST (so the extraction range is a clean 1-k block
     // and the preview is trivial), then by reading order, then page number.
     pages.sort(
@@ -204,13 +237,21 @@ export function groupPack(
         `${variantsDropped} config/handing variant(s) set aside for extraction (still in the full dossier) — confirm which plot uses which.`,
       );
 
+    // Confidence is judged on real warnings only; the routine role-dedup below is
+    // informational (a normal combined-PDF collapse), so it must not downgrade.
+    const confidence = confidenceFor(chosen.length, relevantPageCount, flags);
+    if (duplicatePagesDropped > 0)
+      flags.push(
+        `${duplicatePagesDropped} duplicate variant page(s) set aside for extraction (kept in the full dossier).`,
+      );
+
     groups.push({
       name,
       pages,
       files: [...new Set(chosen.map((c) => c.file.relativePath))],
       relevantPageCount,
       totalPageCount: pages.length,
-      confidence: confidenceFor(chosen.length, relevantPageCount, flags),
+      confidence,
       flags,
     });
   }

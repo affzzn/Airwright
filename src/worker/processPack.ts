@@ -352,7 +352,12 @@ async function groupAndPrepare(packId: string): Promise<void> {
     // Classified files contribute their pages; junk/unparsed files contribute NO
     // eager pages — they're still grouped by identity (→ group.files) and included
     // in the lazy full dossier, but not merged into the eager relevant-only PDF.
-    pages: d.pages.map((p) => ({ page: p.pageNumber, relevant: p.relevant, houseTypeName: p.houseTypeName })),
+    pages: d.pages.map((p) => ({
+      page: p.pageNumber,
+      relevant: p.relevant,
+      houseTypeName: p.houseTypeName,
+      sheetTitle: p.sheetTitle,
+    })),
   }));
 
   // Resolve the grouping recipe — AI-first (docs/17 §4), with a deterministic

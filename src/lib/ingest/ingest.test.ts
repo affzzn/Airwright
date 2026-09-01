@@ -8,6 +8,7 @@ import {
   parseMaterialVariant,
   revisionStrippedKey,
   variantStrippedKey,
+  canonicalPageRole,
 } from "./parsePath";
 import { detectBuilder, isIgnoredPath, BUILDER_PROFILES } from "./profiles";
 import { groupPack, type IngestFile } from "./group";
@@ -83,6 +84,31 @@ describe("parsePath — revision / plots / variants", () => {
     expect(variantStrippedKey("Aspen-Front Elevation (Brick)")).not.toBe(
       variantStrippedKey("Aspen-Front Elevation (Render)"),
     );
+  });
+});
+
+describe("canonicalPageRole — collapses repeated geometry pages, never elevations", () => {
+  it("keys floor plans by level and keeps setting-out / roof / sections apart", () => {
+    expect(canonicalPageRole("Ground Floor Plan")).toBe("PLAN_GF");
+    expect(canonicalPageRole("First Floor Plan")).toBe("PLAN_FF");
+    expect(canonicalPageRole("Second Floor Plan")).toBe("PLAN_SF");
+    expect(canonicalPageRole("Roof Plan")).toBe("PLAN_ROOF");
+    expect(canonicalPageRole("Setting Out Plan")).toBe("PLAN_SETTING_OUT");
+    expect(canonicalPageRole("Section A-A")).toBe("SECTION_A-A");
+    expect(canonicalPageRole("Section B-B")).toBe("SECTION_B-B");
+    expect(canonicalPageRole("Section")).toBe("SECTION"); // bare section still collapses
+  });
+  it("NEVER collapses elevations — each face's apex/render/height is irreplaceable", () => {
+    expect(canonicalPageRole("Front Elevation (Brick)")).toBeNull();
+    expect(canonicalPageRole("Front Elevation (Render)")).toBeNull();
+    expect(canonicalPageRole("Rear Elevation")).toBeNull();
+    expect(canonicalPageRole("Gable Elevation 1")).toBeNull();
+    expect(canonicalPageRole("ELEVATION")).toBeNull();
+  });
+  it("returns null for un-identifiable / non-take-off pages (leave relevance as-is)", () => {
+    expect(canonicalPageRole("Floor Plan")).toBeNull(); // level unknown → don't merge GF/FF
+    expect(canonicalPageRole("")).toBeNull();
+    expect(canonicalPageRole("Kitchen Layout")).toBeNull(); // junk → not deduped by role
   });
 });
 
@@ -162,6 +188,11 @@ describe("isIgnoredPath", () => {
 // ── Grouping: build small packs of classified files and assert the outcome.
 function relevant(kind = 1) {
   return Array.from({ length: kind }, (_, i) => ({ page: i + 1, relevant: true }));
+}
+
+/** Relevant pages carrying title-block text (drives the canonical-role dedup). */
+function titled(titles: string[]) {
+  return titles.map((t, i) => ({ page: i + 1, relevant: true, sheetTitle: t }));
 }
 
 describe("groupPack — Vistry (folder = type; group everything, tag relevance)", () => {
@@ -251,6 +282,59 @@ describe("groupPack — config-variant collapse (one variant read, all kept in d
     // The read pages all come from a non-affordable file.
     const readFiles = new Set(g.pages.map((p) => p.relativePath));
     expect([...readFiles].every((f) => !/affordable/i.test(f))).toBe(true);
+  });
+});
+
+describe("groupPack — canonical-role dedup inside a combined PDF", () => {
+  const base = `${TW}/House_Type/Masonry/EMA21_Avonsford/00_House_Type_PDF`;
+  const files: IngestFile[] = [
+    {
+      documentId: "c1",
+      relativePath: `${base}/EMA21-Avonsford - 2021.pdf`,
+      pages: titled([
+        "Front Elevation (Brick)", // elevation → never collapsed → keep
+        "Front Elevation (Render)", // elevation → keep (render carries a price line)
+        "Front Elevation (Stone)", // elevation → keep (could differ; never dropped)
+        "Rear Elevation", // elevation → keep
+        "Gable Elevation 1", // elevation → keep
+        "Gable Elevation 2", // elevation → keep
+        "Ground Floor Plan", // PLAN_GF       keep
+        "Ground Floor Plan", // PLAN_GF       drop (dup)
+        "First Floor Plan", // PLAN_FF       keep
+        "Roof Plan", // PLAN_ROOF     keep
+        "Section A-A", // SECTION_A-A   keep
+        "Section A-A", // SECTION_A-A   drop (dup)
+      ]),
+    },
+  ];
+  const res = groupPack(files, profile("taylor-wimpey"));
+  const g = res.groups.find((x) => x.name === "EMA21_AVONSFORD")!;
+  const relevantTitles = () => g.pages.filter((p) => p.relevant).map((p) => p.sheetTitle);
+
+  it("collapses only duplicate GEOMETRY pages (plans/sections), one per role", () => {
+    expect(g.relevantPageCount).toBe(10); // 12 pages → drop 1 dup GF + 1 dup section
+  });
+  it("keeps every page in the full dossier (nothing dropped)", () => {
+    expect(g.totalPageCount).toBe(12);
+  });
+  it("keeps EVERY elevation face + material (never collapsed)", () => {
+    const t = relevantTitles();
+    expect(t).toContain("Front Elevation (Brick)");
+    expect(t).toContain("Front Elevation (Render)");
+    expect(t).toContain("Front Elevation (Stone)");
+    expect(t).toContain("Rear Elevation");
+    expect(t).toContain("Gable Elevation 1");
+    expect(t).toContain("Gable Elevation 2");
+  });
+  it("collapses the duplicate floor plan + section to one each", () => {
+    const t = relevantTitles();
+    expect(t.filter((x) => x === "Ground Floor Plan").length).toBe(1);
+    expect(t.filter((x) => x === "Section A-A").length).toBe(1);
+    expect(t.filter((x) => x === "First Floor Plan").length).toBe(1);
+  });
+  it("flags the dedup but does NOT downgrade confidence (routine collapse)", () => {
+    expect(g.flags.some((f) => /duplicate variant/i.test(f))).toBe(true);
+    expect(g.confidence).toBe("high");
   });
 });
 

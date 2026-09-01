@@ -217,6 +217,63 @@ export function parseMaterialVariant(name: string): string | null {
   return null;
 }
 
+// ── Canonical take-off "role" of a single page, from its title-block text.
+// A combined working-drawings PDF repeats the same drawing across material and
+// handing options, so its relevant page count balloons far past what a take-off
+// needs. The bloat, on real packs, is the repeated PLANS (a house-type PDF can
+// carry 10+ floor-plan pages); collapsing those to one-per-level is safe. See
+// docs/17 §5.
+//
+// ELEVATIONS ARE DELIBERATELY NEVER COLLAPSED. Real title blocks (e.g. Taylor
+// Wimpey) label every elevation page identically ("FRONT ELEVATION" / bare
+// "ELEVATION") in the text layer, so two pages that read the same may actually be
+// different faces or a render variant. Each face carries its own apex / render /
+// height reads, and dropping one is a silent hole in the take-off — the exact
+// failure recall-over-precision guards against (docs/17 §6). An extra elevation
+// page only wastes a few tokens; a missing one mis-prices the quote. So we keep
+// them all and let the MAX_EXTRACTION_PAGES cap be the only ceiling.
+
+/** Floor level of a floor plan from its title (GF/FF/SF/TF). */
+function floorLevel(u: string): "GF" | "FF" | "SF" | "TF" | null {
+  if (/\b(GROUND|GF)\b/.test(u)) return "GF";
+  if (/\b(FIRST|FF|1ST)\b/.test(u)) return "FF";
+  if (/\b(SECOND|SF|2ND)\b/.test(u)) return "SF";
+  if (/\b(THIRD|TF|3RD)\b/.test(u)) return "TF";
+  return null;
+}
+
+/**
+ * The canonical take-off slot a page fills, for de-duplicating the repetitive
+ * GEOMETRY pages inside a combined PDF: `PLAN_GF`, `PLAN_FF`, `PLAN_SF`,
+ * `PLAN_ROOF`, `PLAN_SETTING_OUT`, `SECTION`, `SECTION_A-A`. Two pages sharing a
+ * role are duplicates for a take-off; ONE is read, the rest stay in the dossier.
+ *
+ * Returns `null` for elevations (never collapsed — see the note above), for a
+ * floor plan whose level isn't legible (don't risk merging GF with FF), and for
+ * any non-take-off page. A null role means "leave this page's relevance as it is".
+ */
+export function canonicalPageRole(title: string): string | null {
+  if (!title.trim()) return null;
+  const u = title.toUpperCase();
+
+  switch (drawingKindFromName(title)) {
+    case "FLOOR_PLAN": {
+      const floor = floorLevel(u);
+      return floor ? `PLAN_${floor}` : null; // unknown level → keep (don't merge GF/FF)
+    }
+    case "SETTING_OUT":
+      return "PLAN_SETTING_OUT";
+    case "ROOF":
+      return "PLAN_ROOF";
+    case "SECTION": {
+      const m = u.match(/\bSECTION\s+([A-Z]{1,2})\s*[-–]\s*([A-Z]{1,2})\b/);
+      return m ? `SECTION_${m[1]}-${m[2]}` : "SECTION";
+    }
+    default:
+      return null; // elevations / combined / junk / unknown → never collapse
+  }
+}
+
 /** Split a relative path into folder segments (excluding the filename). */
 export function pathSegments(relativePath: string): string[] {
   return relativePath.split("/").slice(0, -1).filter(Boolean);
