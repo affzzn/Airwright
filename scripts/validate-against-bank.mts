@@ -66,8 +66,6 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
   const floors = d.floorAreas
     .map((f) => {
       const m2 = computeBirdcageFloor({
-        statedGrossInternalM2: f.statedGrossInternalM2,
-        statedNdssM2: f.statedNdssM2 ?? null,
         rectangles: f.rectangles,
         readConfidence: f.confidence,
       }).m2;

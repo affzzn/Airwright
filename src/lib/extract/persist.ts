@@ -289,10 +289,9 @@ export async function persistExtraction(
         for (const n of notes) roleReclassified.push(`${fa.level} ${n}`);
         return fixed;
       });
-      // The birdcage is per-house — no dwellings division (that's the perimeter).
+      // The birdcage is per-house — no dwellings division (that's the perimeter) —
+      // and is derived PURELY from the dimensions (no stated area / NDSS).
       const r = computeBirdcageFloor({
-        statedGrossInternalM2: fa.statedGrossInternalM2,
-        statedNdssM2: fa.statedNdssM2 ?? null,
         rectangles: fixedRects,
         readConfidence: readConf,
       });
@@ -304,8 +303,6 @@ export async function persistExtraction(
         source: r.source,
         derivedM2: r.derivedM2,
         crossCheckM2: r.crossCheckM2,
-        statedM2: r.statedM2,
-        ndssM2: r.ndssM2,
         reconciled: r.reconciled,
         confidence: r.confidence,
         usedLegendWall: r.usedLegendWall,

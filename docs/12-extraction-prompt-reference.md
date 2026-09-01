@@ -69,8 +69,8 @@ HOW SCAFFOLD IS MEASURED (context, so you read the right things)
 
 WHICH SHEETS MATTER (and what to read from each)
 - ELEVATIONS (front / rear / side / gable; brick / render / stone / boarded variants) → roof type, apex count per face, rendered sections + their length, chimney, porches and bays.
-- FLOOR PLANS (ground / first / …) → internal room dimensions, the footprint, and the NDSS "Total Floor Area" schedule (a USABLE-area figure — see BIRDCAGE).
-- SETTING OUT PLAN (Beam & Block / Suspended Slab) → the GROSS INTERNAL footprint area per dwelling (e.g. "35.60m² (BEAM & BLOCK)") and the exterior-wall run. This is the birdcage area to prefer.
+- FLOOR PLANS (ground / first / …) → internal room dimensions and the footprint (see BIRDCAGE).
+- SETTING OUT PLAN (Beam & Block / Suspended Slab) → the internal footprint DIMENSIONS per dwelling and the exterior-wall run. This is the source of the birdcage dimensions.
 - SECTION (A-A, B-B) → vertical heights: height to soffit / underside of wallplate, FFL.
 - TRUSS / ROOF SETTING OUT → roof pitch, overall wallplate dimensions, chimney position note (often conditional).
 - You may be given one combined PDF or several separate face files; treat them as one house.
@@ -98,7 +98,7 @@ WORK IN THIS ORDER
 5. Per elevation, any render and its length.
 6. The external wall lengths (front / rear / gable) off the building line.
 7. The external corner count.
-8. Birdcage per floor: the stated gross-internal area, the NDSS area, and the raw internal footprint dimensions (report numbers, do not calculate).
+8. Birdcage per floor: the raw internal footprint dimensions only (report numbers, do not calculate; no stated area).
 9. Porches / bays (low level), chimney, and any unusually high roof peak.
 
 WALL ROLES (front/rear vs gable — important)
@@ -112,8 +112,8 @@ WHAT KIND OF BUILDING (set structure.form first)
 - APARTMENT_BLOCK — a block of FLATS (several flats per floor, communal entrance/stair). It is scaffolded as ONE whole building.
 
 ONE DWELLING (houses), or ONE BLOCK (flats)
-- For a PAIR_SEMI / THREE_BLOCK / TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 pair/semi, 3 three-block, 4+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage/GIA is per house on the schedule — report as printed.
-- For an APARTMENT_BLOCK: the whole block is one scaffold. Set dwellingsWide = 1 (do NOT divide the frontage), report the block's full external walls, and for birdcage report the WHOLE-FLOOR internal area per level (the entire floor plate) — NOT a single flat's GIA. Count every apex on the block.
+- For a PAIR_SEMI / THREE_BLOCK / TERRACE of houses: the dwellings share a GABLE wall, so it is the FRONTAGE (front/rear direction) that spans them all. Report the FRONT and REAR lengths as the FULL PRINTED FRONTAGE (spanning every house) — do NOT divide them. Set dwellingsWide to how many houses share that frontage (2 pair/semi, 3 three-block, 4+ terrace); the engine divides. Report the GABLE-end walls at the full depth (never divided). Birdcage is per house — report the internal dimensions of ONE house as printed.
+- For an APARTMENT_BLOCK: the whole block is one scaffold. Set dwellingsWide = 1 (do NOT divide the frontage), report the block's full external walls, and for birdcage report the WHOLE-FLOOR internal dimensions per level (the entire floor plate) — NOT a single flat.s. Count every apex on the block.
 - For a SINGLE dwelling: dwellingsWide = 1.
 - Keep reading printed numbers, not doing arithmetic. Say in notes what the building is.
 
@@ -152,10 +152,9 @@ BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
   · STRUCTURAL wall thickness = those short end segments across the hatched external wall (e.g. 328, 302, 392). This value is DIFFERENT on every drawing — read it off THIS drawing, never assume. The two ends are often equal but CAN DIFFER (a party wall vs an external gable; a rendered face vs a brick face), so read EACH side.
   · LEGEND wall thickness = the "…MM THICK CAVITY WALL" value in the WALL LEGEND text box (e.g. 353). This is the bigger, FINISHED-face thickness — report it in legendWallThicknessMm as a FALLBACK only.
   · IGNORE the room/partition subdivision chain — numbers that sum to the overall but are NOT flanked by wall zones (e.g. 778 · 1585 · 1217 · 1248 · 1115). Those are partition positions, not the birdcage.
+- DO NOT report any stated/printed floor area (no GROSS INTERNAL / masonry area, no NDSS "Total Floor Area"). Those are NOT used — the birdcage is derived purely from the dimensions.
 - For EACH floor, report:
-  1. statedGrossInternalM2 — the GROSS INTERNAL / masonry footprint area if stated: on the SETTING OUT PLAN (e.g. "35.60m² (BEAM & BLOCK)"), or the title sheet's masonry area (a pair/dwelling total — report the PER-DWELLING figure). This is the number Colin prices. null if not stated.
-  2. statedNdssM2 — the NDSS "TOTAL FLOOR AREA" schedule value if shown (e.g. "35.00m²"). This is the smaller USABLE area (excludes voids); a fallback. null if not shown.
-  3. rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). Apply this LADDER to EACH axis (width, then depth) independently, leaving the fields you don't use null:
+  - rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). Apply this LADDER to EACH axis (width, then depth) independently, leaving the fields you don't use null:
      · PRIORITY 1 — if the INTERNAL span is printed anywhere on the plan (the MIDDLE number of [wall|span|wall]), report internalWidthM / internalDepthM. This is by far the best; do NOT skip it and derive if the internal number is actually printed.
      · PRIORITY 2 — only if no internal span is printed for that axis: report the OVERALL external dimension (overallWidthM / overallDepthM) AND the STRUCTURAL wall thickness on EACH side of that axis — wallWidthLeftMm / wallWidthRightMm for width, wallDepthFrontMm / wallDepthRearMm for depth. If every external wall on the plan is the same thickness you may instead give the single wallThicknessMm; if the two sides DIFFER, give the per-side values. The engine subtracts each side (it does NOT assume 2× one wall).
      · Whenever the plan does NOT dimension the structural wall at all, ALSO report legendWallThicknessMm (the WALL LEGEND value) as the fallback.
@@ -164,13 +163,13 @@ BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
 - WORKED EXAMPLE A (Whitton, Miller, ground floor): the width line reads 5942 overall and the inner line reads 328 | 5287 | 328; the depth reads 9103 overall with 328 wall zones both ends; the WALL LEGEND says "353MM THICK CAVITY WALL".
     → rectangles = [{ internalWidthM: 5.287, internalDepthM: null, overallWidthM: 5.942, overallDepthM: 9.103, wallDepthFrontMm: 328, wallDepthRearMm: 328, wallThicknessMm: 328, legendWallThicknessMm: 353 }].
     (internalWidthM 5287 is read DIRECTLY — priority 1; depth has no printed internal, so the engine derives 9103 − 328 − 328. Report the numbers and STOP.)
-- WORKED EXAMPLE B (Dekker, NSS, semi-detached pair): Setting Out Plan prints "35.60m² (BEAM & BLOCK)"; floor plan schedule prints "35.00m²"; the internal width of one house reads 4877; the overall depth reads 7904; the plan wall zones read 302 both ends; there is NO wall legend.
-    → statedGrossInternalM2 = 35.60, statedNdssM2 = 35.00,
+- WORKED EXAMPLE B (Dekker, NSS, semi-detached pair): the internal width of one house reads 4877; the overall depth reads 7904; the plan wall zones read 302 both ends; there is NO wall legend. (Ignore any stated 35.60m²/35.00m² areas — they are not used.)
+    → 
       rectangles = [{ internalWidthM: 4.877, internalDepthM: null, overallDepthM: 7.904, wallThicknessMm: 302, legendWallThicknessMm: null }].
     Report those numbers and STOP. Note the wall is 302 here, not 328 — it is per-drawing.
 - ASYMMETRIC WALLS EXAMPLE (an end-of-terrace whose gable dimension line reads 328 | 4600 | 215 — an external gable one side, a party wall the other): report internalWidthM: 4.6 if that middle span is printed; otherwise overallWidthM plus wallWidthLeftMm: 328 and wallWidthRightMm: 215 (NOT 2×328).
 - NEVER GUESS THE WALL: if a floor has no printed internal span AND no wall thickness on a side (neither plan nor legend), report what you can read and leave the rest null — the engine leaves the area unresolved and flags it for a human. Do NOT invent a wall thickness.
-- SAME FOOTPRINT, EVERY FLOOR: a plain house has the SAME footprint on each floor, so the stated gross-internal area and the internal dimensions apply to GF AND FF (and SF) alike. Report statedGrossInternalM2 and the rectangles on EVERY floor of the same footprint — not just the ground floor — so each floor can be cross-checked. Only give a floor different numbers if its plan is genuinely a different size.
+- SAME FOOTPRINT, EVERY FLOOR: a plain house has the SAME footprint on each floor, so the internal dimensions apply to GF AND FF (and SF) alike. Report the rectangles on EVERY floor of the same footprint — not just the ground floor. Only give a floor different numbers if its plan is genuinely a different size.
 - One entry per floor (GF, FF, and for a 2.5-storey the roof room as the next level). If no internal dimensions or stated area are legible for a floor, leave its rectangles empty and its stated areas null — never estimate from an elevation.
 
 OTHER ITEMS
@@ -206,7 +205,7 @@ linework (`buildDimensionHint` in `dimensions.ts`).
 > Sent alongside the PDF on every call. Lives in `USER_INSTRUCTION`.
 
 ```text
-Extract the scaffold take-off measurements for this house type from the attached drawing(s). Report each external wall length separately (building line, off the ground-floor / setting-out plan) with its dimension string; the external corner count; storeys and whether there is a room in the roof; height to soffit; the overall roof type; per elevation the apex count and any render (with its linear metres); and whether a chimney is shown. For the birdcage, per floor, REPORT NUMBERS ONLY — do not multiply or subtract: the stated GROSS INTERNAL area (setting-out / masonry, per dwelling), the NDSS "Total Floor Area" if shown, and the raw internal footprint as rectangles (a direct internal width/depth where printed, otherwise the overall external dimension plus the wall thickness in mm). The engine computes and reconciles the area. Cite the exact source dimension string for every number. Leave anything unreadable as null with confidence "unknown". Do not compute lifts or prices.
+Extract the scaffold take-off measurements for this house type from the attached drawing(s). Report each external wall length separately (building line, off the ground-floor / setting-out plan) with its dimension string; the external corner count; storeys and whether there is a room in the roof; height to soffit; the overall roof type; per elevation the apex count and any render (with its linear metres); and whether a chimney is shown. For the birdcage, per floor, REPORT NUMBERS ONLY — do not multiply or subtract, and do NOT report any stated/printed area: give only the raw internal footprint as rectangles (a direct internal width/depth where printed, otherwise the overall external dimension plus the wall thickness in mm). The engine derives the area from the dimensions. Cite the exact source dimension string for every number. Leave anything unreadable as null with confidence "unknown". Do not compute lifts or prices.
 ```
 
 ---
@@ -245,8 +244,6 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 | Field | Type | Meaning |
 |---|---|---|
 | `level` | `GF` \| `FF` \| `SF` \| `TF` | floor level (room-in-roof = the next level up, usually SF) |
-| `statedGrossInternalM2` | number \| null | stated gross-internal / masonry area (Setting Out), per dwelling — **preferred** |
-| `statedNdssM2` | number \| null | NDSS "Total Floor Area" usable value — fallback |
 | `rectangles[]` | array | internal footprint as rectangles (several for an L-shape) |
 | ↳ `internalWidthM` / `internalDepthM` | number \| null | a **directly printed** internal span (the middle of `[wall\|span\|wall]`) — **priority 1** |
 | ↳ `overallWidthM` / `overallDepthM` | number \| null | overall **external** dimension of ONE house (used to derive when no internal printed; also a cross-check) |
@@ -259,7 +256,7 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
 
 - **Birdcage** (`birdcage.ts`), **per house — the birdcage is NOT divided by `dwellingsWide`**. Per axis:
   `width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)`;
-  `depth = internalDepthM ?? (overallDepthM − wallFront − wallRear)` — each side subtracted **separately** (never `2×wall`); `area = Σ(width × depth)` over the rectangles. Then the priority of the stored VALUE: **stated gross-internal → printed internal footprint → derived → NDSS**. Reconciliation: stated vs derived within **2%** → high, else flag; internal vs (overall − walls) within **5%** → corroborated; no stated but NDSS present → gross-internal should sit **0–12%** above NDSS usable → high, else flag. No printed internal and no wall (plan or legend) → the axis is **UNRESOLVED** (`m2 = null`) and flagged — never a default.
+  `depth = internalDepthM ?? (overallDepthM − wallFront − wallRear)` — each side subtracted **separately** (never `2×wall`); `area = Σ(width × depth)` over the rectangles — **this derived footprint IS the birdcage** (no stated area / NDSS is used). Confidence: when a printed internal span AND an overall−walls derivation both exist, they cross-check — agree within **5%** → high (medium if a wall was assumed symmetric), diverge → low + flag; otherwise structural wall → medium, legend / assumed-symmetric → low. No printed internal and no wall (plan or legend) → the axis is **UNRESOLVED** (`m2 = null`) and flagged — never a default.
 - **Height** (`height.ts`): sum `storeyHeightsM`; compare to `heightToSoffitM` + a storey band (≈2.2–3.0 m/storey); **flag only when the two give a different lift count** (`ceil(h/1.5)`).
 - **Dimension verification** (`dimensions.ts`): each cited `sourceDimension` must appear in the page text layer, else confidence is capped to "low" + flagged (`warnings.unverifiedDimensions`). No text layer (scanned PDF) → everything passes.
 - **Wall page-kind** (`persist.ts`): a wall cited off an ELEVATION page is capped + flagged (`warnings.wallReadOffElevation`) — roof-overhang risk — unless the same dimension also appears on a floor-plan/section page.
@@ -299,16 +296,16 @@ from this Zod definition. Full definition in `src/lib/extract/schema.ts`.
   "cornerCount": { "value": 4, "confidence": "high" },
   "dwellingsWide": { "value": 2, "confidence": "high" },
   "floorAreas": [
-    { "level": "GF", "statedGrossInternalM2": 35.60, "statedNdssM2": 35.00,
+    { "level": "GF",
       "rectangles": [{ "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }],
       "sourceSheet": "Setting Out Plan", "confidence": "high" },
-    { "level": "FF", "statedGrossInternalM2": 35.60, "statedNdssM2": 35.00,
+    { "level": "FF",
       "rectangles": [{ "internalWidthM": 4.877, "internalDepthM": null, "overallDepthM": 7.904, "wallThicknessMm": 302 }],
       "sourceSheet": "First Floor Plan", "confidence": "high" }
   ],
   "lowLevel": { "porchCanopyCount": 0, "porchSolidCount": 1, "baySingleStoreyCount": 0, "bayTwoStoreyCount": 0, "confidence": "medium" },
   "chimney": { "value": false, "confidence": "high" },
-  "notes": "Semi-detached pair; frontage 10660 spans both (dwellingsWide=2); storey ladder 2662+2063=4725 confirms the soffit; GF+FF gross-internal 35.60."
+  "notes": "Semi-detached pair; frontage 10660 spans both (dwellingsWide=2); storey ladder 2662+2063=4725 confirms the soffit; GF+FF birdcage derived from the dimensions."
 }
 ```
 

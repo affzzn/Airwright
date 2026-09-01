@@ -42,7 +42,6 @@ prices). Never blur the two — reading is the AI's job, arithmetic is the engin
 | **Party wall** | A wall **shared** with the joined house — **not scaffolded**. Detached = **0**, semi/end = **1**, mid-terrace = **2** ✅. |
 | **JG (joint gable)** | A gable shared between two houses (i.e. a party gable). |
 | **Building line** | The **brickwork line** — the outer face of the brickwork. The perimeter is taken off the **outside of the ground-floor plan along this line**, for one dwelling ✅. |
-| **GIA (Gross Internal Area)** **[reads]** | A **stated internal floor area** printed on a drawing (e.g. "GIA 102.39 m²"). Preferred source for birdcage when given. |
 
 ---
 
@@ -76,7 +75,7 @@ prices). Never blur the two — reading is the AI's job, arithmetic is the engin
 
 | Term | Meaning |
 |------|---------|
-| **Birdcage** **[reads → computes]** | An independent internal scaffold that **fills a whole floor** as a working/crash deck. Measured in **m² = internal floor area** ✅. The AI reads the **internal length × width** (or a stated **GIA**); the engine computes the area. **One per floor level** (GF, FF, SF…), summed for the total; a 2.5-storey has **3** ✅. Uses the **internal** area (inside the external walls), never the external footprint. |
+| **Birdcage** **[reads → computes]** | An independent internal scaffold that **fills a whole floor** as a working/crash deck. Measured in **m² = internal floor area** ✅. The AI reads the **internal length × width** dimensions only (no stated area); the engine computes the area. **One per floor level** (GF, FF, SF…), summed for the total; a 2.5-storey has **3** ✅. Uses the **internal** area (inside the external walls), never the external footprint. |
 | **Birdcage lifts** | Normally **one lift per room** (~90 % of the time) ✅. One client asks for **two lifts where a room exceeds 2.5 m** in height ⚠️ (identify which builder — held on their profile). |
 | **Wall thickness / cavity deduction** | What is subtracted from an *overall external* dimension to get the *internal* one, when the internal span isn't printed directly. ✅ **RESOLVED 2026-08-25**: no fixed default — the **structural (blockwork) wall thickness is read off each drawing** (the short end segment on the plan's dimension chain, e.g. Miller **328**, NSS **302**, Augusta **392**), and the birdcage is measured to that structural face. The **WALL LEGEND** value (finished face, e.g. **353**) is a **flagged fallback** only. If neither a printed internal span nor a wall thickness is legible, the birdcage is left **unresolved** and flagged — never guessed. *(Colin to confirm the structural-face choice at sign-off.)* |
 | **Strip birdcage** | **Dismantling** the birdcage, per floor — a separate operation from erecting it. |
@@ -142,7 +141,7 @@ These serve a whole block, so their cost is **apportioned across the plots**.
 | Term | Meaning |
 |------|---------|
 | **Elevation** | A drawing of a **face** of the house (front/rear/side/gable). Read apexes, render and height here. **Ignore internal room elevations** ("Kitchen Elevation", "Cloak Plan Elevation") — those are joinery, not scaffolding. |
-| **Floor plan** | A top-down drawing of a floor. Read **internal dimensions / GIA** for the birdcage, and the **footprint** for wall lengths. |
+| **Floor plan** | A top-down drawing of a floor. Read the **internal dimensions** for the birdcage, and the **footprint** for wall lengths. |
 | **Site / plot layout** | The site drawing mapping **plot numbers → house types → positions/blocks**. Source of configuration and block grouping. |
 | **Site elevations plan** | A distinct drawing showing the **elevation of the site** (levels/slopes) — the only source for **underbuild / foot scaffold** ✅. Not the house elevations. |
 | **Plot schedule** | Maps plot numbers to house types (and config). Not every housebuilder supplies one. |

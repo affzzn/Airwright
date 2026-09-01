@@ -97,9 +97,7 @@ export default function DevSpecPage() {
     ["Storey → lifts (Standard)", fmtMap(LIVE.engine.standardStoreyLifts), <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
     ["Render lifts by storey", fmtMap(LIVE.engine.renderLiftsByStorey), <StatusBadge key="s" status="open" owner="colin" />, mono("takeoff/engine.ts")],
     ["Expected birdcage floors", fmtMap(LIVE.engine.expectedFloorsByStorey), <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
-    ["Birdcage: stated vs derived tolerance", LIVE.birdcage.statedTolerancePct, <StatusBadge key="s" status="open" owner="rayyan" />, mono("extract/birdcage.ts")],
     ["Birdcage: internal vs derived tolerance", LIVE.birdcage.internalXCheckTolerancePct, <StatusBadge key="s" status="open" owner="rayyan" />, mono("extract/birdcage.ts")],
-    ["Birdcage: NDSS over-read band", LIVE.birdcage.ndssBandPct, <StatusBadge key="s" status="open" owner="rayyan" />, mono("extract/birdcage.ts")],
     ["Height: gap-note threshold", `${LIVE.height.gapNoteM} m`, <StatusBadge key="s" status="confirmed" />, mono("extract/height.ts")],
     ["max_tokens", String(LIVE.request.maxTokens), <StatusBadge key="s" status="confirmed" />, mono("extract/config.ts")],
     ["Model cost (input)", `$${LIVE.request.inputCostPerMtok} / 1M tokens`, <StatusBadge key="s" status="confirmed" />, mono("extract/config.ts")],
@@ -179,7 +177,7 @@ export default function DevSpecPage() {
               <ChipList label="Setting-out plan civils guards" items={LIVE.classification.settingOutCivilGuards} />
             </div>
             <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-              A building &ldquo;Setting Out Plan&rdquo; is treated as a floor plan (it carries the gross-internal area) unless
+              A building &ldquo;Setting Out Plan&rdquo; is treated as a floor plan (it carries the internal footprint dimensions) unless
               it is a civils one. Internal room elevations (Kitchen / Cloak) and civils long-sections are excluded. Pages are
               then grouped into house types by NAME. Source: <span className="font-mono text-xs">extract/classify-rules.ts</span>.
             </p>

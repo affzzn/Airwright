@@ -1,11 +1,11 @@
 /**
  * Birdcage geometry — the ONE place the internal floor area is computed.
  *
- * The model (Layer 1) reports only RAW printed observations per floor:
+ * The birdcage is derived PURELY from the MEASURED footprint dimensions — never a
+ * stated/printed area. The model (Layer 1) reports only RAW printed observations
+ * per floor:
  *   - direct internal dims (internalWidthM / internalDepthM) if the drawing prints them,
- *   - OR overall external dims (overallWidthM / overallDepthM) + the wall thickness,
- *   - the stated GROSS-INTERNAL area (Setting Out / masonry) — Colin's number,
- *   - the NDSS usable "Total Floor Area" as a fallback.
+ *   - OR overall external dims (overallWidthM / overallDepthM) + the wall thickness.
  *
  * It NEVER multiplies or subtracts. This module does all the geometry, applying a
  * per-axis LADDER (docs/13 §3.10) — printed internal wins, else derive from the
@@ -14,8 +14,9 @@
  *   width  = internalWidthM ?? (overallWidthM − 2·wall)   [per house — NOT divided]
  *   wall   = wallThicknessMm (STRUCTURAL, plan) ?? legendWallThicknessMm (finished, fallback)
  *   area   = Σ (width × depth) over the rectangles (compound / L-shaped floors)
- * then reconciles the derived area against the stated gross-internal area and
- * turns the agreement into a COMPUTED confidence — not a model guess.
+ * The confidence is COMPUTED — when an internal span AND an independent overall−walls
+ * derivation both exist, they cross-check each other; otherwise it reflects the wall
+ * source (structural / legend / assumed-symmetric) and the model's read confidence.
  *
  * There is NO default wall thickness: the birdcage is measured to the STRUCTURAL
  * (blockwork) face, and that value is read off THIS drawing (it differs on every
@@ -33,21 +34,6 @@ const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3
 export function worseConf(a: Conf, b: Conf): Conf {
   return CONF_RANK[a] <= CONF_RANK[b] ? a : b;
 }
-
-/**
- * How close the derived area must be to the stated gross-internal area to count
- * as cross-checked. ⚠ A sign-off tolerance to confirm with Colin (docs/11 §8 #11).
- */
-export const BIRDCAGE_TOLERANCE = 0.02; // 2%
-
-/**
- * NDSS cross-check band. When no gross-internal area is stated, the derived
- * (gross-internal) footprint can still be checked against the NDSS "usable"
- * area: gross-internal should sit SLIGHTLY ABOVE usable (NDSS excludes stair
- * voids etc.). Expected over-read ≈ 0–12%. ⚠ Approximate — confirm with Colin.
- */
-export const BIRDCAGE_NDSS_MIN_OVER = -0.02; // allow a marginal rounding dip
-export const BIRDCAGE_NDSS_MAX_OVER = 0.12;
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
@@ -70,8 +56,6 @@ export interface BirdcageRectInput {
   legendWallThicknessMm?: number | null;
 }
 export interface BirdcageFloorInput {
-  statedGrossInternalM2?: number | null;
-  statedNdssM2?: number | null;
   rectangles?: BirdcageRectInput[] | null;
   /** The model's own confidence in the raw reads for this floor (caps the result). */
   readConfidence?: Conf;
@@ -104,17 +88,15 @@ export interface RectComputed {
   /** The value area could not be resolved (no internal AND no wall to strip an overall). */
   incomplete: boolean;
 }
-export type BirdcageSource = "stated" | "derived" | "ndss" | "none";
+export type BirdcageSource = "derived" | "none";
 export interface BirdcageResult {
   m2: number | null; // the area to store (BIRDCAGE_*_M2)
-  source: BirdcageSource; // which number won
-  statedM2: number | null;
-  ndssM2: number | null;
+  source: BirdcageSource; // "derived" from the dimensions, or "none" if unresolved
   derivedM2: number | null; // Σ chosen rectangle areas (internal-preferred), or null if any incomplete
   crossCheckM2: number | null; // Σ purely-derived areas (overall − walls), for the internal-vs-derived check
   rectangles: RectComputed[];
-  confidence: Conf; // COMPUTED (reconciliation ∧ read confidence)
-  reconciled: boolean | null; // stated/derived (or internal/derived) agree within tolerance? null if N/A
+  confidence: Conf; // COMPUTED (internal-vs-derived cross-check ∧ wall source ∧ read confidence)
+  reconciled: boolean | null; // internal & overall−walls agree within tolerance? null if N/A
   relDiff: number | null; // the relative gap that drove `reconciled`
   usedLegendWall: boolean; // a stored value derived an axis off the finished-face legend wall
   assumedSymmetric: boolean; // a stored value assumed a one-sided wall was symmetric
@@ -251,27 +233,20 @@ function computeRect(r: BirdcageRectInput): RectComputed {
 }
 
 /**
- * Tolerance for the INTERNAL-vs-derived cross-check. Looser than the stated
- * tolerance (2%) because the derived side leans on the noisier overall + wall
- * reads (roof-overhang confusion etc.), whereas a stated area is authoritative.
+ * Tolerance for the INTERNAL-vs-derived cross-check: how close a printed internal
+ * span must sit to the independent overall−walls derivation to corroborate it.
  * ⚠ Approximate — confirm the sign-off band with Colin (docs/11 §8 #11).
  */
 export const BIRDCAGE_INTERNAL_XCHECK_TOLERANCE = 0.05; // 5%
 
 /**
- * Resolve one floor's birdcage area + a computed confidence. PRIORITY of the
- * VALUE: stated gross-internal → printed internal footprint → derived → NDSS.
- * The overall − walls derivation is ALSO computed as an independent cross-check
- * of a printed internal footprint (internal ≈ derived → corroborated).
+ * Resolve one floor's birdcage area + a computed confidence, PURELY from the
+ * measured footprint (no stated area, no NDSS). The VALUE is the derived footprint
+ * — internal span preferred, else overall − walls. When BOTH exist the overall −
+ * walls derivation is an independent cross-check of the printed internal span.
  */
 export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult {
   const readConf: Conf = floor.readConfidence ?? "medium";
-  const statedM2 =
-    floor.statedGrossInternalM2 != null && floor.statedGrossInternalM2 > 0
-      ? round3(floor.statedGrossInternalM2)
-      : null;
-  const ndssM2 =
-    floor.statedNdssM2 != null && floor.statedNdssM2 > 0 ? round3(floor.statedNdssM2) : null;
 
   const rects = (floor.rectangles ?? []).map((r) => computeRect(r));
   const usedLegendWall = rects.some((r) => r.usedLegendWall);
@@ -295,33 +270,11 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
   const flags = (extra = "") =>
     `${extra}${assumedSymmetric ? " (One wall side not dimensioned — assumed symmetric.)" : ""}`;
 
-  // --- Priority 1: a stated gross-internal area always wins the VALUE. ---
-  if (statedM2 != null) {
-    if (derivedM2 != null) {
-      const relDiff = Math.abs(derivedM2 - statedM2) / statedM2;
-      const reconciled = relDiff <= BIRDCAGE_TOLERANCE;
-      const conf: Conf = reconciled ? "high" : "low";
-      const note = reconciled
-        ? `Stated gross-internal ${statedM2} m² ✓ cross-checked (footprint ${derivedM2} m², Δ ${pct(relDiff)}).`
-        : `Stated ${statedM2} m² vs footprint ${derivedM2} m² DIVERGE (Δ ${pct(relDiff)}) — check the dimensions.`;
-      return {
-        m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
-        confidence: conf, reconciled, relDiff, usedLegendWall, assumedSymmetric, note: flags(note),
-      };
-    }
-    return {
-      m2: statedM2, source: "stated", statedM2, ndssM2, derivedM2: null, crossCheckM2, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null,
-      usedLegendWall, assumedSymmetric,
-      note: `Stated gross-internal ${statedM2} m² (no internal dimensions to cross-check).`,
-    };
-  }
-
   if (derivedM2 != null) {
-    // --- Priority 2: a printed internal footprint, corroborated by the independent
-    //     overall − walls derivation. Both are now strictly per-house (the birdcage
-    //     never divides by dwellings), so this cross-check runs for pairs/terraces
-    //     too — it catches a per-house-vs-pair read mismatch instead of hiding it. ---
+    // --- A printed internal footprint, corroborated by the independent overall −
+    //     walls derivation. Both are strictly per-house (the birdcage never divides
+    //     by dwellings), so this cross-check runs for pairs/terraces too — it
+    //     catches a per-house-vs-pair read mismatch instead of hiding it. ---
     if (anyInternal && crossCheckM2 != null && crossCheckM2 !== derivedM2) {
       const relDiff = Math.abs(derivedM2 - crossCheckM2) / derivedM2;
       const reconciled = relDiff <= BIRDCAGE_INTERNAL_XCHECK_TOLERANCE;
@@ -329,42 +282,22 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
         // Symmetric assumption on a passed check is fine but not "high".
         const conf: Conf = assumedSymmetric ? "medium" : "high";
         return {
-          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+          m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
           confidence: conf, reconciled: true, relDiff, usedLegendWall, assumedSymmetric,
           note: flags(`Internal footprint ${derivedM2} m² ✓ cross-checked vs overall − walls ${crossCheckM2} m² (Δ ${pct(relDiff)}).`),
         };
       }
-      // Keep the internal value (priority), but flag the disagreement.
+      // Keep the internal value (preferred), but flag the disagreement.
       return {
-        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+        m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
         confidence: "low", reconciled: false, relDiff, usedLegendWall, assumedSymmetric,
         note: flags(`Internal footprint ${derivedM2} m² vs overall − walls ${crossCheckM2} m² DIVERGE (Δ ${pct(relDiff)}) — internal used, check the reads.`),
       };
     }
 
-    // --- Priority 3: cross-check the footprint (internal or derived) vs the NDSS
-    //     usable area — gross-internal should sit slightly ABOVE usable. ---
-    if (ndssM2 != null) {
-      const over = round3((derivedM2 - ndssM2) / ndssM2);
-      const consistent = over >= BIRDCAGE_NDSS_MIN_OVER && over <= BIRDCAGE_NDSS_MAX_OVER;
-      const pctOver = `${(over * 100).toFixed(1)}%`;
-      if (consistent)
-        return {
-          m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
-          confidence: usedLegendWall || assumedSymmetric ? "medium" : "high",
-          reconciled: true, relDiff: over, usedLegendWall, assumedSymmetric,
-          note: flags(`Derived gross-internal ${derivedM2} m² ✓ cross-checked vs NDSS usable ${ndssM2} m² (+${pctOver}, as expected).${usedLegendWall ? " (Used the finished-face legend wall — confirm.)" : ""}`),
-        };
-      return {
-        m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
-        confidence: "low", reconciled: false, relDiff: over, usedLegendWall, assumedSymmetric,
-        note: flags(`Derived ${derivedM2} m² vs NDSS usable ${ndssM2} m² differ by ${pctOver} (expected 0–12% ABOVE usable) — check the dimensions.`),
-      };
-    }
-
-    // Internal present but not cross-checkable here (pair, or no overall), OR a
-    // bare derived footprint with no NDSS. Structural wall → medium; a legend
-    // fallback or a one-sided (assumed-symmetric) wall → low; flagged.
+    // A bare footprint with no independent cross-check (internal with no overall, a
+    // pair, or a pure overall − walls derivation). Structural wall → medium; a
+    // legend fallback or a one-sided (assumed-symmetric) wall → low; flagged.
     const base: Conf = usedLegendWall || assumedSymmetric ? "low" : "medium";
     const how = anyInternal
       ? `Internal footprint ${derivedM2} m²`
@@ -372,26 +305,17 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
         ? `Derived ${derivedM2} m² using the finished-face legend wall (no structural wall dimensioned) — confirm`
         : `Derived ${derivedM2} m² from the printed dimensions (structural wall)`;
     return {
-      m2: derivedM2, source: "derived", statedM2: null, ndssM2, derivedM2, crossCheckM2, rectangles: rects,
+      m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
       confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, assumedSymmetric,
-      note: flags(`${how}. No stated area to cross-check.`),
-    };
-  }
-
-  if (ndssM2 != null) {
-    return {
-      m2: ndssM2, source: "ndss", statedM2: null, ndssM2, derivedM2: null, crossCheckM2, rectangles: rects,
-      confidence: worseConf("medium", readConf), reconciled: null, relDiff: null,
-      usedLegendWall: false, assumedSymmetric: false,
-      note: `NDSS usable area ${ndssM2} m² — no gross-internal available; usable area reads ~1–2% low.`,
+      note: flags(`${how}. Computed from the printed dimensions.`),
     };
   }
 
   return {
-    m2: null, source: "none", statedM2: null, ndssM2: null, derivedM2: null, crossCheckM2: null, rectangles: rects,
+    m2: null, source: "none", derivedM2: null, crossCheckM2: null, rectangles: rects,
     confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false, assumedSymmetric: false,
     note: hasUnresolvedRect
-      ? "Dimensions given but no wall thickness to derive the internal footprint (and no stated area) — birdcage unresolved, needs a human."
-      : "No legible internal area or dimensions — birdcage not computed.",
+      ? "Dimensions given but no wall thickness to derive the internal footprint — birdcage unresolved, needs a human."
+      : "No legible internal dimensions — birdcage not computed.",
   };
 }

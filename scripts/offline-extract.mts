@@ -20,8 +20,6 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
 /** Shared birdcage resolve for the offline runner (same engine as production). */
 function birdcageM2(f: ExtractionResult["floorAreas"][number]) {
   return computeBirdcageFloor({
-    statedGrossInternalM2: f.statedGrossInternalM2,
-    statedNdssM2: f.statedNdssM2 ?? null,
     rectangles: f.rectangles,
     readConfidence: f.confidence,
   });

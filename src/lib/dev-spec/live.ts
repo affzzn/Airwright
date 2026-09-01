@@ -13,12 +13,7 @@ import {
   INPUT_COST_PER_MTOK,
   OUTPUT_COST_PER_MTOK,
 } from "@/lib/extract/config";
-import {
-  BIRDCAGE_TOLERANCE,
-  BIRDCAGE_INTERNAL_XCHECK_TOLERANCE,
-  BIRDCAGE_NDSS_MIN_OVER,
-  BIRDCAGE_NDSS_MAX_OVER,
-} from "@/lib/extract/birdcage";
+import { BIRDCAGE_INTERNAL_XCHECK_TOLERANCE } from "@/lib/extract/birdcage";
 import { HEIGHT_GAP_NOTE_M } from "@/lib/extract/height";
 import {
   DEFAULT_PARAMS,
@@ -55,13 +50,8 @@ export const LIVE = {
     expectedFloorsByStorey: EXPECTED_FLOORS_BY_STOREY,
   },
   birdcage: {
-    statedTolerance: BIRDCAGE_TOLERANCE,
     internalXCheckTolerance: BIRDCAGE_INTERNAL_XCHECK_TOLERANCE,
-    ndssMinOver: BIRDCAGE_NDSS_MIN_OVER,
-    ndssMaxOver: BIRDCAGE_NDSS_MAX_OVER,
-    statedTolerancePct: pct(BIRDCAGE_TOLERANCE),
     internalXCheckTolerancePct: pct(BIRDCAGE_INTERNAL_XCHECK_TOLERANCE),
-    ndssBandPct: `${pct(BIRDCAGE_NDSS_MIN_OVER)} … +${pct(BIRDCAGE_NDSS_MAX_OVER)}`,
   },
   height: {
     gapNoteM: HEIGHT_GAP_NOTE_M,

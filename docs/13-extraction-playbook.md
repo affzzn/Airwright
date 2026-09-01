@@ -52,7 +52,7 @@ is `src/lib/extract/birdcage.ts`.)
 6. **Render per elevation** — which faces are rendered + the rendered length.
 7. **Wall segments** — front/rear/gable lengths off the building line (ground-floor / setting-out plan).
 8. **Corners** — external returns on the footprint.
-9. **Birdcage per floor** — stated gross-internal area **and** derived L×W (floor plans + setting-out plan).
+9. **Birdcage per floor** — the internal footprint L×W dimensions only (floor plans + setting-out plan); the engine derives the area.
 10. **Low level, chimney, smart-roof peak** — porches/bays; chimney *drawn*; unusually high peak.
 11. **Confidence & notes** — mark anything unreadable `null` + `unknown`; short useful notes only.
 
@@ -65,19 +65,19 @@ the "relevant" rows are sent to the model.
 
 | Sheet (typical titles) | Relevant? | What to read from it |
 |---|---|---|
-| **Title / Drawing Reference Sheet** | ✅ | House-type name & code; **masonry area** (pair/dwelling total, e.g. "Masonry 71.21m²"); revision. |
-| **Setting Out Plan** (Beam & Block / Suspended Slab) | ✅ **(often missed — fix)** | **Gross internal footprint area per dwelling** (e.g. "35.60m² (BEAM & BLOCK)"); **run of exterior wall**; overall footprint dims. **This is Colin's birdcage number.** |
-| **Ground Floor Plan / First Floor Plan** | ✅ | Internal room dims & layout; **NDSS "Total Floor Area" schedule** (usable area — smaller); footprint dims; internal walls. |
+| **Title / Drawing Reference Sheet** | ✅ | House-type name & code; revision. |
+| **Setting Out Plan** (Beam & Block / Suspended Slab) | ✅ **(often missed — fix)** | **Internal footprint dimensions per dwelling** (internal spans, overall dims, wall thicknesses); **run of exterior wall**. **This is the source of the birdcage dimensions.** (Ignore any printed area figure — not used.) |
+| **Ground Floor Plan / First Floor Plan** | ✅ | Internal room dims & layout; footprint dims; internal walls. (Ignore the NDSS "Total Floor Area" schedule — not used.) |
 | **Elevations** (front/rear/side/gable; brick/render/stone/boarded variants) | ✅ | Roof type; **apex count per face**; **render sections + LM**; height cues; chimney stack; porches/bays. |
 | **Section (A-A, B-B)** | ✅ | Vertical heights — **height to soffit / U-S wallplate**, FFL, storey heights. |
 | **Truss / Roof Setting Out (roofscape)** | ✅ | Roof **pitch**; overall wallplate dims; **chimney position note** (often conditional — see §3.12). |
 | Internal room elevations ("Kitchen Elevation", "Cloak Plan Elevation") | ❌ | Joinery, not scaffolding — ignore. |
 | Electrical / drainage / foundations / levels / lintel / bar schedule / services / general notes | ❌ | Not a scaffold take-off — ignore. |
 
-> ⚠️ **Pipeline note (real bug found on Dekker):** the classifier excluded the
-> **Setting Out Plan** (page 4), so the model only saw the NDSS schedule (35.00)
-> and missed Colin's gross-internal 35.60. The classifier must treat **Setting Out
-> Plan** sheets as relevant. Tracked as a fix to `src/lib/extract/classify.ts`.
+> ⚠️ **Pipeline note:** the **Setting Out Plan** must be classified as relevant —
+> it carries the internal footprint **dimensions** the birdcage is derived from
+> (the exterior-wall run and internal spans). A civils setting-out plan is NOT
+> relevant. Handled in `src/lib/extract/classify-rules.ts`.
 
 ---
 
@@ -154,23 +154,20 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 
 ### 3.10 Birdcage (internal area, per floor) — model REPORTS numbers, engine DERIVES & reconciles
 - **What:** the m² of internal floor deck, per floor level (GF, FF, SF…). One birdcage per floor; a 2.5-storey has 3.
-- **The doctrine (changed 2026-08-21):** the model does **no arithmetic** for the birdcage. It reports the **stated areas** and the **raw dimensions**; the deterministic engine (`src/lib/extract/birdcage.ts`) does the subtraction, the multiply, the compound-sum, and the reconciliation, and sets a **computed** confidence (the birdcage is per-house — it does NOT divide by dwellings). This removes the class of errors where the model subtracts/multiplies in its head.
+- **The doctrine (changed 2026-08-21; stated areas removed 2026-09-01):** the model does **no arithmetic** for the birdcage AND reports **no stated/printed area** — the birdcage is derived **purely from the measured dimensions**. The model reports only the **raw footprint dimensions**; the deterministic engine (`src/lib/extract/birdcage.ts`) does the subtraction, the multiply, the compound-sum, and the cross-check, and sets a **computed** confidence (the birdcage is per-house — it does NOT divide by dwellings). This removes the class of errors where the model subtracts/multiplies in its head. **No `statedGrossInternalM2` / GIA and no `statedNdssM2` / NDSS are read or used anymore.**
 - **What the model reports, per floor** (schema `floorAreas[]`):
-  1. `statedGrossInternalM2` — the **gross internal footprint area per dwelling**: **Setting Out Plan** (`35.60m² (BEAM & BLOCK)`), or the title/reference sheet **masonry area** (a pair total, e.g. `Masonry 71.21m²` — report the **per-dwelling** figure). **This is Colin's number.**
-  2. `statedNdssM2` — the **NDSS "Total Floor Area"** schedule (e.g. `35.00m²`): the smaller **usable/habitable** area (excludes voids). A fallback.
-  3. `rectangles[]` — the internal footprint as raw dims (one rectangle, or several for an L-shape). **Identify each printed number by its mark** (docs re-synced 2026-08-25, prompt `2026-08-25.2`):
+  - `rectangles[]` — the internal footprint as raw dims (one rectangle, or several for an L-shape). **Identify each printed number by its mark:**
      - `internalWidthM`/`internalDepthM` — the **directly printed internal span** (the MIDDLE number of an inner dimension line reading `[wall | span | wall]`, e.g. `328 | 5287 | 328` → 5287). **Preferred.**
      - `overallWidthM`/`overallDepthM` — the **outermost** external dimension line (tick-to-tick at the outer brick faces), reported as-is (used to derive the internal when no internal span is printed, and always as a cross-check).
      - `wallThicknessMm` — the **STRUCTURAL** wall thickness off the plan's dimension chain (the short end segment across the hatched wall, e.g. `328` Miller / `302` NSS / `392` Augusta). **Different on every drawing — read it, never assume.** The birdcage is measured to the **structural / blockwork** face (✅ confirmed 2026-08-25).
      - `legendWallThicknessMm` — the **WALL LEGEND** cavity-wall value (e.g. `353`), the **finished-face** thickness. **Fallback only** — used to strip the overall only when the plan doesn't dimension the structural wall, and then the floor is capped and flagged.
      **The model never subtracts or divides** — and the room/partition subdivision chain (numbers that sum to the overall but aren't flanked by wall zones) is **ignored**.
-- **Same footprint, every floor:** a plain house has the same footprint on each floor, so the model reports the stated area and dimensions on **GF *and* FF** (and SF) alike — so each floor can be cross-checked, not just GF.
+- **Same footprint, every floor:** a plain house has the same footprint on each floor, so the model reports the dimensions on **GF *and* FF** (and SF) alike — not just GF.
 - **PER-HOUSE (2026-08-26):** the birdcage is measured for **ONE house** — the model reports a single house's footprint (the setting-out plan shows one house, e.g. `302 | 4800 | 302`), and the engine **does NOT divide by `dwellingsWide`**. (That division is the *perimeter's* — front/rear span the pair; the birdcage does not.) Reporting the pair frontage here and letting the engine halve it double-counted and produced **half** the birdcage on pairs (Byron: 19 vs 39.36).
-- **What the engine does** (`computeBirdcageFloor`) — the per-axis **ladder**: `depth = internalDepthM ?? (overallDepthM − wallFront − wallRear)`; `width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)` — **per house, no dwellings division**. **Each side is subtracted separately — NOT `2×wall`** (the two walls can differ: a party wall vs a gable, a rendered vs a brick face; `wallWidthLeft/RightMm`, `wallDepthFront/RearMm`, or the uniform `wallThicknessMm`; one side only → assume symmetric + flag). `derivedArea = Σ(width × depth)`. The **overall − walls** derivation is computed **even when the internal span is read**, as an independent **cross-check**: internal ≈ derived (within **5%**) → **corroborated, high**; diverge → keep the internal value but **flag**. (Now that the birdcage never divides, this runs on pairs/terraces too — it *catches* a per-house-vs-pair read mismatch instead of hiding it.) With a stated gross-internal, **reconcile** against it (within **2%**, ⚠️ Colin sign-off): agree → stated, **high**; diverge → stated but **flag**. **NDSS cross-check (C11):** when NO gross-internal is stated but NDSS is, the derived footprint is checked against the NDSS *usable* area — gross-internal should sit **0–12% ABOVE** usable (NDSS excludes voids) → **high** (medium if the finished-face legend wall was used); outside that band → low + flag. Only derived, no NDSS → **medium** (low if the legend wall was used). **There is NO default wall thickness:** an overall dimension with no internal span and no wall (plan or legend) leaves that floor **UNRESOLVED** (`m2 = null`, `source: none`) and flagged for a human — never guessed. The step-by-step working (width × depth, the reconciliation ✓/✗) is shown in the review tooltip.
+- **What the engine does** (`computeBirdcageFloor`) — the per-axis **ladder**: `depth = internalDepthM ?? (overallDepthM − wallFront − wallRear)`; `width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)` — **per house, no dwellings division**. **Each side is subtracted separately — NOT `2×wall`** (the two walls can differ: a party wall vs a gable, a rendered vs a brick face; `wallWidthLeft/RightMm`, `wallDepthFront/RearMm`, or the uniform `wallThicknessMm`; one side only → assume symmetric + flag). `derivedArea = Σ(width × depth)` — **this derived footprint IS the birdcage** (there is no stated area to prefer). The **overall − walls** derivation is computed **even when the internal span is read**, as an independent **cross-check (C11)**: internal ≈ derived (within **5%**) → **corroborated, high** (medium if a wall was assumed symmetric); diverge → keep the internal value but **flag, low**. (Since the birdcage never divides, this runs on pairs/terraces too — it *catches* a per-house-vs-pair read mismatch instead of hiding it.) With no independent cross-check (an internal span but no overall, or a pure overall − walls): structural wall → **medium**; legend / assumed-symmetric → **low**; capped by the model's read confidence. **There is NO default wall thickness:** an overall dimension with no internal span and no wall (plan or legend) leaves that floor **UNRESOLVED** (`m2 = null`, `source: none`) and flagged for a human — never guessed. The step-by-step working (width × depth, the cross-check ✓/✗) is shown in the review tooltip.
 - **Role-consistency guard (2026-09-01):** the model sometimes files an INTERNAL span into the `overall` field (→ walls stripped twice → area too small) or vice-versa. `persist.ts` reconciles internal↔overall against the printed dimension tokens using `internal + 2·wall = overall`: for an axis given only as `overall`+wall, if `overall + 2·wall` IS printed but `overall − 2·wall` is NOT, the "overall" is really the internal → moved to `internalWidthM` (and the reverse). Two-sided so a genuine overall/internal is left alone. Prompt `2026-09-01.1` also teaches the relationship so the model gets it right first. (`reconcileRectRoles` in `dimensions.ts`; flagged in `warnings.birdcageRoleReclassified`.)
-- **Layer:** the model **reads** the stated areas + raw dims; **`birdcage.ts` computes + reconciles**; `persist.ts` stores the final m² with the computed confidence and the derivation trail.
-- **Edge cases:** use the **internal** area, never the external footprint (bigger, over-reads). Irregular floor → **several rectangles** (the engine sums them). The wall thickness is **read off the drawing per-floor**, not defaulted; only the reconciliation **tolerance** remains an ⚠️ open param, flagged when used.
-- **Which area to prefer:** **gross internal (Setting Out / masonry), not NDSS usable.** They differ because NDSS excludes voids; Colin's take-off uses the gross internal footprint.
+- **Layer:** the model **reads** the raw dims only; **`birdcage.ts` computes + cross-checks**; `persist.ts` stores the final m² with the computed confidence and the derivation trail.
+- **Edge cases:** use the **internal** area, never the external footprint (bigger, over-reads). Irregular floor → **several rectangles** (the engine sums them). The wall thickness is **read off the drawing per-floor**, not defaulted; only the internal-vs-derived **tolerance** remains an ⚠️ open param, flagged when used.
 
 ### 3.11 Low level (porch / bay) — counted BY TYPE (2026-08-26)
 - **What:** porches + SINGLE-storey bays (each = one low-level tower), recorded by type.
@@ -198,32 +195,25 @@ Each entry: **what · where · how (read/derive) · layer · edge cases · confi
 
 ## 4. Worked examples (from real drawings)
 
-### 4.1 Dekker (NSS.277) — birdcage, "report numbers, engine reconciles"
-A semi-detached pair. The internal floor area is printed in **three** places, and
-they are **not** all the same number:
+### 4.1 Dekker (NSS.277) — birdcage, "report dimensions, engine derives"
+A semi-detached pair. The model reports **only the footprint dimensions** — any
+printed area figures on the drawing (a masonry area, an NDSS schedule) are **not
+read and not used**.
 
-- **Setting Out Plan (p.4):** `35.60m² (BEAM & BLOCK)` — the **gross internal footprint per dwelling**. ← **Colin's number.**
-- **Title sheet (p.1):** `Masonry 71.21m²` — the **pair total** (= 35.60 × 2).
-- **First Floor Plan (p.24):** NDSS `TOTAL FLOOR AREA … 35.00m² … 35.00m² … 70.00m²` — the **usable/habitable** area (smaller; excludes voids).
-
-**What the model reports** (numbers only, per floor, GF and FF alike):
-`statedGrossInternalM2 = 35.60`, `statedNdssM2 = 35.00`, `rectangles =
-[{ internalWidthM: 4.877, overallDepthM: 7.904, wallThicknessMm: 302 }]`. It reads
-`4877`, `7904`, `302` and **stops** — no subtraction, no multiply.
+**What the model reports** (dimensions only, per floor, GF and FF alike):
+`rectangles = [{ internalWidthM: 4.877, overallDepthM: 7.904, wallThicknessMm: 302 }]`.
+It reads `4877`, `7904`, `302` and **stops** — no subtraction, no multiply.
 
 **What the engine computes** (`birdcage.ts`):
-1. depth = 7.904 − 2×0.302 = **7.300 m**.
-2. area = 4.877 × 7.300 = **35.602 m²** (derived).
-3. reconcile: |35.602 − 35.60| / 35.60 = **0.0% ≤ 2%** → use the stated **35.60 m²**, **high confidence**.
-4. GF + FF = **71.2 m²** total.
+1. depth = 7.904 − 2×0.302 = **7.300 m** (derived off the structural wall).
+2. width = **4.877 m** (printed internal, used directly).
+3. area = 4.877 × 7.300 = **35.602 m²** — this **is** the birdcage.
+4. confidence: internal width read + structural derived depth, no full overall−walls
+   cross-check (no overall width) → **medium**.
+5. GF + FF = **71.2 m²** total.
 
-**Validated live (2026-08-21, prompt `2026-08-21.1`):** the runner returns
-`GF: 35.6 m² [high] (stated) — ✓ cross-checked (derived 35.602, Δ 0.0%)`, and the
-engine take-off reproduces Colin's line (`20.564 × 4 lifts / 71.202 m² × 2 floors /
-1 apex / 1 low level / 1 party wall`). This is the fix for the earlier bug where
-the tool read `35.00` (NDSS) because the classifier had excluded p.4 — Setting Out
-Plans are now relevant, the gross-internal wins, and the derived footprint
-cross-checks it deterministically.
+The engine take-off reproduces Colin's line (`20.564 × 4 lifts / 71.2 m² × 2 floors /
+1 apex / 1 low level / 1 party wall`) from the dimensions alone.
 
 ### 4.2 Dekker — perimeter & lifts (for reference)
 - Walls (per dwelling): front 10.66 / rear 10.66 (full pair frontage; engine divides by 2), gables 7.904 each.

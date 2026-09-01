@@ -177,27 +177,27 @@ export const MEASUREMENTS: Measurement[] = [
     name: "Birdcage (internal floor area per floor)",
     plain:
       "The m² of internal floor deck, per floor. One per floor; a 2.5-storey has 3. Measured to the internal (structural) face, never the external footprint.",
-    whereRead: ["Setting-out plan (preferred)", "Floor plans", "Title-sheet masonry area"],
+    whereRead: ["Setting-out plan (preferred)", "Floor plans"],
     layer: "both",
     howRead:
-      "REPORT NUMBERS ONLY — no arithmetic. Per floor report: (1) the stated gross-internal area (Colin's number), (2) the NDSS usable area (fallback), (3) the raw internal footprint as rectangles — a directly-printed internal span (preferred), else the overall external dimension + the STRUCTURAL wall thickness per side. Per HOUSE — do NOT divide by dwellings.",
+      "REPORT NUMBERS ONLY — no arithmetic, and NO stated/printed floor area (it is not used). Per floor report the raw internal footprint as rectangles — a directly-printed internal span (preferred), else the overall external dimension + the STRUCTURAL wall thickness per side. Per HOUSE — do NOT divide by dwellings.",
     derivation:
-      "birdcage.ts does all geometry: per axis, width = internalWidthM ?? (overallWidthM − wallLeft − wallRight); depth likewise; each side subtracted SEPARATELY (never 2×wall); area = Σ(width × depth). There is NO default wall — an overall with no wall (plan or legend) leaves the axis UNRESOLVED and flagged.",
+      "birdcage.ts does all geometry purely from the dimensions: per axis, width = internalWidthM ?? (overallWidthM − wallLeft − wallRight); depth likewise; each side subtracted SEPARATELY (never 2×wall); area = Σ(width × depth). There is NO default wall — an overall with no wall (plan or legend) leaves the axis UNRESOLVED and flagged.",
     formula:
       "width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)   [per house]\ndepth = internalDepthM ?? (overallDepthM − wallFront − wallRear)\narea  = Σ(width × depth)",
     fallbacks: [
-      "Priority of the stored value: stated gross-internal → printed internal footprint → derived (overall − walls) → NDSS.",
+      "The stored value is always the derived footprint — internal span preferred, else overall − walls. No stated area or NDSS is used.",
       "Wall per axis: two printed per-side values → else one side (assume symmetric + flag) → else uniform wallThicknessMm → else the finished-face WALL LEGEND value (flagged) → else UNRESOLVED. No hard-coded default.",
     ],
     confidenceRule:
-      "COMPUTED from agreement. Stated vs derived within 2% → high, else low + flag. No stated but internal read: internal vs (overall − walls) within 5% → high (medium if a wall was assumed symmetric). No stated but NDSS present: gross should sit 0–12% above usable → high, else flag. Structural wall, no cross-check → medium; legend/assumed → low.",
+      "COMPUTED. When a printed internal span AND an overall−walls derivation both exist: agree within 5% → high (medium if a wall was assumed symmetric); diverge → low + flag. Otherwise (bare footprint): structural wall → medium; legend / assumed-symmetric → low. No wall to resolve → unknown, flagged for a human.",
     crossChecks: ["c11", "dimVerify"],
     workedExample:
-      "Dekker GF: stated 35.60, NDSS 35.00, rectangle { internalWidthM 4.877, overallDepthM 7.904, wallThicknessMm 302 }. Engine: depth = 7.904 − 0.302 − 0.302 = 7.300; area = 4.877 × 7.300 = 35.60; Δ 0.0% ≤ 2% → store 35.60, high. GF + FF = 71.2 m².",
+      "Dekker GF: rectangle { internalWidthM 4.877, overallDepthM 7.904, wallThicknessMm 302 }. Engine: depth = 7.904 − 0.302 − 0.302 = 7.300; area = 4.877 × 7.300 = 35.60 → store 35.60. GF + FF = 71.2 m².",
     status: "confirmed",
     owner: "colin",
     codeRefs: ["src/lib/extract/birdcage.ts", "src/lib/extract/persist.ts"],
-    relatedTerms: ["birdcage", "gia", "ndss", "wall-thickness"],
+    relatedTerms: ["birdcage", "wall-thickness"],
   },
   {
     id: "lowLevel",

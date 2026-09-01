@@ -53,9 +53,9 @@ export const CROSS_CHECKS: CrossCheck[] = [
   {
     id: "c11",
     code: "C11",
-    name: "NDSS birdcage cross-check",
-    trigger: "No stated area but NDSS present; the derived gross should sit 0–12% above the usable area.",
-    effect: "Within band → high; outside → low + flag (in the birdcage derivation).",
+    name: "Birdcage internal-vs-derived cross-check",
+    trigger: "A printed internal span AND an overall−walls derivation both exist; they should agree within 5%.",
+    effect: "Within tolerance → high (medium if a wall was assumed symmetric); diverge → low + flag (in the birdcage derivation).",
     warningKey: "birdcageDerivation",
     status: "confirmed",
   },

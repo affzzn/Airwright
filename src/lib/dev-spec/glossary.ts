@@ -21,8 +21,6 @@ export const GLOSSARY: GlossaryTerm[] = [
   { id: "party-wall", term: "Party wall", definition: "A wall shared with the joined house — not scaffolded. Detached 0, semi/end 1, mid-terrace 2." },
   { id: "jg", term: "JG (joint gable)", definition: "A gable shared between two houses (a party gable)." },
   { id: "building-line", term: "Building line", definition: "The brickwork line — the outer face of the brickwork. The perimeter is taken off the outside of the ground-floor plan along this line." },
-  { id: "gia", term: "GIA (Gross Internal Area)", definition: "A stated internal floor area printed on a drawing (e.g. 35.60 m²). The preferred source for the birdcage when given.", layer: "llm" },
-  { id: "ndss", term: "NDSS", definition: "Nationally Described Space Standard — the 'Total Floor Area' schedule. The usable/habitable area (excludes voids), so smaller than the gross-internal footprint. A fallback." },
 
   // External scaffold
   { id: "perimeter", term: "Perimeter", definition: "The total run of external scaffold for one lift, from the config's wall lengths + a corner allowance. The AI reports each wall; the engine sums them.", layer: "engine" },
@@ -72,8 +70,8 @@ export const GLOSSARY: GlossaryTerm[] = [
 
   // Drawings / systems
   { id: "elevation", term: "Elevation", definition: "A drawing of a face of the house. Read apexes, render, height, chimney, porches/bays here. Ignore internal room elevations (Kitchen/Cloak)." },
-  { id: "floor-plan", term: "Floor plan", definition: "A top-down drawing of a floor. Read internal dimensions / GIA for the birdcage, and the footprint." },
-  { id: "setting-out-plan", term: "Setting-out plan", definition: "Carries the gross internal footprint area per dwelling and the exterior-wall run. Colin's birdcage number. Classified as a floor plan (relevant)." },
+  { id: "floor-plan", term: "Floor plan", definition: "A top-down drawing of a floor. Read the internal footprint dimensions for the birdcage, and the footprint." },
+  { id: "setting-out-plan", term: "Setting-out plan", definition: "Carries the internal footprint dimensions per dwelling and the exterior-wall run — the source of the birdcage. Classified as a floor plan (relevant)." },
   { id: "section", term: "Section (A-A, B-B)", definition: "Vertical heights — height to soffit / U-S wallplate, FFL, floor-to-floor storey heights." },
   { id: "tg20", term: "TG20 (TG20:21)", definition: "The industry scaffold design-compliance standard. A constraint, not a measurement." },
 ];

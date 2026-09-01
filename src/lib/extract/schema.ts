@@ -195,9 +195,10 @@ const birdcageRect = z.object({
 });
 
 /**
- * One internal floor. Report the stated areas AND the raw dimensions; the engine
- * computes the birdcage area (Σ width×depth), reconciles it against the stated
- * gross-internal area, and sets the confidence. The model does NO arithmetic.
+ * One internal floor. Report ONLY the raw footprint dimensions; the engine derives
+ * the birdcage area (Σ width×depth) purely from them and sets the confidence. Do
+ * NOT report any stated/printed floor area — it is not used. The model does NO
+ * arithmetic.
  */
 const floorArea = z.object({
   level: z
@@ -205,24 +206,10 @@ const floorArea = z.object({
     .describe(
       "Floor level for the birdcage: GF ground, FF first, SF second, TF third. Count a room-in-roof (2.5-storey top room) as the next level up (usually SF).",
     ),
-  statedGrossInternalM2: z
-    .number()
-    .nullable()
-    .describe(
-      "GROSS INTERNAL floor area in m² if stated — PREFER the setting-out plan / masonry area (e.g. '35.60m² (BEAM & BLOCK)'), per ONE dwelling. This is the number Colin prices. Report ONLY the printed figure. null if none stated.",
-    )
-    .default(null),
-  statedNdssM2: z
-    .number()
-    .nullable()
-    .describe(
-      "NDSS 'Total Floor Area' schedule value in m² if shown (e.g. 35.00). This is the smaller USABLE/habitable area (excludes voids) — a fallback only. Report the printed figure. null if none.",
-    )
-    .optional(),
   rectangles: z
     .array(birdcageRect)
     .describe(
-      "The internal footprint as one rectangle (or several for an L-shaped / stepped floor). Report raw printed dimensions only — the engine multiplies and sums. Empty if no dimensions are legible.",
+      "The internal footprint as one rectangle (or several for an L-shaped / stepped floor). Report raw printed DIMENSIONS only — the engine multiplies and sums. Empty if no dimensions are legible.",
     )
     .default([]),
   sourceSheet: z.string().nullable().describe("Floor-plan / setting-out sheet label.").optional(),
@@ -305,7 +292,7 @@ export const extractionResultSchema = z.object({
   floorAreas: z
     .array(floorArea)
     .describe(
-      "One entry per floor level (2.5-storey has 3: GF, FF, roof room). For each floor report the STATED gross-internal area (setting-out / masonry) and the NDSS area if shown, AND the raw internal footprint dimensions as rectangles — the engine computes and reconciles the birdcage m². Report only printed numbers; never multiply, subtract or estimate from an elevation. Empty if nothing legible.",
+      "One entry per floor level (2.5-storey has 3: GF, FF, roof room). For each floor report the raw internal footprint DIMENSIONS as rectangles (internal span, or overall + wall thickness) — the engine derives the birdcage m² from them. Do NOT report any stated/printed floor area; it is not used. Report only printed numbers; never multiply, subtract or estimate from an elevation. Empty if nothing legible.",
     ),
   lowLevel: z
     .object({

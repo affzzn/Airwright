@@ -107,8 +107,6 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) return null;
     return computeBirdcageFloor({
-      statedGrossInternalM2: fa.statedGrossInternalM2,
-      statedNdssM2: fa.statedNdssM2 ?? null,
       rectangles: fa.rectangles,
       readConfidence: fa.confidence,
     }).m2;
@@ -274,14 +272,11 @@ export function buildProvenanceCards(
     const fa = raw.floorAreas.find((f) => f.level === level);
     if (!fa) continue;
     const r = computeBirdcageFloor({
-      statedGrossInternalM2: fa.statedGrossInternalM2,
-      statedNdssM2: fa.statedNdssM2 ?? null,
       rectangles: fa.rectangles,
       readConfidence: fa.confidence,
     });
     if (r.m2 == null) continue;
     const page = resolve(fa.sourceSheet, fa.sourcePage);
-    const floorSrc: ProvSource = { sheet: fa.sourceSheet ?? null, dim: null, page };
     const steps: ProvStep[] = [];
     const rects = fa.rectangles ?? [];
     const multi = rects.length > 1;
@@ -316,28 +311,19 @@ export function buildProvenanceCards(
     if (multi && r.derivedM2 != null)
       steps.push({ text: `Rectangles sum = ${r.derivedM2} m²` });
 
-    // 2) The stated numbers on the drawing.
-    if (r.statedM2 != null)
-      steps.push({ text: `Stated gross-internal = ${r.statedM2} m²`, source: floorSrc });
-    if (r.ndssM2 != null)
-      steps.push({ text: `NDSS usable area = ${r.ndssM2} m²`, source: floorSrc });
-    // 2b) The independent overall − walls cross-check of a printed internal footprint.
+    // 2) The independent overall − walls cross-check of a printed internal footprint.
     if (r.crossCheckM2 != null && r.crossCheckM2 !== r.derivedM2)
       steps.push({ text: `Cross-check (overall − walls) = ${r.crossCheckM2} m²` });
 
-    // 3) The reconciliation + the number that won.
+    // 3) The reconciliation + the resolved number.
     steps.push({ text: r.note });
     steps.push({ text: `Birdcage (${level}) = ${r.m2} m²` });
 
     const levelName = { GF: "Ground floor", FF: "First floor", SF: "Second floor" }[level];
     const summary =
-      r.source === "stated" && r.reconciled
-        ? "Stated area, cross-checked against the derived footprint"
-        : r.source === "stated"
-          ? "Stated gross-internal area"
-          : r.source === "derived"
-            ? "Derived from the internal dimensions"
-            : "NDSS usable area (fallback)";
+      r.reconciled === true
+        ? "Derived from the internal dimensions, cross-checked against overall − walls"
+        : "Derived from the internal dimensions";
     const footnotes = [
       `${levelName} internal deck. Birdcage = internal area inside the external walls (structural / blockwork face); one per floor, one lift each, summed for the total.`,
     ];

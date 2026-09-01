@@ -202,11 +202,11 @@ sheets:
   **10.66** (Colin 10.6), birdcage **35.0/floor** (Colin 35.6), apex **1 / 0** by
   config (Colin 1 / none), 1 low level ✓. Essentially exact.
 - **Rosewood (detached bungalow):** perimeter **48.51** (Colin 48.5, exact), lifts
-  **2** ✓, hipped → **0 apex** ✓, birdcage **102.39 m²** GIA (Colin 107, ~4%).
+  **2** ✓, hipped → **0 apex** ✓, birdcage **102.39 m²** derived (Colin 107, ~4%).
 
 Fixes that got it there: model reports the printed frontage + `dwellingsWide` and
-the **engine halves front/rear** for a pair (not the model); birdcage prefers the
-stated **GIA**; porch canopy counts as a low level; conditional chimney → false;
+the **engine halves front/rear** for a pair (not the model); birdcage is derived
+purely from the internal dimensions; porch canopy counts as a low level; conditional chimney → false;
 **apex reduced by config** (semi drops the party-wall gable, mid drops both).
 Residual gaps are within tolerance and tied to Colin's exact birdcage-area basis.
 
@@ -336,10 +336,11 @@ cross-checks, and flag contradictions instead of trusting one read.
   → apexCount`, so the model reasons *before* committing the number (was post-hoc).
 - **C3 — structure ↔ dwellingsWide consistency:** `persist` flags SINGLE/APARTMENT
   with dwellingsWide ≠ 1, or PAIR/TERRACE with < 2 (`warnings.structureDwellingsMismatch`).
-- **C11 — NDSS birdcage cross-check** (`birdcage.ts`): with no stated gross-internal,
-  the derived footprint is checked against the NDSS *usable* area — gross-internal
-  should sit **0–12% above** usable → high (medium if the finished-face legend wall was used);
-  outside the band → low + flag. ⚠️ band approximate, confirm with Colin.
+- **C11 — birdcage internal-vs-derived cross-check** (`birdcage.ts`): when a printed
+  internal span AND an independent overall−walls derivation both exist, they must
+  agree within **5%** → high (medium if a wall was assumed symmetric); diverge → low
+  + flag. ⚠️ tolerance approximate, confirm with Colin. (No stated area / NDSS is
+  used — the birdcage is derived purely from the dimensions, 2026-09-01.)
 - **C9 — wall symmetry** (`persist`): front≈rear and gable_left≈gable_right;
   a >10% mismatch flags a likely role-swap/misread (`warnings.wallAsymmetry`).
 - **C5 — storey ladder = deltas:** prompt + schema clarify `storeyHeightsM` are
