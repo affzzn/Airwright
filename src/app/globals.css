@@ -83,6 +83,20 @@
   }
 }
 
+/* Print: the Dev spec page is a shareable, walk-through document. Expand every
+   collapsed row (the Print button also force-opens them via JS) and avoid ugly
+   breaks through a card or a table row. */
+@media print {
+  details:not([open]) > *:not(summary) {
+    display: block !important;
+  }
+  details,
+  tr,
+  pre {
+    break-inside: avoid;
+  }
+}
+
 @keyframes modal-scrim-in {
   from {
     opacity: 0;

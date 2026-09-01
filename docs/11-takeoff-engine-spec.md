@@ -388,4 +388,4 @@ per external corner is CONFIRMED.)
 
 **Still NOT built:** builder-profile extras (loading bay / chute / access /
 propping apportionment) and the site-elevations/underbuild page type. Model:
-**claude-opus-4-8**, `max_tokens` 8192.
+**claude-opus-4-8**, `max_tokens` 16384 (raised from 8192 for the richer field set).

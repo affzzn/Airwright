@@ -99,18 +99,31 @@ export function storeyLifts(
   return template[String(storeys)] ?? null;
 }
 
-/** Render lifts by storey (2 m boarded lifts). From Colin's sheets; full table owed. */
-function renderLiftsForStoreys(storeys: number | null): number | null {
-  if (storeys === null) return null;
-  const map: Record<string, number> = { "1": 1, "2": 2, "2.5": 3, "3": 4 };
-  return map[String(storeys)] ?? null;
-}
+/** Render lifts by storey (2 m boarded lifts). From Colin's sheets; ⚠️ full table owed. */
+export const RENDER_LIFTS_BY_STOREY: Record<string, number> = {
+  "1": 1,
+  "2": 2,
+  "2.5": 3,
+  "3": 4,
+};
 
 /** Expected birdcage floor count for a storey height. 2.5-storey = 3 (room in roof). */
+export const EXPECTED_FLOORS_BY_STOREY: Record<string, number> = {
+  "1": 1,
+  "2": 2,
+  "2.5": 3,
+  "3": 3,
+  "4": 4,
+};
+
+function renderLiftsForStoreys(storeys: number | null): number | null {
+  if (storeys === null) return null;
+  return RENDER_LIFTS_BY_STOREY[String(storeys)] ?? null;
+}
+
 function expectedFloors(storeys: number | null): number | null {
   if (storeys === null) return null;
-  const map: Record<string, number> = { "1": 1, "2": 2, "2.5": 3, "3": 3, "4": 4 };
-  return map[String(storeys)] ?? null;
+  return EXPECTED_FLOORS_BY_STOREY[String(storeys)] ?? null;
 }
 
 export interface LiftResult {

@@ -36,6 +36,8 @@ function SignOutButton() {
 export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
   const pathname = usePathname() ?? "/";
   const onRates = pathname.startsWith("/rates");
+  const onDocs = pathname.startsWith("/docs");
+  const onQuote = !onRates && !onDocs;
 
   // Full-height tab: a bottom border that overlaps the header's own hairline
   // (`-mb-px`) so the active underline sits flush on the divider.
@@ -53,9 +55,9 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
               href="/"
               className={cn(
                 tab,
-                onRates
-                  ? "border-transparent font-medium text-ink-muted hover:text-ink"
-                  : "border-ink font-medium text-ink",
+                onQuote
+                  ? "border-ink font-medium text-ink"
+                  : "border-transparent font-medium text-ink-muted hover:text-ink",
               )}
             >
               Quote &amp; Take-off
@@ -70,6 +72,17 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
         </div>
         {showSignOut && (
           <div className="flex items-center gap-4">
+            <Link
+              href="/docs"
+              className={cn(
+                tab,
+                onDocs
+                  ? "border-ink font-medium text-ink"
+                  : "border-transparent text-ink-subtle hover:text-ink",
+              )}
+            >
+              Docs
+            </Link>
             <Link
               href="/rates"
               className={cn(
