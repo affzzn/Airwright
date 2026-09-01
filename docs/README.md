@@ -17,7 +17,10 @@ Read these in order before making changes.
 | 11 | [Take-off engine spec](./11-takeoff-engine-spec.md) | **Canonical take-off spec** — post-Colin rules, extractor field set, validation set, open questions |
 | 12 | [Extraction prompt reference](./12-extraction-prompt-reference.md) | What we send the model (mechanics + verbatim prompt) |
 | 13 | [Extraction playbook](./13-extraction-playbook.md) | **How the model reads each measurement** — the single source the prompt is generated from |
-| 14 | [Pricing & quote](./14-pricing-and-quote.md) | **The priced side (BUILT)** — pricing engine, matrix, immutable quote, outputs |
+| 14 | [Pricing & quote](./14-pricing-and-quote.md) | The priced side (BUILT) — pricing engine, matrix, immutable quote, outputs |
+| 15 | [Pricing spec](./15-pricing-spec.md) | **Canonical pricing spec** — Colin's real matrix decoded (per-lift, per-floor birdcage, stage splits, garages, Traditional vs Timber-Frame) |
+| 16 | [Pricing-engine buildout](./16-pricing-engine-buildout.md) | Track 2 — structural pricing fixes + the client-matrix Excel export |
+| 17 | [Smart upload & grouping](./17-smart-upload-and-grouping.md) | **Canonical ingest spec** — upload any pack shape (folder tree of loose PDFs), group pages into house types (per-builder profile + LLM assist), assemble one combined PDF per type |
 | — | [Call checklist](./Airwright-Estimator-Build-Checklist_from_call.docx) | The 13 Aug Colin/Ben call digest (16 sections + open-rules table) |
 
 (Docs 09/10 were pre-call drafts and were deleted — superseded by 11 + the checklist.)
@@ -28,8 +31,8 @@ Read these in order before making changes.
 (Opus, prompt `2026-08-20.3`) → editable review with provenance page links →
 **confirm/lock** → per-plot **pricing matrix** → **immutable quote** → Excel/print
 outputs. Take-off engine matches Colin's handwritten sheets (Dekker 20.56/10.66;
-Rosewood 48.5 exact). **Runs on placeholder rates** — Colin's rate sheet + the 16 open
-questions are the one thing gating correct pricing. See [`PROGRESS.md`](../PROGRESS.md),
+Rosewood 48.5 exact; Byron/Kilburn birdcage per-house). **Runs on placeholder rates** —
+**Colin's rate sheet is the one thing gating correct pricing.** See [`PROGRESS.md`](../PROGRESS.md),
 [doc 13](./13-extraction-playbook.md), [doc 14](./14-pricing-and-quote.md).
 
 ## The golden rule

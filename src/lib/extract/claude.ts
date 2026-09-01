@@ -82,3 +82,53 @@ export async function runToolExtraction(opts: {
 
   return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd };
 }
+
+/**
+ * Text-only tool-use call (no PDF) — used by the AI grouping structure pass
+ * (docs/17 §4): forces a single tool call for structured JSON over a text
+ * manifest. `model` defaults to the extraction model.
+ */
+export async function runToolText(opts: {
+  system: string;
+  userText: string;
+  toolName: string;
+  toolDescription: string;
+  inputSchema: Anthropic.Tool.InputSchema;
+  model?: string;
+  maxTokens?: number;
+}): Promise<ToolRunResult> {
+  const client = new Anthropic({ apiKey: env.anthropicApiKey });
+  const model = opts.model ?? env.extractionModel;
+  const started = Date.now();
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: opts.maxTokens ?? 4096,
+    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+    tools: [
+      {
+        name: opts.toolName,
+        description: opts.toolDescription,
+        input_schema: opts.inputSchema,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    tool_choice: { type: "tool", name: opts.toolName },
+    messages: [{ role: "user", content: [{ type: "text", text: opts.userText }] }],
+  });
+
+  const latencyMs = Date.now() - started;
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock =>
+      block.type === "tool_use" && block.name === opts.toolName,
+  );
+  if (!toolUse) throw new Error(`Claude did not return a tool_use block for ${opts.toolName}.`);
+
+  const inputTokens = response.usage.input_tokens;
+  const outputTokens = response.usage.output_tokens;
+  const costUsd =
+    (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK +
+    (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK;
+
+  return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd };
+}

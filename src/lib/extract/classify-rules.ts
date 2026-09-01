@@ -44,6 +44,22 @@ export const SITE_LAYOUT_TERMS = [
 
 /** Title keywords for sheets a take-off does NOT need → OTHER. */
 export const EXCLUSION_TERMS = [
+  // Non-drawing sheets bound INSIDE a combined working-drawings PDF (index /
+  // notes / registers / key & location plans / street scenes) — carry no take-off
+  // measurement, so they must not be tagged relevant.
+  "INDEX",
+  "CONTENTS",
+  "DRAWINGREGISTER",
+  "DRAWINGSCHEDULE",
+  "DRAWINGINDEX",
+  "REVISIONSCHEDULE",
+  "REVISIONHISTORY",
+  "GENERALNOTES",
+  "KEYPLAN",
+  "LOCATIONPLAN",
+  "STREETSCENE",
+  "STREETSCAPE",
+  // Irrelevant disciplines.
   "CUSTOMEROPTION",
   "SWIFTBRICK",
   "ELECTRICAL",
@@ -144,6 +160,9 @@ export function classifyTitle(titleRaw: string): PageKind {
 
   // Site / plot layouts are NOT used (see SITE_LAYOUT_TERMS) → OTHER.
   if (SITE_LAYOUT_TERMS.some((t) => title.includes(t))) return "OTHER";
+
+  // A bare "NOTES" sheet (exact match, so it can't be a substring term).
+  if (title === "NOTES") return "OTHER";
 
   // Exclusions — sheets a take-off does NOT need.
   for (const t of EXCLUSION_TERMS) if (title.includes(t)) return "OTHER";
