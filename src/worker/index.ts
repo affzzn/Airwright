@@ -36,9 +36,23 @@ async function handleExtract(raw: ExtractDrawingJob) {
 
   const extraction = await prisma.extraction.findUnique({
     where: { id: extractionId },
-    include: { document: { include: { pack: { select: { projectId: true } } } } },
+    include: {
+      document: {
+        include: {
+          pack: {
+            select: {
+              projectId: true,
+              project: { select: { extractionModel: true } },
+            },
+          },
+        },
+      },
+    },
   });
   if (!extraction) throw new Error(`Extraction ${extractionId} not found`);
+
+  // Which LLM reads this project's drawings (null → default: Anthropic Opus 4.8).
+  const modelKey = extraction.document.pack.project?.extractionModel ?? null;
 
   // If a previous attempt already got a valid result out of Claude but died
   // persisting it (or is being retried), reuse the stored rawOutput instead of
@@ -92,7 +106,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
       `[worker] extraction ${extractionId}: ${pageNumbers.length} pages (${pageRange ?? "all"})`,
     );
 
-    const { data, meta, dimensions } = await extractDrawing(pdf);
+    const { data, meta, dimensions } = await extractDrawing(pdf, modelKey);
 
     await prisma.extraction.update({
       where: { id: extractionId },

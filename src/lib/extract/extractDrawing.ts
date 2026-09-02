@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { extractionResultSchema, type ExtractionResult } from "./schema";
 import { PROMPT_VERSION, SYSTEM_PROMPT, USER_INSTRUCTION } from "./prompt";
-import { runToolExtraction } from "./claude";
+import { runExtraction } from "./providers";
 import { EXTRACTION_MAX_TOKENS } from "./config";
 import { extractDimensionsByPage } from "./classify";
 import { buildDimensionHint, type PageDims } from "./dimensions";
@@ -30,21 +30,28 @@ export interface ExtractDrawingResult {
   };
 }
 
-/** Extract the scaffold take-off from a drawing PDF (Claude tool-use + Zod). */
-export async function extractDrawing(pdf: Buffer): Promise<ExtractDrawingResult> {
+/**
+ * Extract the scaffold take-off from a drawing PDF (tool-use / JSON mode + Zod).
+ * `modelKey` selects the provider (from the project); null → the default
+ * (Anthropic Opus 4.8), so existing behaviour is unchanged.
+ */
+export async function extractDrawing(
+  pdf: Buffer,
+  modelKey?: string | null,
+): Promise<ExtractDrawingResult> {
   // Read the exact printed dimension strings off the PDF text layer and feed them
   // to the model as a per-page candidate list, so it snaps to real digits rather
   // than re-reading them off the linework. Empty (no hint) for a scanned PDF.
   const dimensions = await extractDimensionsByPage(pdf).catch(() => [] as PageDims[]);
   const userText = USER_INSTRUCTION + buildDimensionHint(dimensions);
 
-  const res = await runToolExtraction({
+  const res = await runExtraction(modelKey, {
     pdf,
     system: SYSTEM_PROMPT,
     userText,
     toolName: TOOL_NAME,
     toolDescription: "Record the extracted scaffold take-off measurements.",
-    inputSchema: toolInputSchema,
+    inputSchema: toolInputSchema as unknown as Record<string, unknown>,
     maxTokens: EXTRACTION_MAX_TOKENS, // richer field set; large blocks (3-storey, many elevations/floors) can be verbose
   });
 
