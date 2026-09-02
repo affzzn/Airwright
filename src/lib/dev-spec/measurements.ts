@@ -41,10 +41,10 @@ export const MEASUREMENTS: Measurement[] = [
     whereRead: ["Floor plans", "Title sheet"],
     layer: "both",
     howRead:
-      "Two mirrored dwellings sharing a party gable → PAIR_SEMI, dwellingsWide=2; three joined → THREE_BLOCK, dwellingsWide=3; four or more → TERRACE, dwellingsWide=4+ ('terrace' is reserved for 4+); flats with a communal entrance → APARTMENT_BLOCK, dwellingsWide=1; a free-standing house → DETACHED, dwellingsWide=1. Report front/rear as the FULL printed frontage spanning all dwellings — do NOT pre-divide. Gable-end walls are per-house depth, never divided.",
-    derivation: "The engine divides the front/rear frontage by dwellingsWide to get one house.",
+      "Two mirrored dwellings sharing a party gable → PAIR_SEMI, dwellingsWide=2; three joined → THREE_BLOCK, dwellingsWide=3; four or more → TERRACE, dwellingsWide=4+ ('terrace' is reserved for 4+); flats with a communal entrance → APARTMENT_BLOCK, dwellingsWide=1; a free-standing house → DETACHED, dwellingsWide=1. Report front/rear as the FULL printed frontage spanning all dwellings — do NOT pre-divide. Gable-end walls are per-house depth, never divided. PER-HOUSE vs PER-PAIR: the frontage is shared (engine ÷ dwellings) but the BIRDCAGE width is ONE house's internal width (a single [wall|span|wall] span, else the summed run to the party wall, cross-checked by (frontage − (n+1)×wall)÷n) — never the full pair frontage.",
+    derivation: "The engine divides the front/rear frontage by dwellingsWide to get one house; the birdcage is per house (not divided).",
     confidenceRule: "The model's read confidence.",
-    crossChecks: ["c3"],
+    crossChecks: ["c3", "c13"],
     status: "confirmed",
     codeRefs: ["src/lib/extract/schema.ts", "src/lib/takeoff/engine.ts", "src/lib/extract/persist.ts"],
     relatedTerms: ["structure", "dwellings-wide", "party-wall"],
@@ -112,6 +112,26 @@ export const MEASUREMENTS: Measurement[] = [
       "persist sums the per-face apexCount into GABLE_QTY (= table-lift qty = apex-handrail qty). The engine reduces the total by configuration: front/rear apexes always count; detached keeps both gables; semi/end keeps one exposed gable; mid-terrace keeps none. Each apex → one table lift + one handrail.",
     confidenceRule:
       "Worst of the per-face read confidences. A face marked HIPPED but reporting an apex is flagged; a hipped overall roof forces GABLE_QTY = 0.",
+    tables: [
+      {
+        caption: "Per face: does it carry an apex?",
+        head: ["Face", "Apex?"],
+        rows: [
+          ["Gabled face (brickwork rises to a point)", "1"],
+          ["Hipped face (slopes back, no brickwork above eaves)", "0"],
+          ["Projecting front / rear gable", "1 (often missed — check)"],
+        ],
+      },
+      {
+        caption: "Engine reduction by configuration (gable apexes; front/rear always count)",
+        head: ["Config", "Gable apexes kept"],
+        rows: [
+          ["Detached / apartment block", "both gables"],
+          ["Semi / end-terrace", "one exposed gable (party side dropped)"],
+          ["Mid-terrace", "none (both gables are party walls)"],
+        ],
+      },
+    ],
     crossChecks: ["c7", "apexContradiction", "a2"],
     workedExample: "Dekker (pitched semi): front HIPPED 0, rear 0, left GABLED 1, right GABLED 1 → total 2.",
     status: "confirmed",
@@ -165,10 +185,54 @@ export const MEASUREMENTS: Measurement[] = [
     whereRead: ["Ground-floor / setting-out plan"],
     layer: "both",
     howRead:
-      "A roughly rectangular house = 4 corners (bounding rectangle), even with a small step/recess/bay/porch. Count MORE than 4 only for a distinct L/T/U (an L-shape has 6). Count OUTWARD (external) returns only. Unsure → use 4.",
+      "External (outward) corners = 4 + (number of reentrant/step corners). A plain rectangle = 4; a single wall-line step (or an L) → 5; a T/U → 6. Identify a step by comparing the depth left-vs-right and the width top-vs-bottom: equal → rectangle, differ → a step. Count outward corners only (not reentrant ones). Exclude bays, porches (low-level), chimney breasts, and construction offsets (~75mm render stops, ~100mm brick returns). The model also writes cornerReason. Chamfers (45° diagonal walls) are flagged.",
     derivation:
       "The engine adds the corner allowance = 1 m per external corner, and reduces the count by config on non-detached shapes (semi/end: max(2, corners−2); mid: max(0, corners−4)).",
+    steps: [
+      {
+        title: "Is it a rectangle?",
+        detail:
+          "Compare the depth left-vs-right and the width top-vs-bottom. Equal on both → a plain rectangle → 4 corners.",
+      },
+      {
+        title: "Count = 4 + steps",
+        detail:
+          "Each place the wall line steps IN (a reentrant corner) adds one external corner. One step or an L → 5; a T/U → 6.",
+      },
+      {
+        title: "Exclude non-corners",
+        detail:
+          "Bays, porches (low-level items), chimney breasts, and construction offsets (~75mm render stop, ~100mm brick return) are not corners. A 45° chamfer is flagged.",
+      },
+      {
+        title: "Engine applies + reduces",
+        detail:
+          "+1 m per external corner, then drops the party-side corners by config (semi/end −2, mid −4).",
+      },
+    ],
+    tables: [
+      {
+        caption: "Footprint → external corners",
+        head: ["Footprint", "External corners"],
+        rows: [
+          ["Plain rectangle", "4"],
+          ["One step / an L", "5"],
+          ["T or U", "6"],
+          ["Hallam (front step)", "5"],
+        ],
+      },
+      {
+        caption: "Engine reduction by configuration (from the reported count)",
+        head: ["Config", "Corners used"],
+        rows: [
+          ["Detached / apartment block", "cornerCount (as read)"],
+          ["Semi / end-terrace", "max(2, cornerCount − 2)"],
+          ["Mid-terrace", "max(0, cornerCount − 4)"],
+        ],
+      },
+    ],
     status: "confirmed",
+    crossChecks: ["c12"],
     codeRefs: ["src/lib/extract/schema.ts", "src/lib/takeoff/engine.ts"],
     relatedTerms: ["corner", "perimeter"],
   },
@@ -180,20 +244,95 @@ export const MEASUREMENTS: Measurement[] = [
     whereRead: ["Setting-out plan (preferred)", "Floor plans"],
     layer: "both",
     howRead:
-      "REPORT NUMBERS ONLY — no arithmetic, and NO stated/printed floor area (it is not used). Per floor report the raw internal footprint as rectangles — a directly-printed internal span (preferred), else the overall external dimension + the STRUCTURAL wall thickness per side. Per HOUSE — do NOT divide by dwellings.",
+      "REPORT NUMBERS ONLY — no arithmetic, and NO stated/printed floor area (it is not used). Per floor report the raw internal footprint as rectangles — a directly-printed internal span (preferred), else the overall external dimension + the STRUCTURAL wall thickness per side. Per HOUSE — do NOT divide by dwellings. On a PAIR/TERRACE the width is ONE house (single span, else the summed run to the party wall — SM1: 5512+327+1034=6873; cross-check (frontage−(n+1)×wall)÷n), NEVER the full pair frontage. STEPPED / L / T / U floor (depth differs left-vs-right, or width top-vs-bottom): SPLIT into several rectangles that tile the floor, each with its OWN internal width & depth; check the widths sum to the overall internal width and the depths differ by the step. A single bounding rectangle over-reads.",
     derivation:
-      "birdcage.ts does all geometry purely from the dimensions: per axis, width = internalWidthM ?? (overallWidthM − wallLeft − wallRight); depth likewise; each side subtracted SEPARATELY (never 2×wall); area = Σ(width × depth). There is NO default wall — an overall with no wall (plan or legend) leaves the axis UNRESOLVED and flagged.",
+      "birdcage.ts does all geometry purely from the dimensions: per axis, width = internalWidthM ?? (overallWidthM − wallLeft − wallRight); depth likewise; each side subtracted SEPARATELY (never 2×wall); area = Σ(width × depth) over ALL the floor's rectangles (so a stepped floor's tiles sum). There is NO default wall — an overall with no wall (plan or legend) leaves the axis UNRESOLVED and flagged.",
     formula:
       "width = internalWidthM ?? (overallWidthM − wallLeft − wallRight)   [per house]\ndepth = internalDepthM ?? (overallDepthM − wallFront − wallRear)\narea  = Σ(width × depth)",
+    steps: [
+      {
+        title: "Per house, not per pair",
+        detail:
+          "On a pair/terrace report ONE house. The frontage (front/rear) is shared — the engine divides it by dwellingsWide — but the birdcage width and depth are one house's, never divided.",
+      },
+      {
+        title: "Get one house's width",
+        detail:
+          "Read a single printed internal span if there is one; else sum that house's run of internal segments up to the party wall; then cross-check with (overall frontage − (dwellings+1)×wall) ÷ dwellings.",
+      },
+      {
+        title: "Is the floor a plain rectangle?",
+        detail:
+          "Compare the internal depth left-vs-right and the width top-vs-bottom. Equal → one rectangle. A difference means the wall line STEPS.",
+      },
+      {
+        title: "Split a stepped / L / T / U floor",
+        detail:
+          "Tile it into rectangles, each with its OWN internal width and depth. Two checks: the tile widths sum to the overall internal width; the depths differ by exactly the step.",
+      },
+      {
+        title: "Report dimensions only",
+        detail:
+          "Internal span preferred, else the overall external dimension + the STRUCTURAL wall thickness per side. No stated/printed area is used; the model does no arithmetic.",
+      },
+      {
+        title: "Engine computes + scores",
+        detail:
+          "birdcage.ts strips each wall side separately (never 2×wall), multiplies width×depth, sums the tiles, and sets a computed confidence.",
+      },
+    ],
+    tables: [
+      {
+        caption: "Reading ONE house's WIDTH on a pair/terrace (best method first)",
+        head: ["Method", "When", "Example"],
+        rows: [
+          ["Single internal span", "one house's width printed as [wall | span | wall]", "Kilburn 4800; Sinclair 4250"],
+          ["Sum the run", "shared central core — no single span", "SM1: 5512 + 327 + 1034 = 6873"],
+          ["Strip & divide (cross-check)", "always, to confirm the read", "(overall − (n+1)×wall) ÷ n — SM1 (14727 − 3×327)/2 = 6873"],
+        ],
+      },
+      {
+        caption: "Per-house vs per-pair — which number goes where",
+        head: ["Field", "Number to use", "Divided?"],
+        rows: [
+          ["Front / rear walls", "full pair frontage (10506 / 9406 / 14727)", "engine ÷ dwellings"],
+          ["Gable walls (depth)", "one house's depth", "no"],
+          ["Birdcage width", "one house (≈ frontage ÷ dwellings)", "no"],
+          ["Birdcage depth", "one house (gable − 2 walls)", "no"],
+        ],
+      },
+      {
+        caption: "Confidence (computed by the engine)",
+        head: ["Situation", "Stored area", "Confidence"],
+        rows: [
+          ["Internal span + overall−walls agree (≤5%)", "internal footprint", "high"],
+          ["…agree, but a wall was assumed symmetric", "internal footprint", "medium"],
+          ["…disagree (>5%)", "internal (kept)", "low + flag"],
+          ["Bare footprint, structural wall, no cross-check", "derived", "medium"],
+          ["Bare footprint, legend wall / assumed-symmetric", "derived", "low"],
+          ["An overall with no wall to strip", "— (unresolved)", "unknown + flag"],
+        ],
+      },
+      {
+        caption: "Worked examples (birdcage per house, per floor)",
+        head: ["House", "Footprint", "Calculation", "Tiles"],
+        rows: [
+          ["Hallam", "detached, stepped front", "3.211×8.599 + 3.041×7.924 = 51.71 m²", "2 (split)"],
+          ["Kilburn", "semi, plain", "4.800 × (9.144 − walls) = 40.99 m²", "1"],
+          ["Sinclair", "semi, plain", "4.250 × 8.153 = 34.65 m²", "1"],
+          ["SM1", "semi, shared core", "6.873 × (8.428 − walls) = 53.4 m²", "1"],
+        ],
+      },
+    ],
     fallbacks: [
       "The stored value is always the derived footprint — internal span preferred, else overall − walls. No stated area or NDSS is used.",
       "Wall per axis: two printed per-side values → else one side (assume symmetric + flag) → else uniform wallThicknessMm → else the finished-face WALL LEGEND value (flagged) → else UNRESOLVED. No hard-coded default.",
     ],
     confidenceRule:
       "COMPUTED. When a printed internal span AND an overall−walls derivation both exist: agree within 5% → high (medium if a wall was assumed symmetric); diverge → low + flag. Otherwise (bare footprint): structural wall → medium; legend / assumed-symmetric → low. No wall to resolve → unknown, flagged for a human.",
-    crossChecks: ["c11", "dimVerify"],
+    crossChecks: ["c11", "c12", "c13", "dimVerify"],
     workedExample:
-      "Dekker GF: rectangle { internalWidthM 4.877, overallDepthM 7.904, wallThicknessMm 302 }. Engine: depth = 7.904 − 0.302 − 0.302 = 7.300; area = 4.877 × 7.300 = 35.60 → store 35.60. GF + FF = 71.2 m².",
+      "Hallam GF (stepped front): deep column 3.211 × 8.599 + shallow column 3.041 × 7.924 = 51.708 m² (checks: 3211+3041 = 6252 internal width; 8599−7924 = 675 step). One bounding 6.252 × 8.599 rectangle would wrongly give 53.76.",
     status: "confirmed",
     owner: "colin",
     codeRefs: ["src/lib/extract/birdcage.ts", "src/lib/extract/persist.ts"],

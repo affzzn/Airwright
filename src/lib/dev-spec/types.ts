@@ -52,6 +52,10 @@ export interface Measurement {
   fallbacks?: string[];
   /** How the confidence is decided. */
   confidenceRule?: string;
+  /** An ordered decision procedure the model/engine follows, shown as numbered cards. */
+  steps?: { title: string; detail: string }[];
+  /** Small labelled tables (cases / ladders / worked examples), rendered visually. */
+  tables?: { caption?: string; head: string[]; rows: string[][] }[];
   /** Cross-check ids (into CROSS_CHECKS). */
   crossChecks?: string[];
   workedExample?: string;

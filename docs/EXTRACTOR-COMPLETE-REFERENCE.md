@@ -10,7 +10,7 @@ document to understand a concept. Where it names a source file, that is only so
 you can find the code; the *content* is here. It is written to be read by a new
 engineer, by the estimator, and by the model's maintainers alike.
 
-- **Prompt version at time of writing:** `2026-08-26.2`
+- **Prompt version at time of writing:** `2026-09-02.2`
 - **Model:** `claude-opus-4-8` (via the `ANTHROPIC_EXTRACTION_MODEL` env var)
 - **Ground truth:** the code always wins over prose. The relevant files are
   `src/lib/extract/*` (prompt, schema, classification, birdcage, height,
@@ -248,7 +248,7 @@ The precise meaning of every term used in an Airwright take-off. Grounded in the
 |---|---|
 | **Perimeter** [computes] | The total run of external scaffold **for one lift**, built from the individual wall lengths the configuration scaffolds **plus a corner allowance**. The AI reports each wall separately; the engine sums them. It repeats at every lift. |
 | **Wall segment** [reads] | One external wall length, off the building line, tagged **front / rear / gable_left / gable_right** (or `other`). Front/rear are the eaves faces (street/garden frontages); gable_left/right are the two side/end walls that carry the apex and become party walls in a terrace. |
-| **Corner / return** [reads] | An external corner of the footprint. Scaffold must wrap past it, so Airwright adds an allowance. **Count external returns only.** Allowance = **1 m per external corner.** ✅ |
+| **Corner / return** [reads] | An external (outward) corner of the footprint. Scaffold must wrap past it, so Airwright adds an allowance. **External corners = 4 + one per reentrant/step corner** (rectangle = 4; step/L → 5). **Count external returns only.** Allowance = **1 m per external corner.** ✅ |
 | **Number of lifts** [computes] | `ceil(height ÷ 1.5) + 1 if room-in-roof`, cross-checked against the storey template. The AI supplies only the **height** and **storeys**; the engine computes the count. **Datum = soffit / underside of wallplate.** ✅ |
 | **Height to soffit** [reads] | The vertical height from ground to the **soffit / underside of wallplate** — the top of the wall the scaffold reaches. Read from a vertical dimension (e.g. `U/S Wallplate 4725` = 4.725 m). This is the number the lift count divides. **Triangulated** against the section's storey heights. |
 | **Storey template** | Rule-of-thumb lift counts, a **cross-check** on the height rule: garage/bungalow **2**, two-storey **4** (Barratt variant **3**), 2.5-storey **5**, three-storey **6**, four-storey **8**. ✅ **Builder-specific.** Disagreement with the height rule is flagged. |
@@ -522,7 +522,7 @@ no text layer produces an empty hint (nothing is appended).
 ## 3.3 The system prompt — verbatim, then explained
 
 The system prompt is fixed across every call (`SYSTEM_PROMPT` in `prompt.ts`,
-`PROMPT_VERSION = "2026-08-26.2"`). It is reproduced **in full** here so this
+`PROMPT_VERSION = "2026-09-02.2"`). It is reproduced **in full** here so this
 document is self-contained, followed by a section-by-section explanation.
 
 ### 3.3.1 The verbatim system prompt
@@ -590,10 +590,12 @@ PERIMETER (wall segments)
 - Report EACH external wall length separately, tagged with its role (front / rear / gable_left / gable_right) and its printed dimension string. Do NOT sum them into a single perimeter, and do NOT add any corner allowance — that is applied downstream.
 - SOURCE — read wall lengths off the FLOOR PLAN / SETTING-OUT PLAN, from a PRINTED dimension: never off an elevation, and never by scaling the drawing. The wall length is the BUILDING LINE (the brickwork line), which sits INSIDE the roof overhang — the roof projects past the wall by ~200-400 mm each side, so an elevation's overall width/depth OVER-reads the wall. Front/rear come from the plan frontage; a gable/side length is the plan DEPTH (not the elevation's overall). Cite the floor-plan page in sourcePage. If the ONLY legible dimension is the roof/overhang line, read it, set that wall to LOW confidence, and say so in notes — never subtract an overhang yourself.
 - Also report the number of EXTERNAL corners / returns on the scaffolded footprint (ground-floor / setting-out plan). Follow this EXACT rule so the count is repeatable run to run:
-  · A roughly rectangular house = 4 corners, EVEN IF it has a small step, recess, bay or porch — take the bounding rectangle. (Bays and porches are counted separately as low-level items, never as corners.)
-  · Count MORE than 4 ONLY when the footprint is a distinct L, T or U shape — a whole wing / leg of the building projects out (not a minor step). Then count every OUTWARD (external) return: an L-shape has 6.
-  · Count OUTWARD (external) returns only — never internal corners. When you are genuinely unsure whether a projection is "distinct" or "minor", use 4.
-  · Only for a genuine L / T / U footprint: also list its extra walls in wallSegments, and split the birdcage into separate rectangles (see BIRDCAGE).
+  · An EXTERNAL corner points OUTWARD. A plain rectangle has EXACTLY 4. A corner where the wall steps INWARD (reentrant) is NOT counted but signals the shape is not a rectangle.
+  · IS IT A RECTANGLE? Compare the DEPTH left-vs-right and the WIDTH top-vs-bottom. Equal → 4. A difference means a STEP → not a rectangle.
+  · cornerCount = 4 + (number of reentrant/step corners). One step or an L → 5; a T/U → 6. State the shape in cornerReason.
+  · A STEP is a real change in the building line (a few hundred mm+); NOT a bay/porch (low-level), a chimney breast, or a construction offset (~75mm render stop, ~100mm brick return). A 45deg CHAMFER (diagonal wall) is noted + flagged.
+  · WORKED EXAMPLE (Hallam): left depth 9203, right depth 8528 (differ 675) -> one front step -> cornerCount = 5.
+  · CONSISTENCY: cornerCount > 4 means the birdcage MUST be split into rectangles (see BIRDCAGE) — the two go together.
 
 STOREYS AND ROOM-IN-ROOF
 - Report the storeys (1, 2, 2.5, 3). A 2.5-storey has a habitable ROOM IN THE ROOF — signalled by dormers, roof/velux windows, or a raised eaves with living space above. Set roomInRoof accordingly; it adds a lift and a birdcage floor downstream.
@@ -613,24 +615,27 @@ ROOF, APEXES, RENDER (read per elevation)
 BIRDCAGE (internal floor area per floor — REPORT NUMBERS, DO NOT CALCULATE)
 - The birdcage is the INTERNAL floor area, inside the external walls (m²), one per floor. NEVER use the external footprint — it is bigger and over-reads.
 - CRITICAL: you do NOT multiply, subtract, or divide for the birdcage. You only REPORT the printed numbers you can see. The engine does every calculation and reconciles them. Reporting a raw printed number you can point to is reliable; doing arithmetic in your head is not.
-- ONE HOUSE ONLY (pairs & terraces): the birdcage is measured PER HOUSE. Report the footprint of a SINGLE house — the SETTING OUT PLAN shows one house (e.g. 302 | 4800 | 302). Do NOT report the combined pair/terrace width here, and do NOT halve anything. (This is the OPPOSITE of the wall segments, where front/rear span the whole frontage — the birdcage does not.)
+- ONE HOUSE ONLY (pairs & terraces) — PER-HOUSE vs PER-PAIR: the birdcage is per house, but the dwellings share the FRONTAGE. DEPTH (gable direction) is per house → read whole. WIDTH (frontage direction) is shared → report ONE house's width, not the pair frontage. Get one house's width by: (1) a single marked internal span if printed (302 | 4250 | 302 → 4250); else (2) SUM that house's run of internal segments to the party wall (SM1: 5512+327+1034 = 6873); and (3) CROSS-CHECK (pair overall − (dwellings+1)×wall) ÷ dwellings = (overall − 3×wall)/2 for a pair. THE TWO-NUMBERS TRAP: the drawing shows BOTH the pair frontage (e.g. 14727) AND one house's width (e.g. 6873) — pair frontage → front/rear walls (engine divides); one house → birdcage. Never put the pair frontage into the birdcage; never halve anything yourself. A pair is two mirror replicas — report one house.
 - IDENTIFY EACH NUMBER BY ITS MARK — a floor plan dimensions the same wall in several ways; read the right one:
   · OVERALL EXTERNAL = the OUTERMOST dimension line, tick-to-tick at the outer brick faces (the largest number for that axis, e.g. 5942).
   · INTERNAL span = an inner dimension line reading [wall | span | wall] — the two small end numbers plus the span add up to the overall. The MIDDLE number is the internal dimension (e.g. 328 | 5287 | 328 → internal = 5287). **This is the number to prefer — always look for it and read it directly.**
   · STRUCTURAL wall thickness = those short end segments across the hatched external wall (e.g. 328, 302, 392). This value is DIFFERENT on every drawing — read it off THIS drawing, never assume. The two ends are often equal but CAN DIFFER (a party wall vs an external gable; a rendered face vs a brick face), so read EACH side.
   · LEGEND wall thickness = the "…MM THICK CAVITY WALL" value in the WALL LEGEND text box (e.g. 353). This is the bigger, FINISHED-face thickness — report it in legendWallThicknessMm as a FALLBACK only.
   · IGNORE the room/partition subdivision chain — numbers that sum to the overall but are NOT flanked by wall zones (e.g. 778 · 1585 · 1217 · 1248 · 1115). Those are partition positions, not the birdcage.
+- DO NOT report any stated/printed floor area (no GROSS INTERNAL / masonry, no NDSS). Those are NOT used — the birdcage is derived purely from the dimensions.
 - For EACH floor, report:
-  3. rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). Apply this LADDER to EACH axis (width, then depth) independently, leaving the fields you don't use null:
+  - rectangles — the internal footprint as raw dimensions (one rectangle for a plain floor; several for an L-shaped / stepped floor). Apply this LADDER to EACH axis (width, then depth) independently, leaving the fields you don't use null:
      · PRIORITY 1 — if the INTERNAL span is printed anywhere on the plan (the MIDDLE number of [wall|span|wall]), report internalWidthM / internalDepthM. This is by far the best; do NOT skip it and derive if the internal number is actually printed.
      · PRIORITY 2 — only if no internal span is printed for that axis: report the OVERALL external dimension (overallWidthM / overallDepthM) AND the STRUCTURAL wall thickness on EACH side of that axis — wallWidthLeftMm / wallWidthRightMm for width, wallDepthFrontMm / wallDepthRearMm for depth. If every external wall on the plan is the same thickness you may instead give the single wallThicknessMm; if the two sides DIFFER, give the per-side values. The engine subtracts each side (it does NOT assume 2× one wall).
      · Whenever the plan does NOT dimension the structural wall at all, ALSO report legendWallThicknessMm (the WALL LEGEND value) as the fallback.
      · ALWAYS report the OVERALL dimension and the wall thickness when they are visible, EVEN IF you also read the internal span — the engine cross-checks internal ≈ (overall − walls) to raise the confidence.
-- L-SHAPED / STEPPED FOOTPRINT (important): if the floor is NOT a plain rectangle — it has a step, a projection, or an L/T shape (a tell: MORE than 4 external corners) — do NOT report one big bounding rectangle (that over-reads the area). Split the footprint into the SEVERAL plain rectangles that make it up and report EACH as its own entry in rectangles; the engine sums them. Only a genuinely rectangular floor is a single rectangle.
+- IS THE FLOOR A PLAIN RECTANGLE? Compare the internal DEPTH left-vs-right and WIDTH top-vs-bottom. Equal → one rectangle. A difference = a STEP → you MUST split it (a bounding rectangle over-reads).
+- SPLIT a stepped / L / T / U floor into rectangles that tile it, each with its OWN internal width & depth (a span may be a run of adjacent internal segments summed). TWO CHECKS: tile widths SUM to the overall internal width; tile depths differ by exactly the step. Same feature as cornerCount > 4.
+- WORKED EXAMPLE C (Hallam, stepped front): left internal depth 3812+100+4687 = 8599; right 3162+100+1327+100+1595+100+1540 = 7924 (step 675). Internal width 6252 splits into deep 3211 + shallow (113+1011+552+630+735=)3041 (check 3211+3041=6252). rectangles = [{internalWidthM 3.211, internalDepthM 8.599}, {internalWidthM 3.041, internalDepthM 7.924}] → engine sums 51.708 m² (one 6.252x8.599 rectangle would wrongly give 53.76).
 - WORKED EXAMPLE A (Whitton, Miller, ground floor): the width line reads 5942 overall and the inner line reads 328 | 5287 | 328; the depth reads 9103 overall with 328 wall zones both ends; the WALL LEGEND says "353MM THICK CAVITY WALL".
     → rectangles = [{ internalWidthM: 5.287, internalDepthM: null, overallWidthM: 5.942, overallDepthM: 9.103, wallDepthFrontMm: 328, wallDepthRearMm: 328, wallThicknessMm: 328, legendWallThicknessMm: 353 }].
     (internalWidthM 5287 is read DIRECTLY — priority 1; depth has no printed internal, so the engine derives 9103 − 328 − 328. Report the numbers and STOP.)
-- WORKED EXAMPLE B (Dekker, NSS, semi-detached pair): Setting Out Plan prints "35.60m² (BEAM & BLOCK)"; floor plan schedule prints "35.00m²"; the internal width of one house reads 4877; the overall depth reads 7904; the plan wall zones read 302 both ends; there is NO wall legend.
+- WORKED EXAMPLE B (Dekker, NSS, semi-detached pair): the internal width of ONE house reads 4877; the overall depth reads 7904; the plan wall zones read 302 both ends; there is NO wall legend. (Ignore any stated 35.60m²/35.00m² areas — not used.)
       rectangles = [{ internalWidthM: 4.877, internalDepthM: null, overallDepthM: 7.904, wallThicknessMm: 302, legendWallThicknessMm: null }].
     Report those numbers and STOP. Note the wall is 302 here, not 328 — it is per-drawing.
 - ASYMMETRIC WALLS EXAMPLE (an end-of-terrace whose gable dimension line reads 328 | 4600 | 215 — an external gable one side, a party wall the other): report internalWidthM: 4.6 if that middle span is printed; otherwise overallWidthM plus wallWidthLeftMm: 328 and wallWidthRightMm: 215 (NOT 2×328).
@@ -695,7 +700,7 @@ You must respond by calling the provided tool with your structured extraction. D
 - **PERIMETER.** Read each wall separately off the *floor plan / setting-out plan*
   building line — the **roof-overhang trap** is spelled out (the roof projects
   ~200–400 mm past the wall, so an elevation over-reads). Plus the **exact,
-  repeatable corner rule** (bounding rectangle = 4; >4 only for a genuine L/T/U).
+  repeatable corner rule** (external corners = 4 + one per step/reentrant corner).
 - **STOREYS AND ROOM-IN-ROOF.** 1/2/2.5/3; room-in-roof adds a lift + a birdcage
   floor.
 - **ROOF, APEXES, RENDER.** The pitched/hipped/mixed definition, what an apex is,
@@ -723,7 +728,7 @@ Extract the scaffold take-off measurements for this house type from the attached
 
 ## 3.5 Versioning and prompt-sync process
 
-`PROMPT_VERSION` (currently `2026-08-26.2`) is bumped whenever the wording
+`PROMPT_VERSION` (currently `2026-09-02.2`) is bumped whenever the wording
 changes, so extractions stay comparable across runs. The authoritative narrative
 source is `docs/13-extraction-playbook.md`; when it changes, the process is:
 (1) update the playbook, (2) re-sync the affected prompt/schema wording,
@@ -864,11 +869,14 @@ confidence · worked examples.**
   a free-standing house → `DETACHED`, `dwellingsWide = 1`. **Report front/rear as the full printed frontage spanning
   all dwellings — do not pre-divide.** Gable-end walls are per-house depth, never
   divided.
+- **Per-house vs per-pair:** the **frontage** (front/rear) is shared → reported whole, engine ÷ `dwellingsWide`. The **gable/depth** and the **birdcage** are per house → the birdcage WIDTH is one dwelling's width (≈ frontage ÷ dwellings), NOT the pair frontage. See §5.11.1a.
 - **Layer:** reads. The engine divides the frontage by `dwellingsWide` (Part 6.3).
 - **Cross-check (C3):** `persist` flags a contradiction — DETACHED/APARTMENT with
   `dwellingsWide ≠ 1`, or PAIR_SEMI/THREE_BLOCK/TERRACE with the wrong count
   (`warnings.structureDwellingsMismatch`) — because this pair drives the frontage
   division, so a contradiction silently mis-prices the perimeter.
+- **Cross-check (C13):** a birdcage rectangle whose width ≈ the full frontage means
+  the whole pair was reported, not one house (`warnings.pairBirdcageWidth`).
 
 ## 5.4 Storeys & room-in-roof
 
@@ -1000,7 +1008,7 @@ confidence · worked examples.**
   3. **Symmetry (C9):** front ≈ rear and gable_left ≈ gable_right; a **> 10 %**
      mismatch flags a likely role-swap/misread (`warnings.wallAsymmetry`),
      especially telling on a pair where front/rear span the same frontage.
-- **Edge cases:** a minor step → bounding rectangle (still 4 corners); a genuine
+- **Edge cases:** a real wall-line step ADDS an external corner and splits the birdcage; a genuine
   L/T/U → list the extra walls as `other` AND split the birdcage into rectangles.
   Do not sum the walls and do not add a corner allowance here.
 
@@ -1008,17 +1016,21 @@ confidence · worked examples.**
 
 - **What:** the number of external corners/returns on the scaffolded footprint.
 - **Where:** the footprint on the ground-floor / setting-out plan.
-- **How (model) — the exact, repeatable rule:**
-  - A roughly rectangular house = **4** corners, even with a small step, recess,
-    bay or porch — take the **bounding rectangle**. (Bays/porches are low-level
-    items, never corners.)
-  - Count **more than 4 only** for a distinct L/T/U (a whole wing projects out):
-    an L-shape has 6. Count **outward (external) returns only**.
-  - When genuinely unsure whether a projection is "distinct" or "minor", use **4**.
+- **How (model) — the identity, not a shape guess (2026-09-02):**
+  - **External corners = 4 + (number of reentrant/step corners).** A plain
+    rectangle = **4**. A single wall-line step (or an L) → **5**; a T/U → **6**.
+    (⚠️ under "external returns only" an L is **5**, not 6.)
+  - **Identify a step numerically:** compare the depth left-vs-right and the width
+    top-vs-bottom — equal → rectangle, differ → a step.
+  - Count **outward (external)** corners only (not reentrant ones). Exclude bays,
+    porches (low-level), chimney breasts, and construction offsets (~75 mm render
+    stop, ~100 mm brick return). A 45° **chamfer** (diagonal wall) is flagged.
+  - The model also writes **`cornerReason`** (the shape + steps).
 - **Layer:** reads. The engine adds the corner allowance = **1 m per external
   corner** ✅ (Part 6.3), and reduces the count by config on non-detached shapes.
-- **Flag:** an L-shaped/stepped footprint on a non-detached config (`cornerCount >
-  4`) is flagged (the corner reduction assumes the step is on the scaffolded side).
+- **C12 cross-check:** `cornerCount > 4` (non-rectangular) must coincide with a
+  **split birdcage** (>1 rectangle on a floor); a mismatch is flagged
+  (`warnings.cornerBirdcageMismatch`).
 
 ## 5.11 Birdcage (internal floor area per floor) — the big one (`birdcage.ts`)
 
@@ -1028,12 +1040,27 @@ because it is derivable from several sources that don't always agree.
 
 ### 5.11.1 The doctrine
 
-The model does **no arithmetic** for the birdcage. It reports the **stated areas**
-and the **raw dimensions**; `birdcage.ts` does the subtraction, the multiply, the
-compound-sum and the reconciliation, and sets a **computed** confidence. **The
+The model does **no arithmetic** for the birdcage, and reports **no stated/printed
+area** (GIA and NDSS were removed 2026-09-01). It reports only the **raw internal
+footprint dimensions**; `birdcage.ts` does the subtraction, the multiply, the
+compound-sum and the cross-check, and sets a **computed** confidence. **The
 birdcage is per-house — it does NOT divide by `dwellingsWide`** (that division is
 the *perimeter's*; the birdcage does not divide, or pairs would read half the
 area — the Byron bug: 19 vs 39.36).
+
+### 5.11.1a Pairs & terraces — per-house WIDTH vs per-pair frontage (2026-09-02)
+
+On a pair/terrace the dwellings sit side by side along the **frontage**, so the two
+axes are read differently:
+- **Depth** (gable / front-to-back) is **per house already** → read it whole, never divided.
+- **Width** (frontage direction) is **shared** → report **one house's** width, never the pair frontage.
+
+Get one house's width by this ladder (best first):
+1. **Single marked internal span** → read it. (Kilburn `302 | 4800 | 302` → 4800; Sinclair → 4250.)
+2. **No single span (shared central core)** → **sum that house's run** of internal segments, gable inner face to party wall. (Type SM1: `5512 body + 327 wall + 1034 core = 6873`.)
+3. **Cross-check:** `(pair overall frontage − (dwellings+1)×wall) ÷ dwellings`. Pair = `(overall − 3×wall) ÷ 2`. (SM1 `(14727−3×327)/2 = 6873` ✓; Kilburn `(10506−3×302)/2 = 4800` ✓; Sinclair `(9406−3×302)/2 = 4250` ✓.)
+
+**The two-numbers trap:** the same drawing shows BOTH the full frontage (10506 / 9406 / 14727) AND one house's width (4800 / 4250 / 6873). Frontage → front/rear wall segments (engine ÷ dwellings); one house's width → the birdcage. Feeding the frontage into the birdcage doubles it to the whole pair (the SM1 over-read: 109 m² instead of ~52). **C13** (`pairBirdcageWidthWarning`) flags a birdcage rectangle whose width is close to the full frontage.
 
 ### 5.11.2 What the model reports, per floor
 
@@ -1812,7 +1839,7 @@ Two things make grouping trustworthy before any money is spent:
 ---
 
 *Ground truth: `src/lib/extract/*` + `src/lib/takeoff/*` at `PROMPT_VERSION
-2026-08-26.2`, model `claude-opus-4-8`. Companion docs: `docs/13` (the playbook the
+2026-09-02.2`, model `claude-opus-4-8`. Companion docs: `docs/13` (the playbook the
 prompt projects), `docs/12` (the live prompt/contract mirror), `docs/11` (rules +
 open questions), `docs/03` (glossary), `docs/17` (smart upload & grouping — Part 14).
 This file is the single self-contained reference; if it and the code disagree, the

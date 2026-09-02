@@ -162,6 +162,61 @@ export function MeasurementCatalogue({
                   </pre>
                 </Field>
               )}
+              {it.steps && it.steps.length > 0 && (
+                <Field label="Step by step">
+                  <ol className="space-y-2">
+                    {it.steps.map((s, i) => (
+                      <li key={i} className="flex gap-3">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline-strong text-[11px] font-medium text-ink-muted">
+                          {i + 1}
+                        </span>
+                        <span>
+                          <span className="font-medium text-ink">{s.title}</span>
+                          {" — "}
+                          {s.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </Field>
+              )}
+              {it.tables?.map((t, ti) => (
+                <Field key={ti} label={t.caption ?? "Cases"}>
+                  <div className="overflow-x-auto rounded-md border border-hairline">
+                    <table className="w-full border-collapse text-[12.5px]">
+                      <thead>
+                        <tr className="bg-surface">
+                          {t.head.map((h, hi) => (
+                            <th
+                              key={hi}
+                              className="border-b border-hairline px-2.5 py-1.5 text-left font-medium text-ink-subtle"
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {t.rows.map((r, ri) => (
+                          <tr key={ri} className="align-top">
+                            {r.map((cell, ci) => (
+                              <td
+                                key={ci}
+                                className={cn(
+                                  "border-b border-hairline px-2.5 py-1.5 text-ink-muted last:border-r-0",
+                                  ci === 0 && "font-medium text-ink",
+                                )}
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Field>
+              ))}
               {it.fallbacks && it.fallbacks.length > 0 && (
                 <Field label="Fallbacks & alternative methods">
                   <ol className="list-decimal space-y-1 pl-5">

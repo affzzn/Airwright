@@ -37,6 +37,48 @@ export function worseConf(a: Conf, b: Conf): Conf {
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
+/**
+ * Per-house birdcage width sanity (C13). On a pair/terrace the FRONTAGE is shared,
+ * so one house's birdcage width should be ≈ frontage ÷ dwellings — NOT the whole
+ * frontage. If the widest reported birdcage rectangle is close to the full pair
+ * frontage, the model grabbed the pair (the shared-frontage over-read). Returns a
+ * one-line warning, or null. All lengths in metres.
+ */
+export function pairBirdcageWidthWarning(
+  dwellingsWide: number | null | undefined,
+  frontFrontageM: number,
+  maxBirdcageWidthM: number,
+): string | null {
+  if (dwellingsWide == null || dwellingsWide < 2) return null;
+  if (frontFrontageM <= 0 || maxBirdcageWidthM <= 0) return null;
+  // A per-house width is ~frontage/dwellings; >0.7× the full frontage means the
+  // whole pair was reported (one house should be at most ~half on a pair).
+  if (maxBirdcageWidthM > 0.7 * frontFrontageM) {
+    const perHouse = round3(frontFrontageM / dwellingsWide);
+    return `a birdcage rectangle is ${round3(maxBirdcageWidthM)} m wide — close to the full ${round3(frontFrontageM)} m frontage across ${dwellingsWide} dwellings. The birdcage is PER HOUSE: report one house's width (≈ ${perHouse} m), not the whole pair/terrace.`;
+  }
+  return null;
+}
+
+/**
+ * Corner ↔ birdcage-shape consistency (C12). A footprint with >4 EXTERNAL corners
+ * is non-rectangular, so at least one floor's birdcage must be split into >1
+ * rectangle — and a split birdcage implies >4 corners. They are the same reentrant
+ * feature, so a mismatch is a model error. Returns a one-line warning, or null.
+ * `maxRects` = the most rectangles reported on any single floor.
+ */
+export function cornerBirdcageWarning(
+  cornerCount: number | null | undefined,
+  maxRects: number,
+): string | null {
+  if (cornerCount == null) return null;
+  if (cornerCount > 4 && maxRects <= 1)
+    return `${cornerCount} external corners but the birdcage is a single rectangle — a stepped / L / T / U footprint should be split into rectangles. Check the shape.`;
+  if (cornerCount <= 4 && maxRects > 1)
+    return `birdcage split into ${maxRects} rectangles but only ${cornerCount} external corners — a split footprint should have more than 4. Check.`;
+  return null;
+}
+
 export interface BirdcageRectInput {
   internalWidthM?: number | null;
   internalDepthM?: number | null;

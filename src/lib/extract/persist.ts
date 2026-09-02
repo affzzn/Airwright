@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { lowLevelQty, type ExtractionResult } from "./schema";
 import type { Prisma } from "@prisma/client";
-import { computeBirdcageFloor } from "./birdcage";
+import { computeBirdcageFloor, cornerBirdcageWarning, pairBirdcageWidthWarning } from "./birdcage";
 import { computeHeight } from "./height";
 import {
   makeDimensionVerifier,
@@ -442,6 +442,34 @@ export async function persistExtraction(
     if (relDiff(front, rear) > 0.1) asym.push(`front ${front}m vs rear ${rear}m`);
     if (relDiff(gl, gr) > 0.1) asym.push(`gable_left ${gl}m vs gable_right ${gr}m`);
     if (asym.length > 0) warnings.wallAsymmetry = asym;
+
+    // C12 — corner ↔ birdcage-shape consistency. A footprint with >4 external
+    // corners is non-rectangular, so at least one floor's birdcage must be split
+    // into >1 rectangle (and vice-versa) — they are the same reentrant feature.
+    // A mismatch is a model error: flag it, and surface the model's cornerReason.
+    const cornerN = result.cornerCount.value;
+    const maxRects = result.floorAreas.reduce(
+      (m, f) => Math.max(m, (f.rectangles ?? []).length),
+      0,
+    );
+    const cbWarn = cornerBirdcageWarning(cornerN, maxRects);
+    if (cbWarn) warnings.cornerBirdcageMismatch = cbWarn;
+    if (result.cornerReason) warnings.cornerReason = result.cornerReason;
+
+    // C13 — per-house birdcage width vs the shared frontage. On a pair/terrace the
+    // birdcage width must be ONE house (≈ frontage ÷ dwellings), not the whole pair.
+    if (!result.structure.form || result.structure.form !== "APARTMENT_BLOCK") {
+      const maxBirdcageWidthM = result.floorAreas.reduce(
+        (m, f) =>
+          (f.rectangles ?? []).reduce(
+            (mm, r) => Math.max(mm, r.internalWidthM ?? r.overallWidthM ?? 0),
+            m,
+          ),
+        0,
+      );
+      const pwWarn = pairBirdcageWidthWarning(dw, round3(front), maxBirdcageWidthM);
+      if (pwWarn) warnings.pairBirdcageWidth = pwWarn;
+    }
 
     // C8 — rendered face with no dimensioned length (render would be dropped).
     const renderedNoLM = result.elevations

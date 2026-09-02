@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeBirdcageFloor } from "./birdcage";
+import { computeBirdcageFloor, cornerBirdcageWarning, pairBirdcageWidthWarning } from "./birdcage";
 
 /**
  * The birdcage is derived PURELY from the measured footprint dimensions — no stated
@@ -226,5 +226,65 @@ describe("computeBirdcageFloor", () => {
     expect(r.m2).toBe(null);
     expect(r.source).toBe("none");
     expect(r.confidence).toBe("unknown");
+  });
+
+  it("Hallam: a STEPPED front tiles into two rectangles (deep + shallow column), summed", () => {
+    // Real Hallam GF: front is 675 deeper on the lounge side. Deep column
+    // 3.211 × 8.599, shallow column 3.041 × 7.924 — each with its OWN depth.
+    const r = computeBirdcageFloor({
+      rectangles: [
+        { internalWidthM: 3.211, internalDepthM: 8.599 }, // deep (lounge/kitchen)
+        { internalWidthM: 3.041, internalDepthM: 7.924 }, // shallow (entrance/hall/WC)
+      ],
+      readConfidence: "high",
+    });
+    expect(r.rectangles[0].areaM2).toBe(round3(3.211 * 8.599)); // 27.611
+    expect(r.rectangles[1].areaM2).toBe(round3(3.041 * 7.924)); // 24.097
+    expect(r.m2).toBe(round3(3.211 * 8.599 + 3.041 * 7.924)); // 51.708
+    expect(r.m2).toBe(51.708);
+    expect(r.source).toBe("derived");
+    // A single bounding rectangle would WRONGLY give 6.252 × 8.599 = 53.759.
+    expect(r.m2).toBeLessThan(round3(6.252 * 8.599));
+  });
+});
+
+describe("cornerBirdcageWarning (C12: corners ↔ birdcage shape)", () => {
+  it("no warning when a rectangle has 4 corners and 1 birdcage rectangle", () => {
+    expect(cornerBirdcageWarning(4, 1)).toBeNull();
+  });
+  it("no warning when a stepped footprint has >4 corners and a split birdcage", () => {
+    expect(cornerBirdcageWarning(5, 2)).toBeNull();
+  });
+  it("flags >4 corners but a single (unsplit) birdcage rectangle", () => {
+    expect(cornerBirdcageWarning(5, 1)).toMatch(/should be split/i);
+  });
+  it("flags a split birdcage but only 4 corners", () => {
+    expect(cornerBirdcageWarning(4, 2)).toMatch(/more than 4/i);
+  });
+  it("null when the corner count is unknown", () => {
+    expect(cornerBirdcageWarning(null, 1)).toBeNull();
+    expect(cornerBirdcageWarning(undefined, 3)).toBeNull();
+  });
+});
+
+describe("pairBirdcageWidthWarning (C13: per-house width vs shared frontage)", () => {
+  it("no warning for a detached house (dwellingsWide 1)", () => {
+    expect(pairBirdcageWidthWarning(1, 9.406, 9.0)).toBeNull();
+  });
+  it("no warning when a semi reports one house's width (~half the frontage)", () => {
+    // Sinclair: front 9.406, per-house birdcage width 4.25.
+    expect(pairBirdcageWidthWarning(2, 9.406, 4.25)).toBeNull();
+    // Kilburn: front 10.506, per-house 4.8.
+    expect(pairBirdcageWidthWarning(2, 10.506, 4.8)).toBeNull();
+    // SM1 shared-core: front 14.727, per-house 6.873.
+    expect(pairBirdcageWidthWarning(2, 14.727, 6.873)).toBeNull();
+  });
+  it("flags the whole-pair over-read (birdcage width ≈ full frontage)", () => {
+    // SM1 bug: model reported 14.073 (whole pair internal) on a 14.727 frontage.
+    expect(pairBirdcageWidthWarning(2, 14.727, 14.073)).toMatch(/per house/i);
+  });
+  it("null when frontage or width is missing", () => {
+    expect(pairBirdcageWidthWarning(2, 0, 4.25)).toBeNull();
+    expect(pairBirdcageWidthWarning(2, 9.406, 0)).toBeNull();
   });
 });

@@ -11,7 +11,11 @@ import {
   type Configuration,
   type TakeoffInput,
 } from "../src/lib/takeoff/engine";
-import { computeBirdcageFloor } from "../src/lib/extract/birdcage";
+import {
+  computeBirdcageFloor,
+  cornerBirdcageWarning,
+  pairBirdcageWidthWarning,
+} from "../src/lib/extract/birdcage";
 import { computeHeight } from "../src/lib/extract/height";
 import { makeDimensionVerifier } from "../src/lib/extract/dimensions";
 
@@ -80,7 +84,10 @@ async function run(path: string, configs: Configuration[]) {
     `structure: ${data.structure.form}  storeys: ${data.storeys.value} [${data.storeys.confidence}]  roomInRoof: ${data.roomInRoof.value}  height: ${data.heightToSoffitM.value} m [${data.heightToSoffitM.confidence}]  roof: ${data.roof.overallType}`,
   );
   console.log(
-    `corners: ${data.cornerCount.value}  dwellingsWide: ${data.dwellingsWide.value}  chimney: ${data.chimney.value}  lowLevel: ${lowLevelQty(data.lowLevel) ?? "-"} (canopy=${data.lowLevel.porchCanopyCount} solid=${data.lowLevel.porchSolidCount} bay1=${data.lowLevel.baySingleStoreyCount} bay2=${data.lowLevel.bayTwoStoreyCount})  smartRoofPeak: ${data.smartRoofPeakHeightM.value}`,
+    `corners: ${data.cornerCount.value} [${data.cornerCount.confidence}]${data.cornerReason ? ` — ${data.cornerReason}` : ""}`,
+  );
+  console.log(
+    `dwellingsWide: ${data.dwellingsWide.value}  chimney: ${data.chimney.value}  lowLevel: ${lowLevelQty(data.lowLevel) ?? "-"} (canopy=${data.lowLevel.porchCanopyCount} solid=${data.lowLevel.porchSolidCount} bay1=${data.lowLevel.baySingleStoreyCount} bay2=${data.lowLevel.bayTwoStoreyCount})  smartRoofPeak: ${data.smartRoofPeakHeightM.value}`,
   );
   {
     const h = computeHeight({
@@ -105,6 +112,32 @@ async function run(path: string, configs: Configuration[]) {
   for (const f of data.floorAreas) {
     const r = birdcageM2(f);
     console.log(`  ${f.level}: ${r.m2 ?? "-"} m² [${r.confidence}] (${r.source}) — ${r.note}`);
+    for (const [i, rc] of (f.rectangles ?? []).entries())
+      console.log(
+        `      rect ${i + 1}: W ${rc.internalWidthM ?? `(${rc.overallWidthM}−walls)`} × D ${rc.internalDepthM ?? `(${rc.overallDepthM}−walls)`}  wall=${rc.wallThicknessMm ?? `${rc.wallWidthLeftMm ?? "-"}/${rc.wallWidthRightMm ?? "-"}`}`,
+      );
+  }
+  // C12 preview — corner ↔ birdcage-shape consistency.
+  {
+    const maxRects = data.floorAreas.reduce((m, f) => Math.max(m, (f.rectangles ?? []).length), 0);
+    console.log(
+      `shape check: corners=${data.cornerCount.value} maxRects/floor=${maxRects} → ${
+        cornerBirdcageWarning(data.cornerCount.value, maxRects) ?? "✓ consistent"
+      }`,
+    );
+    // C13 — per-house birdcage width vs the shared frontage (pairs/terraces).
+    const frontM = round3(
+      data.wallSegments.filter((w) => w.position === "front").reduce((a, w) => a + w.lengthM, 0),
+    );
+    const maxW = data.floorAreas.reduce(
+      (m, f) =>
+        (f.rectangles ?? []).reduce((mm, r) => Math.max(mm, r.internalWidthM ?? r.overallWidthM ?? 0), m),
+      0,
+    );
+    const pw = pairBirdcageWidthWarning(data.dwellingsWide.value, frontM, maxW);
+    console.log(
+      `pair-width check: dwellings=${data.dwellingsWide.value} frontage=${frontM}m maxBirdcageWidth=${maxW}m → ${pw ?? "✓ per-house"}`,
+    );
   }
   // Point 3: verify each cited sourceDimension against the text layer.
   const verify = makeDimensionVerifier(dimensions);

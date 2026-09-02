@@ -209,7 +209,7 @@ const floorArea = z.object({
   rectangles: z
     .array(birdcageRect)
     .describe(
-      "The internal footprint as one rectangle (or several for an L-shaped / stepped floor). Report raw printed DIMENSIONS only — the engine multiplies and sums. Empty if no dimensions are legible.",
+      "The internal footprint of ONE HOUSE as one rectangle for a plain rectangular floor, or SEVERAL rectangles that tile a stepped / L / T / U floor. PER HOUSE on a pair/terrace: the WIDTH is one dwelling's internal width (a single [wall|span|wall] span, else the summed run to the party wall), NEVER the full pair frontage; the DEPTH (gable direction) is one house's whole depth. Test for a step first: if the internal depth differs left-vs-right (or the width differs top-vs-bottom) the floor STEPS and MUST be split — a single bounding rectangle would over-read. Give EACH tile its OWN internal width and depth (a width/depth may be a run of adjacent internal segments summed). Report raw printed DIMENSIONS only — the engine multiplies and sums. Empty if no dimensions are legible.",
     )
     .default([]),
   sourceSheet: z.string().nullable().describe("Floor-plan / setting-out sheet label.").optional(),
@@ -284,10 +284,17 @@ export const extractionResultSchema = z.object({
       "Each external wall length along the BUILDING LINE (brickwork line), taken off the OUTSIDE of the GROUND-FLOOR or SETTING-OUT plan. Report each wall separately with its dimension string. Do NOT sum them and do NOT add any corner allowance — that is applied downstream.",
     ),
   cornerCount: numberField.describe(
-    "Number of EXTERNAL corners / returns on the scaffolded perimeter (a plain rectangle has 4). Count external returns only.",
+    "Number of EXTERNAL (outward-pointing) corners on the scaffolded footprint. A plain rectangle has EXACTLY 4. Every place the wall line STEPS IN (a reentrant corner — the inside of a step, notch or L) adds ONE external corner: external corners = 4 + (number of steps/reentrant corners). One front/side step → 5; an L → 5; a T/U → 6. To tell if it is a rectangle, compare the DEPTH on the left vs right and the WIDTH at top vs bottom — equal → rectangle (4); a difference means a step. Count outward corners only (not reentrant corners). Do NOT count bays, porches (low-level items), chimney breasts, or construction offsets (a ~75mm render stop, a ~100mm brick return). Whenever this exceeds 4, the birdcage MUST be split into rectangles (they are the same feature).",
   ),
+  cornerReason: z
+    .string()
+    .nullable()
+    .describe(
+      "One-line justification for cornerCount stating the shape and any steps — e.g. 'rectangle, all opposite sides equal → 4', or 'front is 675 deeper on the lounge side → 1 step → 5'. Write the reason BEFORE settling the number.",
+    )
+    .optional(),
   dwellingsWide: numberField.describe(
-    "How many dwellings share the FRONT/REAR frontage in THIS drawing: 1 for a detached house, 2 for a pair/semi, 3 for a three-block, 4 or more for a terrace. Report the front/rear wall lengths as the FULL printed frontage spanning all the dwellings — do NOT pre-divide them. The engine divides the front/rear by this number to get one dwelling; gable-end walls are NOT divided.",
+    "How many dwellings share the FRONT/REAR frontage in THIS drawing: 1 for a detached house, 2 for a pair/semi, 3 for a three-block, 4 or more for a terrace. Report the front/rear wall lengths as the FULL printed frontage spanning all the dwellings — do NOT pre-divide them. The engine divides the front/rear by this number to get one dwelling; gable-end walls are NOT divided. The BIRDCAGE is per house too — its width is ONE dwelling's internal width (≈ frontage/dwellings), NOT the full frontage.",
   ),
   floorAreas: z
     .array(floorArea)
