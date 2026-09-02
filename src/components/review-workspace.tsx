@@ -32,6 +32,7 @@ export function ReviewWorkspace({
   backHref,
   title,
   subtitle,
+  modelLabel,
   pdfUrl,
   fullDrawingHref,
   relevantPages,
@@ -50,6 +51,7 @@ export function ReviewWorkspace({
   backHref: string;
   title: string;
   subtitle: string;
+  modelLabel?: string;
   pdfUrl: string | null;
   fullDrawingHref?: string | null;
   relevantPages?: number[];
@@ -89,9 +91,14 @@ export function ReviewWorkspace({
             {st.label}
           </Badge>
         </div>
-        <p className="hidden shrink-0 truncate text-xs text-ink-subtle sm:block">
-          {subtitle}
-        </p>
+        <div className="hidden shrink-0 items-center gap-2 sm:flex">
+          {modelLabel && (
+            <span title="The AI model that read this drawing (chosen when the tender was created).">
+              <Badge variant="outline">{modelLabel}</Badge>
+            </span>
+          )}
+          <p className="truncate text-xs text-ink-subtle">{subtitle}</p>
+        </div>
       </div>
 
       {/* Two panes */}

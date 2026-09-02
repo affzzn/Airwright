@@ -17,6 +17,7 @@ import { GroupingConfirm } from "@/components/grouping-confirm";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
+import { resolveModel } from "@/lib/extract/providers/catalog";
 import { cn, formatBytes } from "@/lib/utils";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -165,6 +166,14 @@ export default async function ProjectPage({
               : "House build"}{" "}
             · Pack v{pack?.version ?? 1}
           </p>
+          <div
+            className="mt-2"
+            title="The AI model that reads this project's drawings (chosen when the tender was created)."
+          >
+            <Badge variant="outline">
+              {resolveModel(project.extractionModel).label}
+            </Badge>
+          </div>
         </div>
         <Link
           href={`/projects/${project.id}/pricing`}

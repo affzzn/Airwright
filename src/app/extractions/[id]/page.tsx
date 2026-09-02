@@ -5,6 +5,7 @@ import { createSignedUrl } from "@/lib/supabase/storage";
 import { parseRangeString } from "@/lib/pdf";
 import { extractionResultSchema } from "@/lib/extract/schema";
 import { normalizeStructureForm } from "@/lib/structure";
+import { resolveModel } from "@/lib/extract/providers/catalog";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ReviewWorkspace } from "@/components/review-workspace";
@@ -26,7 +27,7 @@ export default async function ReviewPage({
     include: {
       document: {
         include: {
-          pack: true,
+          pack: { include: { project: { select: { extractionModel: true } } } },
           pages: { select: { pageNumber: true, sheetTitle: true } },
         },
       },
@@ -117,6 +118,9 @@ export default async function ReviewPage({
   }));
 
   const backHref = `/projects/${extraction.document.pack.projectId}`;
+  const modelLabel = resolveModel(
+    extraction.document.pack.project?.extractionModel,
+  ).label;
   const title = extraction.houseType?.name ?? "Extraction";
   const relevantCount = relevantPages?.length ?? extraction.document.pageCount ?? 0;
   const subtitle = `${extraction.document.fileName} · ${relevantCount} relevant of ${extraction.document.pageCount} pages`;
@@ -132,6 +136,7 @@ export default async function ReviewPage({
           <p className="eyebrow mb-2">Review</p>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
           <p className="mt-1 text-sm text-ink-subtle">{subtitle}</p>
+          <p className="mt-1 text-xs text-ink-subtle">Read by {modelLabel}</p>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
@@ -165,6 +170,7 @@ export default async function ReviewPage({
         backHref={backHref}
         title={title}
         subtitle={subtitle}
+        modelLabel={modelLabel}
         pdfUrl={pdfUrl}
         fullDrawingHref={`/documents/${extraction.document.id}/full`}
         relevantPages={relevantPages}
