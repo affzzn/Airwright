@@ -283,6 +283,10 @@ model Project {
   name           String
   reference      String?
   estimatingMode EstimatingMode     @default(HOUSE_BUILD)
+  // Which LLM reads this project's drawings (a model KEY from the provider
+  // catalog, e.g. "anthropic-opus-4-8" / "gemini-3-1-pro" / "openai-gpt-5-6").
+  // Null → the default (Anthropic Opus 4.8). Chosen on the new-project form.
+  extractionModel String?
   // Commercial rate band for this tender's pricing. Null → use the client's
   // defaultBand. Chosen on the pricing screen; the matrix prices at this band.
   rateBand       RateBand?

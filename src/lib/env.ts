@@ -28,6 +28,26 @@ export const env = {
   get extractionModel() {
     return process.env.ANTHROPIC_EXTRACTION_MODEL ?? "claude-opus-4-8";
   },
+  // --- Other extraction providers (selected per project; keys required only
+  //     when that provider is actually chosen). See src/lib/extract/providers. ---
+  get openaiApiKey() {
+    return required("OPENAI_API_KEY");
+  },
+  /** Google Gemini key. Accepts GEMINI_API_KEY or GOOGLE_API_KEY. */
+  get geminiApiKey() {
+    return (
+      process.env.GEMINI_API_KEY ??
+      process.env.GOOGLE_API_KEY ??
+      required("GEMINI_API_KEY")
+    );
+  },
+  /** API model ids, overridable so a newer id is a one-line env change. */
+  get openaiExtractionModel() {
+    return process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-5.6";
+  },
+  get geminiExtractionModel() {
+    return process.env.GEMINI_EXTRACTION_MODEL ?? "gemini-3.1-pro-preview";
+  },
   /** Model for the AI grouping structure pass (docs/17 §4) — text-only, so a
    *  smaller/faster model is fine. Defaults to the extraction model (guaranteed
    *  available); override with a cheaper model to cut cost. */

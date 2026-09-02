@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { formatDate, cn } from "@/lib/utils";
+import { EXTRACTION_MODELS, DEFAULT_MODEL_KEY } from "@/lib/extract/providers/catalog";
 
 export type ProjectStatus = "NEW" | "READING" | "READY" | "QUOTED";
 
@@ -238,6 +239,23 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
                 <option value="HOUSE_BUILD">House build</option>
                 <option value="CONSTRUCTION">Construction</option>
               </Select>
+            </div>
+            <div>
+              <Label htmlFor="extractionModel">Extraction model</Label>
+              <Select
+                id="extractionModel"
+                name="extractionModel"
+                defaultValue={DEFAULT_MODEL_KEY}
+              >
+                {EXTRACTION_MODELS.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1.5 text-xs text-ink-subtle">
+                Which AI reads this project&rsquo;s drawings. You can compare models per project.
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-hairline bg-surface px-6 py-4">

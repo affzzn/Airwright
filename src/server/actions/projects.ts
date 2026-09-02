@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { RateBand } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isValidModelKey } from "@/lib/extract/providers/catalog";
 
 const RATE_BANDS = new Set<RateBand>([
   "SUPER_COMPETITIVE",
@@ -94,6 +95,9 @@ export async function createProject(formData: FormData) {
     String(formData.get("mode") ?? "HOUSE_BUILD") === "CONSTRUCTION"
       ? "CONSTRUCTION"
       : "HOUSE_BUILD";
+  // Which LLM reads this project's drawings; unknown/empty → default (Anthropic).
+  const rawModel = String(formData.get("extractionModel") ?? "");
+  const extractionModel = isValidModelKey(rawModel) ? rawModel : null;
 
   if (!clientName || !projectName) return;
 
@@ -107,6 +111,7 @@ export async function createProject(formData: FormData) {
       clientId: client.id,
       name: projectName,
       estimatingMode: mode,
+      extractionModel,
       packs: { create: { version: 1 } }, // start with an empty pack to upload into
     },
   });
