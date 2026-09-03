@@ -74,6 +74,12 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
         {showSignOut && (
           <div className="flex items-center gap-4">
             <Link
+              href="/q/AW-Q-2609-042"
+              className={cn(tab, "border-transparent text-ink-subtle hover:text-ink")}
+            >
+              Client view
+            </Link>
+            <Link
               href="/testing"
               className={cn(
                 tab,
