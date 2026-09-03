@@ -17,6 +17,14 @@ export type Configuration =
   | "END_TERRACE"
   | "MID_TERRACE";
 
+/**
+ * The build system — a PROJECT-level choice (docs/18). Timber frame changes three
+ * things vs traditional: the lift rule (450 mm top step + 2 m lifts → fewer lifts),
+ * NO birdcage, and LM-priced adaptions. Everything else (perimeter, corners, apex,
+ * render, config split) is identical. Defaults to TRADITIONAL when unset.
+ */
+export type BuildSystem = "TRADITIONAL" | "TIMBER_FRAME";
+
 export type WallPosition =
   | "front"
   | "rear"
@@ -63,6 +71,8 @@ export interface TakeoffInput {
   /** Include the party-wall spec item (default true). A customer opt-out at spec
    *  stage sets this false → no party-wall unit is priced (detached is 0 anyway). */
   includePartyWall?: boolean;
+  /** Build system (project-level). Undefined → TRADITIONAL. */
+  buildSystem?: BuildSystem;
 }
 
 /**
@@ -78,17 +88,37 @@ export const STANDARD_STOREY_LIFTS: Record<string, number> = {
   "4": 8,
 };
 
+/**
+ * Timber-frame storey → lifts (Laura's email, docs/18 §1.2). FEWER lifts than
+ * traditional: 2 m boarded lifts + a fixed 450 mm top step. 2.5 and 3 both = 4
+ * (they differ only in the internal breakdown, and every lift prices the same).
+ */
+export const TIMBER_FRAME_STOREY_LIFTS: Record<string, number> = {
+  "2": 3,
+  "2.5": 4,
+  "3": 4,
+};
+
+/** The fixed step off the roof/apex onto the scaffold — the top (highest) lift. */
+export const TF_TOP_STEP_M = 0.45;
+/** Timber-frame boarded lifts come down in 2 m increments below the top step. */
+export const TF_LIFT_HEIGHT_M = 2.0;
+/** Each apex converts to this many LM when folded into the adaption totals (docs/18 §1.2). */
+export const APEX_LM_PER = 4;
+
 /** Tunable rules. Defaults are the confirmed values; ⚠️ ones await Colin (docs/11 §8). */
 export interface EngineParams {
   liftHeightM: number; // ✅ 1.5 (called an "average" — ⚠️ constancy open)
   cornerAllowanceM: number; // ✅ CONFIRMED 1 m per external corner
   storeyLiftTemplate: Record<string, number>; // per-builder; default STANDARD
+  timberFrameStoreyLifts: Record<string, number>; // timber-frame storey→lifts (docs/18)
   // render lift basis is the storey table below (⚠️ full table owed by Colin)
 }
 export const DEFAULT_PARAMS: EngineParams = {
   liftHeightM: 1.5,
   cornerAllowanceM: 1.0,
   storeyLiftTemplate: STANDARD_STOREY_LIFTS,
+  timberFrameStoreyLifts: TIMBER_FRAME_STOREY_LIFTS,
 };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -179,6 +209,61 @@ export function computeLifts(
   return { lifts, basis, heightLifts, storeyLifts: sLifts, flag: disagree };
 }
 
+/** Effective storey for timber frame: a 2-storey WITH a room-in-roof reads as 2.5
+ *  (the only case with the extra 1 m lift). Everything else is the storey count. */
+function tfEffectiveStorey(storeys: number | null, roomInRoof: boolean): string | null {
+  if (storeys === null) return null;
+  if (storeys === 2 && roomInRoof) return "2.5";
+  return String(storeys);
+}
+
+/**
+ * Timber-frame lift count from the height method (docs/18 §1.2): 450 mm off the
+ * soffit is the top lift; a 2.5-storey adds a 1 m lift; then 2 m lifts come down
+ * with the bottom "kicker" absorbing the remainder. Reproduces Laura's table
+ * (4.8 m → 3, 6.5 m → 4, 5.5 m/2.5 → 4). Used as a cross-check on the storey rule.
+ */
+function tfHeightLifts(heightToSoffitM: number | null, is2p5: boolean): number | null {
+  if (heightToSoffitM === null || heightToSoffitM <= 0) return null;
+  let rem = heightToSoffitM - TF_TOP_STEP_M; // remove the top step (that's 1 lift)
+  const extra = is2p5 ? 1 : 0;
+  if (is2p5) rem -= 1.0; // the 1 m lift on a 2.5-storey
+  const liftsBelow = Math.max(1, Math.round(rem / TF_LIFT_HEIGHT_M));
+  return 1 + extra + liftsBelow;
+}
+
+/**
+ * Timber-frame lifts. The storey template (2→3, 2.5→4, 3→4) is authoritative — it's
+ * exact for the documented cases; the height method is an independent cross-check
+ * and FLAGS a divergence (an unusually tall/short house worth a human eye). Same
+ * `LiftResult` shape + precedence doctrine as the traditional `computeLifts`.
+ */
+export function computeLiftsTimberFrame(
+  input: TakeoffInput,
+  params: EngineParams = DEFAULT_PARAMS,
+): LiftResult {
+  const eff = tfEffectiveStorey(input.storeys, input.roomInRoof);
+  const is2p5 = eff === "2.5";
+  const template = params.timberFrameStoreyLifts ?? TIMBER_FRAME_STOREY_LIFTS;
+  const sLifts = eff !== null ? (template[eff] ?? null) : null;
+  const hLifts = tfHeightLifts(input.heightToSoffitM, is2p5);
+  const disagree = hLifts !== null && sLifts !== null && hLifts !== sLifts;
+
+  let lifts: number | null;
+  let basis: LiftResult["basis"];
+  if (sLifts !== null) {
+    lifts = sLifts; // storey template is authoritative for timber frame
+    basis = "storey";
+  } else if (hLifts !== null) {
+    lifts = hLifts; // no template entry (e.g. bungalow/4-storey) → fall to height
+    basis = "height";
+  } else {
+    lifts = null;
+    basis = "none";
+  }
+  return { lifts, basis, heightLifts: hLifts, storeyLifts: sLifts, flag: disagree };
+}
+
 export interface PerimeterResult {
   perLiftM: number;
   totalM: number | null; // per-lift × lifts (what Strike is keyed with)
@@ -263,6 +348,38 @@ export function computeBirdcage(input: TakeoffInput): BirdcageResult {
   };
 }
 
+/** No birdcage on timber frame (docs/18 §1.2) — an empty birdcage result. */
+const NO_BIRDCAGE: BirdcageResult = { floors: [], totalM2: 0, floorCount: 0 };
+
+export interface AdaptionResult {
+  /** Inside-board adaption — ALL lifts + each apex as 4 LM. */
+  insideBoardLM: number;
+  /** Hop-up adaption — every lift EXCEPT the 1st (kicker) + each apex as 4 LM. */
+  hopUpLM: number;
+  /** The apex contribution (apexCount × 4 LM), folded into both totals above. */
+  apexLM: number;
+}
+
+/**
+ * Timber-frame adaptions (docs/18 §1.2, Laura's Aspen-semi worked example). Priced
+ * on an LM rate, NOT units. `perLiftM` is the per-lift perimeter (already includes
+ * the corner allowance). Each apex converts to 4 LM. Validated:
+ * `computeAdaptions(20.83, 3, 1)` → { insideBoardLM 66.49, hopUpLM 45.66, apexLM 4 }.
+ */
+export function computeAdaptions(
+  perLiftM: number,
+  lifts: number,
+  apexCount: number,
+): AdaptionResult {
+  const apexLM = round3(Math.max(0, apexCount) * APEX_LM_PER);
+  const n = Math.max(0, lifts);
+  return {
+    insideBoardLM: round3(perLiftM * n + apexLM),
+    hopUpLM: round3(perLiftM * Math.max(0, n - 1) + apexLM),
+    apexLM,
+  };
+}
+
 export interface RenderResult {
   lengthM: number;
   lifts: number | null;
@@ -332,11 +449,14 @@ export function partyWalls(config: Configuration): number {
 
 export interface TakeoffLine {
   config: Configuration;
+  buildSystem: BuildSystem;
   lifts: LiftResult;
   perimeter: PerimeterResult;
   birdcage: BirdcageResult;
   render: RenderResult | null;
   apex: ApexResult;
+  /** Timber-frame LM adaptions (inside-board + hop-up); null for traditional. */
+  adaptions: AdaptionResult | null;
   partyWalls: number;
   lowLevel: number;
   chimney: boolean;
@@ -350,15 +470,23 @@ export function buildTakeoff(
   input: TakeoffInput,
   params: EngineParams = DEFAULT_PARAMS,
 ): TakeoffLine {
-  const lifts = computeLifts(input, params);
+  const isTF = input.buildSystem === "TIMBER_FRAME";
+  const lifts = isTF ? computeLiftsTimberFrame(input, params) : computeLifts(input, params);
   const perimeter = computePerimeter(input, lifts.lifts, params);
-  const birdcage = computeBirdcage(input);
+  // Timber frame has no internal decks (docs/18 §1.2).
+  const birdcage = isTF ? NO_BIRDCAGE : computeBirdcage(input);
   const render = computeRender(input);
   const apex = computeApex(input);
+  // Party wall: traditional prices the inside-apex spec item on a non-detached
+  // house; timber frame does NOT (Laura's semi line has none — docs/18 §7, ⚠ confirm).
   const pw =
-    input.isApartmentBlock || input.includePartyWall === false
+    isTF || input.isApartmentBlock || input.includePartyWall === false
       ? 0
       : partyWalls(input.config);
+  // Timber-frame adaptions (LM). Traditional → null.
+  const adaptions = isTF
+    ? computeAdaptions(perimeter.perLiftM, lifts.lifts ?? 0, apex.count)
+    : null;
 
   const flags: string[] = [];
   if (lifts.lifts === null) flags.push("No height or storeys read — cannot derive lifts.");
@@ -366,12 +494,16 @@ export function buildTakeoff(
     flags.push(
       `Lift mismatch: height gives ${lifts.heightLifts}, storey template gives ${lifts.storeyLifts}.`,
     );
-  const expFloors = expectedFloors(input.storeys);
-  if (expFloors !== null && birdcage.floorCount > 0 && birdcage.floorCount !== expFloors)
-    flags.push(
-      `Birdcage floors (${birdcage.floorCount}) don't match ${input.storeys}-storey (expected ${expFloors}).`,
-    );
-  if (birdcage.floorCount === 0) flags.push("No internal floor dimensions — birdcage not computed.");
+  // Birdcage cross-checks apply to traditional only (timber frame has no birdcage).
+  if (!isTF) {
+    const expFloors = expectedFloors(input.storeys);
+    if (expFloors !== null && birdcage.floorCount > 0 && birdcage.floorCount !== expFloors)
+      flags.push(
+        `Birdcage floors (${birdcage.floorCount}) don't match ${input.storeys}-storey (expected ${expFloors}).`,
+      );
+    if (birdcage.floorCount === 0)
+      flags.push("No internal floor dimensions — birdcage not computed.");
+  }
   if (input.roofType !== "HIPPED" && totalApex(input.apexByFace) === 0)
     flags.push("Pitched/mixed roof but no apex counted — check the elevations.");
   if (input.roofType === "HIPPED" && totalApex(input.apexByFace) > 0)
@@ -400,31 +532,41 @@ export function buildTakeoff(
         "Progressive dismantle",
         "Communal/stair handrails",
       ]
-    : [
-        "Loading bay (count + apportionment)",
-        "Rubbish chute / skip bay",
-        "Access: Haki stair or ladder tower",
-        "Propping / joist support variant",
-      ];
+    : isTF
+      ? [
+          "Loading bay (count + apportionment)",
+          "Rubbish chute / skip bay",
+          "Access: Haki stair (always Haki on timber frame)",
+        ]
+      : [
+          "Loading bay (count + apportionment)",
+          "Rubbish chute / skip bay",
+          "Access: Haki stair or ladder tower",
+          "Propping / joist support variant",
+        ];
 
   return {
     config: input.config,
+    buildSystem: isTF ? "TIMBER_FRAME" : "TRADITIONAL",
     lifts,
     perimeter,
     birdcage,
     render,
     apex,
+    adaptions,
     partyWalls: pw,
     lowLevel: input.lowLevelCount,
     chimney: input.chimney,
     flags,
     profilePending,
     text: formatTakeoffText({
+      buildSystem: isTF ? "TIMBER_FRAME" : "TRADITIONAL",
       perimeter,
       lifts: lifts.lifts,
       birdcage,
       render,
       apex,
+      adaptions,
       partyWalls: pw,
       lowLevel: input.lowLevelCount,
       chimney: input.chimney,
@@ -433,17 +575,31 @@ export function buildTakeoff(
 }
 
 function formatTakeoffText(x: {
+  buildSystem: BuildSystem;
   perimeter: PerimeterResult;
   lifts: number | null;
   birdcage: BirdcageResult;
   render: RenderResult | null;
   apex: ApexResult;
+  adaptions: AdaptionResult | null;
   partyWalls: number;
   lowLevel: number;
   chimney: boolean;
 }): string {
   const parts: string[] = [];
   parts.push(`${x.perimeter.perLiftM} × ${x.lifts ?? "?"} lifts`);
+  if (x.buildSystem === "TIMBER_FRAME") {
+    // Timber frame: no birdcage; show the two LM adaptions instead.
+    if (x.apex.count > 0) parts.push(`${x.apex.count} apex (scaffold + rails)`);
+    if (x.render) parts.push(`render ${x.render.lengthM} × ${x.render.lifts ?? "?"} lifts`);
+    if (x.adaptions)
+      parts.push(
+        `adaptions ${x.adaptions.insideBoardLM} / ${x.adaptions.hopUpLM} LM (inside-board / hop-up)`,
+      );
+    if (x.lowLevel > 0) parts.push(`${x.lowLevel} low level`);
+    if (x.chimney) parts.push(`chimney scaffold`);
+    return parts.join(" / ");
+  }
   if (x.birdcage.floorCount > 0)
     parts.push(`${x.birdcage.totalM2} m² × ${x.birdcage.floorCount} floors`);
   if (x.render) parts.push(`render ${x.render.lengthM} × ${x.render.lifts ?? "?"} lifts`);

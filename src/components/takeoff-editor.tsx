@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
-import { buildTakeoff, DEFAULT_PARAMS, type Configuration } from "@/lib/takeoff/engine";
+import { buildTakeoff, DEFAULT_PARAMS, type BuildSystem, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
 import {
   confirmTakeoff,
@@ -78,6 +78,9 @@ interface Props {
   notes?: string | null;
   /** Per-builder storey→lifts template; falls back to the engine default. */
   storeyLiftTemplate?: Record<string, number>;
+  /** Build system for this tender (project-level — docs/18). TF changes the lifts,
+   *  drops the birdcage and adds LM adaptions. Defaults to TRADITIONAL. */
+  buildSystem?: BuildSystem;
 }
 
 // The canonical, always-shown measurement rows (a blank one is fillable).
@@ -157,6 +160,7 @@ export function TakeoffEditor({
   onGoToPage,
   notes,
   storeyLiftTemplate,
+  buildSystem = "TRADITIONAL",
 }: Props) {
   const router = useRouter();
   const locked = status === "CONFIRMED";
@@ -301,11 +305,11 @@ export function TakeoffEditor({
     return options.map(({ label, config }) => ({
       label,
       line: buildTakeoff(
-        takeoffInputFromStored(engineMeasurements, engineWalls, engineWarnings, config),
+        takeoffInputFromStored(engineMeasurements, engineWalls, engineWarnings, config, buildSystem),
         params,
       ),
     }));
-  }, [isApartment, engineMeasurements, engineWalls, engineWarnings, storeyLiftTemplate]);
+  }, [isApartment, engineMeasurements, engineWalls, engineWarnings, storeyLiftTemplate, buildSystem]);
   const engineFlags = takeoffLines[0]?.line.flags ?? [];
   // Which configuration's take-off to show (dropdown); default to the first.
   const [selectedConfig, setSelectedConfig] = useState<string | null>(null);

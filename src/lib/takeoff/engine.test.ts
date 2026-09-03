@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   buildTakeoff,
+  computeAdaptions,
   computeApex,
   computeLifts,
+  computeLiftsTimberFrame,
   computePerimeter,
   partyWalls,
   storeyLifts,
@@ -406,5 +408,119 @@ describe("buildTakeoff — full lines from Colin's sheets", () => {
     });
     expect(t.lifts.lifts).toBe(2);
     expect(t.perimeter.perLiftM).toBe(30.5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timber frame (docs/18). The take-off engine becomes build-system-aware: a
+// different lift rule (450 mm top step + 2 m lifts → fewer lifts), NO birdcage,
+// and two LM adaptions. Everything else (perimeter, apex, render) is shared.
+// ---------------------------------------------------------------------------
+
+describe("timber-frame lifts (storey template 2→3, 2.5→4, 3→4)", () => {
+  const tf = (over: Partial<TakeoffInput>) =>
+    computeLiftsTimberFrame({ ...base, buildSystem: "TIMBER_FRAME", ...over });
+
+  it("2-storey → 3 lifts; 2.5 → 4; 3 → 4", () => {
+    expect(tf({ storeys: 2, heightToSoffitM: 4.8 }).lifts).toBe(3);
+    expect(tf({ storeys: 2.5, heightToSoffitM: 5.5 }).lifts).toBe(4);
+    expect(tf({ storeys: 3, heightToSoffitM: 6.5 }).lifts).toBe(4);
+  });
+
+  it("a 2-storey WITH a room-in-roof reads as 2.5 → 4 lifts", () => {
+    expect(tf({ storeys: 2, roomInRoof: true, heightToSoffitM: 5.5 }).lifts).toBe(4);
+  });
+
+  it("the height method agrees with the storey rule at typical heights (no flag)", () => {
+    expect(tf({ storeys: 2, heightToSoffitM: 4.8 }).flag).toBe(false);
+    expect(tf({ storeys: 3, heightToSoffitM: 6.5 }).flag).toBe(false);
+  });
+
+  it("an unusually tall 2-storey flags a height↔storey divergence (storey still wins)", () => {
+    const r = tf({ storeys: 2, heightToSoffitM: 5.6 }); // height method → 4, storey → 3
+    expect(r.lifts).toBe(3);
+    expect(r.heightLifts).toBe(4);
+    expect(r.flag).toBe(true);
+  });
+
+  it("no storey read → falls back to the height method", () => {
+    expect(tf({ storeys: null, heightToSoffitM: 4.8 }).lifts).toBe(3);
+    expect(tf({ storeys: null, heightToSoffitM: 4.8 }).basis).toBe("height");
+  });
+});
+
+describe("computeAdaptions — Laura's Aspen-semi worked example", () => {
+  it("inside-board = all lifts + apex×4; hop-up = lifts−1 + apex×4", () => {
+    // perimeter 20.83 LM (incl. 2 corners), 3 lifts, 1 apex.
+    const a = computeAdaptions(20.83, 3, 1);
+    expect(a.apexLM).toBe(4);
+    expect(a.insideBoardLM).toBe(66.49); // 20.83×3 + 4
+    expect(a.hopUpLM).toBe(45.66); // 20.83×2 + 4
+  });
+
+  it("no apex → the 4 LM term drops out", () => {
+    const a = computeAdaptions(20.83, 3, 0);
+    expect(a.insideBoardLM).toBe(62.49);
+    expect(a.hopUpLM).toBe(41.66);
+  });
+
+  it("a single lift → hop-up excludes it entirely (only the apex remains)", () => {
+    const a = computeAdaptions(20, 1, 1);
+    expect(a.insideBoardLM).toBe(24); // 20×1 + 4
+    expect(a.hopUpLM).toBe(4); // 20×0 + 4
+  });
+});
+
+describe("buildTakeoff — timber-frame Aspen semi (full line)", () => {
+  // Walls chosen so the SEMI per-lift perimeter is exactly 20.83 (18.83 walls + 2 corners).
+  const aspen: TakeoffInput = {
+    ...base,
+    buildSystem: "TIMBER_FRAME",
+    config: "SEMI_DETACHED",
+    storeys: 2,
+    heightToSoffitM: 4.8,
+    roofType: "PITCHED",
+    cornerCount: 4, // semi → 2 corners
+    wallSegments: [
+      { position: "front", lengthM: 6.5 },
+      { position: "rear", lengthM: 6.5 },
+      { position: "gable_left", lengthM: 5.83 }, // the exposed gable
+      { position: "gable_right", lengthM: 0 }, // party-wall side
+    ],
+    apexByFace: { front: 0, rear: 0, left: 1, right: 0, other: 0 },
+    floors: [{ level: "GF", m2: 40 }, { level: "FF", m2: 40 }], // present, but ignored on TF
+  };
+
+  it("3 lifts, perimeter 20.83, apex 1", () => {
+    const t = buildTakeoff(aspen);
+    expect(t.buildSystem).toBe("TIMBER_FRAME");
+    expect(t.lifts.lifts).toBe(3);
+    expect(t.perimeter.perLiftM).toBe(20.83);
+    expect(t.apex.count).toBe(1);
+  });
+
+  it("NO birdcage even though floor areas were provided", () => {
+    const t = buildTakeoff(aspen);
+    expect(t.birdcage.floorCount).toBe(0);
+    expect(t.birdcage.totalM2).toBe(0);
+    expect(t.flags.some((f) => /birdcage/i.test(f))).toBe(false);
+  });
+
+  it("adaptions reproduce 66.49 / 45.66 LM", () => {
+    const t = buildTakeoff(aspen);
+    expect(t.adaptions?.insideBoardLM).toBe(66.49);
+    expect(t.adaptions?.hopUpLM).toBe(45.66);
+  });
+
+  it("no party-wall unit on timber frame (Laura's semi line has none)", () => {
+    expect(buildTakeoff(aspen).partyWalls).toBe(0);
+  });
+
+  it("traditional path still computes birdcage + a party wall (unchanged)", () => {
+    const trad = buildTakeoff({ ...aspen, buildSystem: "TRADITIONAL" });
+    expect(trad.adaptions).toBeNull();
+    expect(trad.birdcage.floorCount).toBe(2);
+    expect(trad.partyWalls).toBe(1);
+    expect(trad.lifts.lifts).toBe(4); // traditional 2-storey = 4
   });
 });

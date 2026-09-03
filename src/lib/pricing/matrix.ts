@@ -8,8 +8,9 @@
  *   - TRADITIONAL — 27 cols: plot/code/config/storey · per-lift erect 1st…8th ·
  *     table+rails · render · birdcage erect GF→TF · birdcage strip GF→TF ·
  *     dismantle · the 3 payment-stage columns · Erect & Strip total.
- *   - TIMBER_FRAME — 17 cols: single external erect · apex handrails · per-lift
- *     adaptions 1st…6th · render/cladding · dismantle · 2 stage columns · total.
+ *   - TIMBER_FRAME (docs/18) — external erect (flat) · apex scaffold · apex rails ·
+ *     inside-board adaption · hop-up adaption · render/cladding · dismantle · 2 stage
+ *     columns · total. NO birdcage, NO party wall.
  *
  * The reconciliation is Colin's: `total = Σ(cost columns)`, and each stage column
  * = total × stage%. This module only RESHAPES already-priced lines into columns —
@@ -124,22 +125,22 @@ function traditionalColumns(stageCols: StageCol[]): MatrixColumn[] {
   return cols;
 }
 
-const TF_ADAPTION_LEVELS = [1, 2, 3, 4, 5, 6] as const;
-
 function timberFrameColumns(stageCols: StageCol[]): MatrixColumn[] {
+  // docs/18: external erect (flat per-lift) · apex scaffold + rails · the two LM
+  // adaptions · render · dismantle. No birdcage, no party wall.
   const cols: MatrixColumn[] = [
     { key: "plot", header: "Plot", kind: "id" },
     { key: "code", header: "House Type Code", kind: "id" },
     { key: "config", header: "Config", kind: "id" },
     { key: "storey", header: "Storey", kind: "id" },
-    { key: "externalErect", header: "Erect Timber Frame External 2-4 Lifts", kind: "cost" },
-    { key: "apexHandrails", header: "Erect Apex Handrails", kind: "cost" },
+    { key: "externalErect", header: "Erect Timber Frame External", kind: "cost" },
+    { key: "apexScaffold", header: "Apex Scaffold", kind: "cost" },
+    { key: "apexRails", header: "Apex Rails", kind: "cost" },
+    { key: "insideBoard", header: "Inside-Board Adaption", kind: "cost" },
+    { key: "hopUp", header: "Hop-Up Adaption", kind: "cost" },
+    { key: "render", header: "Render/Cladding Adaption", kind: "cost" },
+    { key: "dismantle", header: "Dismantle", kind: "cost" },
   ];
-  for (const lvl of TF_ADAPTION_LEVELS)
-    cols.push({ key: `adaption${lvl}`, header: `Adaption ${ORDINAL[lvl]} Lift`, kind: "cost" });
-  cols.push({ key: "render", header: "Render/Cladding Adaption", kind: "cost" });
-  cols.push({ key: "partyWall", header: "Party Wall", kind: "cost" });
-  cols.push({ key: "dismantle", header: "Dismantle", kind: "cost" });
   for (const s of stageCols) cols.push({ key: `stage:${s.name}`, header: s.header, kind: "stage" });
   cols.push({ key: "total", header: "Erect & Strip Price", kind: "total" });
   return cols;
@@ -174,21 +175,20 @@ function traditionalCells(lines: PricedLine[]): Record<string, number> {
   return cells;
 }
 
-/** Timber-frame: one external erect, apex handrails, per-lift adaptions, render, dismantle. */
+/** Timber-frame (docs/18): external erect + apex scaffold/rails + the two LM
+ *  adaptions + render + dismantle. No birdcage, no party wall. */
 function timberFrameCells(lines: PricedLine[]): Record<string, number> {
   const cells: Record<string, number> = {};
   const put = (key: string, pence: number) => {
     if (pence !== 0) cells[key] = round2(pence / 100);
   };
-  // The whole external envelope is one erect column (docs/15 §7); dismantle is one column.
   put("externalErect", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "ERECT"));
-  put("apexHandrails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
+  put("apexScaffold", sumPence(lines, (l) => l.component === "TABLE_LIFT" && l.action === "ERECT"));
+  put("apexRails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
+  put("insideBoard", sumPence(lines, (l) => l.component === "ADAPTION_INSIDE_BOARD" && l.action === "ERECT"));
+  put("hopUp", sumPence(lines, (l) => l.component === "ADAPTION_HOP_UP" && l.action === "ERECT"));
   put("render", sumPence(lines, (l) => l.component === "RENDER_ADAPTION" && l.action === "ERECT"));
-  put("partyWall", sumPence(lines, (l) => l.component === "PARTY_WALL" && l.action === "ERECT"));
   put("dismantle", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "DISMANTLE"));
-  // Per-lift adaptions (cols G–L) — one column per lift level, priced by priceTimberFrameLine.
-  for (const lvl of TF_ADAPTION_LEVELS)
-    put(`adaption${lvl}`, sumPence(lines, (l) => l.component === "ADAPTION" && l.action === "ERECT" && l.liftLevel === lvl));
   return cells;
 }
 

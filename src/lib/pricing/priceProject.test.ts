@@ -97,3 +97,43 @@ describe("priceProject", () => {
     expect(s).toBe(Math.round(g.subtotal * 100));
   });
 });
+
+describe("priceProject — project-level TIMBER_FRAME (docs/18)", () => {
+  const tfRates = [
+    ...rateItems,
+    { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", rate: 12 },
+    { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", rate: 4 },
+    { component: "ADAPTION_INSIDE_BOARD", action: "ERECT", band: "MEDIUM", rate: 5 },
+    { component: "ADAPTION_HOP_UP", action: "ERECT", band: "MEDIUM", rate: 4 },
+  ];
+  const tfSplits = [
+    ...stageSplits,
+    { scenario: "TIMBER_FRAME", name: "Plot Erect", percent: 80 },
+    { scenario: "TIMBER_FRAME", name: "Dismantle", percent: 20 },
+  ];
+  // Same confirmed detached house type, but the PROJECT build type is timber frame.
+  const r = priceProject({
+    houseTypes: [confirmed],
+    plots: [plots[0]],
+    rateItems: tfRates,
+    stageSplits: tfSplits,
+    band: "MEDIUM",
+    buildType: "TIMBER_FRAME",
+  });
+  const p1 = r.plots.find((p) => p.plotNumber === "1")!;
+
+  it("uses the TF line: no birdcage, adaptions present, external erect", () => {
+    expect(p1.status).toBe("PRICED");
+    expect(p1.lines.some((l) => l.component.startsWith("BIRDCAGE_"))).toBe(false);
+    expect(p1.lines.some((l) => l.component === "ADAPTION_INSIDE_BOARD")).toBe(true);
+    expect(p1.lines.some((l) => l.component === "ADAPTION_HOP_UP")).toBe(true);
+    expect(p1.lines.some((l) => l.component === "TF_EXTERNAL")).toBe(true);
+    expect(p1.lines.some((l) => l.component === "PARTY_WALL")).toBe(false);
+  });
+
+  it("uses the 80/20 timber-frame stage split, reconciling to the subtotal", () => {
+    expect(p1.stages.map((s) => s.percent)).toEqual([80, 20]);
+    const s = p1.stages.reduce((a, x) => a + Math.round(x.amount * 100), 0);
+    expect(s).toBe(Math.round(p1.subtotal * 100));
+  });
+});

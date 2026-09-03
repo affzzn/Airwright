@@ -36,7 +36,9 @@ const RATES: [string, "ERECT" | "DISMANTLE", "LM" | "M2" | "EACH", number, numbe
   ["LIFT", "ERECT", "LM", 18.25, 0],
   ["LIFT", "ERECT", "LM", 21.0, 1],
   ["LIFT", "DISMANTLE", "LM", 6.0, 0],
-  // Table lift + gable rails (combined client column M).
+  // Apex: table lift (scaffold) + gable rails — split client columns; GABLE kept
+  // for the garage block's combined "Gable Lift & Rails" column.
+  ["TABLE_LIFT", "ERECT", "EACH", 120.0, 0],
   ["GABLE", "ERECT", "EACH", 120.0, 0],
   // Render adaption.
   ["RENDER_ADAPTION", "ERECT", "LM", 18.25, 0],
@@ -49,10 +51,12 @@ const RATES: [string, "ERECT" | "DISMANTLE", "LM" | "M2" | "EACH", number, numbe
   ["BIRDCAGE_SF", "DISMANTLE", "M2", 1.5, 0],
   ["BIRDCAGE_TF", "ERECT", "M2", 9.0, 0],
   ["BIRDCAGE_TF", "DISMANTLE", "M2", 1.5, 0],
-  // Timber-frame.
+  // Timber-frame (docs/18): external erect/dismantle + the two LM adaptions.
+  // (Apex scaffold/rails = TABLE_LIFT + GABLE_RAILS above; render shared.)
   ["TF_EXTERNAL", "ERECT", "LM", 12.0, 0],
   ["TF_EXTERNAL", "DISMANTLE", "LM", 4.0, 0],
-  ["ADAPTION", "ERECT", "LM", 5.0, 0],
+  ["ADAPTION_INSIDE_BOARD", "ERECT", "LM", 5.0, 0],
+  ["ADAPTION_HOP_UP", "ERECT", "LM", 4.0, 0],
   ["GABLE_RAILS", "ERECT", "EACH", 40.0, 0],
   // Extras still priced as client lines (pending the P6 bundling decision).
   ["LOW_LEVEL", "ERECT", "EACH", 150.0, 0],

@@ -363,11 +363,12 @@ export async function persistExtraction(
     if (result.roof.overallType) warnings.roofType = result.roof.overallType;
     if (result.roomInRoof.value !== null) warnings.roomInRoof = result.roomInRoof.value;
 
-    // Timber-frame changes the scaffold sequence/ties (not the LM/lift maths) —
-    // surface it so the estimator can confirm rather than it sitting unused.
+    // The drawing's build-type read is now only a CROSS-CHECK — the build system is
+    // a project-level choice (docs/18) that drives the take-off + pricing. Surface a
+    // note so a drawing that looks timber-frame in a traditional project is flagged.
     if (result.buildType.value === "TIMBER_FRAME")
       warnings.buildTypeNote =
-        "Timber-frame construction — confirm scaffold sequence / tie requirements (differ from traditional).";
+        "This drawing reads as timber-frame — confirm the tender's Build type is set to Timber frame (project-level; docs/18).";
 
     // Room-in-roof ↔ storeys consistency (a positive cross-check).
     const storeysVal = result.storeys.value;

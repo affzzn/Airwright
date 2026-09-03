@@ -12,6 +12,8 @@ export interface LoadedPricing {
     id: string;
     name: string;
     clientName: string;
+    /** Build system for the whole tender (docs/18) — selects the matrix. */
+    buildType: "TRADITIONAL" | "TIMBER_FRAME";
     /** The band actually used to price (project override, else client default). */
     band: string;
     /** True when the band is the client's default (no per-project override set). */
@@ -102,6 +104,7 @@ export async function loadProjectPricing(
       percent: Number(s.percent),
     })),
     band,
+    buildType: project.buildType, // project-level build system (docs/18)
     storeyLiftTemplate,
   });
 
@@ -110,6 +113,7 @@ export async function loadProjectPricing(
       id: project.id,
       name: project.name,
       clientName: project.client.name,
+      buildType: project.buildType,
       band,
       bandIsDefault: project.rateBand === null,
     },

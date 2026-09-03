@@ -122,19 +122,22 @@ describe("buildClientMatrix — Traditional", () => {
   });
 });
 
-describe("buildClientMatrix — Timber Frame", () => {
+describe("buildClientMatrix — Timber Frame (docs/18)", () => {
   const TF_RATES = [
     { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", rate: 12.0 },
     { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", rate: 4.0 },
-    { component: "ADAPTION", action: "ERECT", band: "MEDIUM", rate: 5.0, liftLevel: 0 },
-    { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 },
+    { component: "TABLE_LIFT", action: "ERECT", band: "MEDIUM", rate: 120.0 }, // apex scaffold
+    { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 }, // apex rails
+    { component: "ADAPTION_INSIDE_BOARD", action: "ERECT", band: "MEDIUM", rate: 5.0 },
+    { component: "ADAPTION_HOP_UP", action: "ERECT", band: "MEDIUM", rate: 4.0 },
   ];
   const TF_SPLITS = [
     { name: "Plot Erect", percent: 80 },
     { name: "Dismantle", percent: 20 },
   ];
   const tfResolve = buildRateResolver(TF_RATES, "MEDIUM");
-  const tfLine = priceTimberFrameLine(buildTakeoff(base), {
+  // Detached 2-storey timber frame: 3 lifts, perimeter/lift 38.2, apex 2.
+  const tfLine = priceTimberFrameLine(buildTakeoff({ ...base, buildSystem: "TIMBER_FRAME" }), {
     resolveRate: tfResolve,
     stageSplits: TF_SPLITS,
   });
@@ -154,23 +157,29 @@ describe("buildClientMatrix — Timber Frame", () => {
   };
   const m = buildClientMatrix([tfPlot], "TIMBER_FRAME");
 
-  it("collapses the envelope into one external-erect column + apex handrails", () => {
+  it("has the TF columns: external, apex scaffold + rails, two adaptions, dismantle", () => {
     const keys = m.columns.map((c) => c.key);
     expect(keys).toContain("externalErect");
-    expect(keys).toContain("apexHandrails");
-    expect(keys).toContain("partyWall");
-    expect(keys).toContain("adaption1");
+    expect(keys).toContain("apexScaffold");
+    expect(keys).toContain("apexRails");
+    expect(keys).toContain("insideBoard");
+    expect(keys).toContain("hopUp");
+    expect(keys).toContain("dismantle");
     expect(keys).not.toContain("lift1"); // no per-lift erect columns
     expect(keys).not.toContain("bcageErectGF"); // no birdcage in TF plot rows
+    expect(keys).not.toContain("partyWall"); // no party wall on TF
+    expect(keys).not.toContain("adaption1"); // the old per-lift adaption cols are gone
     expect(keys).toContain("stage:Plot Erect");
   });
 
-  it("populates external erect, per-lift adaptions, and an 80/20 split", () => {
+  it("populates external erect, both adaptions, apex, and an 80/20 split", () => {
     const row = m.rows[0];
-    // 4 lifts, perimeter/lift = 38.2 m: external = 38.2×4×12 ; adaption/lift = 38.2×5.
-    expect(row.cells.externalErect).toBeCloseTo(38.2 * 4 * 12, 2);
-    expect(row.cells.adaption1).toBeCloseTo(38.2 * 5, 2);
-    expect(row.cells.adaption4).toBeCloseTo(38.2 * 5, 2);
+    // 3 lifts, perimeter/lift 38.2, apex 2 (apexLM 8).
+    expect(row.cells.externalErect).toBeCloseTo(38.2 * 3 * 12, 2);
+    expect(row.cells.insideBoard).toBeCloseTo((38.2 * 3 + 8) * 5, 2); // 122.6 × 5
+    expect(row.cells.hopUp).toBeCloseTo((38.2 * 2 + 8) * 4, 2); // 84.4 × 4
+    expect(row.cells.apexScaffold).toBeCloseTo(2 * 120, 2);
+    expect(row.cells.apexRails).toBeCloseTo(2 * 40, 2);
     expect(row.cells.bcageErectGF).toBeUndefined(); // no birdcage on TF
     // cost columns still reconcile to the plot total.
     const costSum = m.columns

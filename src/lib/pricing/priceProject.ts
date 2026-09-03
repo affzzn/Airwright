@@ -117,10 +117,14 @@ export function priceProject(input: {
   rateItems: RateItemLite[];
   stageSplits: StageSplitLite[];
   band: string;
+  /** Build system for the whole tender (project-level — docs/18). Selects the
+   *  take-off + pricing logic. Falls back to TRADITIONAL. */
+  buildType?: string;
   /** Per-builder storey→lifts template; falls back to the Standard default. */
   storeyLiftTemplate?: Record<string, number>;
 }): ProjectPricing {
   const htById = new Map(input.houseTypes.map((h) => [h.id, h]));
+  const isTimberFrame = input.buildType === "TIMBER_FRAME";
   const resolve = buildRateResolver(input.rateItems, input.band);
   const params = {
     ...DEFAULT_PARAMS,
@@ -171,6 +175,7 @@ export function priceProject(input: {
       ht.walls,
       ht.warnings,
       plot.configuration as Configuration,
+      isTimberFrame ? "TIMBER_FRAME" : "TRADITIONAL",
     );
     // Render is per plot — a non-rendered plot drops the house type's render.
     if (!plot.isRendered) engineInput.renderSegmentsM = [];
@@ -178,7 +183,6 @@ export function priceProject(input: {
     engineInput.includePartyWall = plot.includePartyWall;
 
     const line = buildTakeoff(engineInput, params);
-    const isTimberFrame = ht.buildType === "TIMBER_FRAME";
     // Timber-frame is one 80/20 split; traditional picks by house shape.
     const scenario = isTimberFrame
       ? "TIMBER_FRAME"

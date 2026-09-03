@@ -30,8 +30,17 @@ const STAGE_SORT: Record<string, number> = { "Plot Erect": 0, "Birdcage Erect": 
 type Li = { component: string | null; action: string | null; amount: unknown };
 const BUCKETS: { label: string; match: (l: Li) => boolean }[] = [
   { label: "External scaffold", match: (l) => (l.component === "LIFT" || l.component === "TF_EXTERNAL") && l.action === "ERECT" },
-  { label: "Adaptions", match: (l) => l.component === "ADAPTION" && l.action === "ERECT" },
-  { label: "Table lifts & gable rails", match: (l) => (l.component === "GABLE" || l.component === "GABLE_RAILS") && l.action === "ERECT" },
+  // Timber-frame adaptions (docs/18) — the two LM lines; the legacy ADAPTION is kept
+  // so quotes frozen before the split still bucket correctly.
+  {
+    label: "Adaptions",
+    match: (l) =>
+      (l.component === "ADAPTION" ||
+        l.component === "ADAPTION_INSIDE_BOARD" ||
+        l.component === "ADAPTION_HOP_UP") &&
+      l.action === "ERECT",
+  },
+  { label: "Apex (table lift / scaffold + rails)", match: (l) => (l.component === "TABLE_LIFT" || l.component === "GABLE" || l.component === "GABLE_RAILS") && l.action === "ERECT" },
   { label: "Render adaption", match: (l) => l.component === "RENDER_ADAPTION" },
   { label: "Birdcage erect", match: (l) => !!l.component?.startsWith("BIRDCAGE_") && l.action === "ERECT" },
   { label: "Birdcage strip", match: (l) => !!l.component?.startsWith("BIRDCAGE_") && l.action === "DISMANTLE" },
