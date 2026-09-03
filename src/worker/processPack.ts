@@ -14,7 +14,7 @@ import {
 import { segmentByHouseType } from "@/lib/extract/segment";
 import { detectBuilder, type BuilderIngestProfile } from "@/lib/ingest/profiles";
 import { groupPack, type IngestFile } from "@/lib/ingest/group";
-import { isOneFilePerType, houseTypeNameFromFileName } from "@/lib/ingest/singleType";
+import { isOneFilePerType, houseTypeDocs, houseTypeNameFromFileName } from "@/lib/ingest/singleType";
 import { assembleHouseTypePdf, type AssemblySource } from "@/lib/ingest/assemble";
 import { buildManifest } from "@/lib/ingest/manifest";
 import { inferRecipe } from "@/lib/ingest/inferRecipe";
@@ -440,7 +440,9 @@ async function groupAndPrepare(packId: string): Promise<void> {
   //    places nothing). Skip the AI recipe + assembly + confirm gate and extract
   //    straight from each original PDF. (docs/17 §5.2)
   if (isOneFilePerType(docs)) {
-    await segmentPerFileAndQueue(packId, pack.project, docs, "one file per house type (fast path)");
+    // Only the whole house-type files become house types; junk (block/site plans,
+    // specs, materials) is skipped, not turned into bogus types.
+    await segmentPerFileAndQueue(packId, pack.project, houseTypeDocs(docs), "one file per house type (fast path)");
     return;
   }
 
