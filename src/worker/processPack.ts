@@ -14,6 +14,7 @@ import {
 import { segmentByHouseType } from "@/lib/extract/segment";
 import { detectBuilder, type BuilderIngestProfile } from "@/lib/ingest/profiles";
 import { groupPack, type IngestFile } from "@/lib/ingest/group";
+import { isOneFilePerType, houseTypeNameFromFileName } from "@/lib/ingest/singleType";
 import { assembleHouseTypePdf, type AssemblySource } from "@/lib/ingest/assemble";
 import { buildManifest } from "@/lib/ingest/manifest";
 import { inferRecipe } from "@/lib/ingest/inferRecipe";
@@ -328,6 +329,73 @@ async function classifyDocuments(packId: string): Promise<void> {
 
 // --- 3. Detect the builder, group across files, assemble, prepare extractions --
 
+type DocWithPages = Prisma.DocumentGetPayload<{ include: { pages: true } }>;
+
+/**
+ * Deterministic per-file path: ONE house type per drawing file, extracted straight
+ * from the ORIGINAL PDF's relevant page range (`slicePages` in the worker) — no
+ * cross-file grouping, no re-assembled PDF, auto-queued with NO confirm gate. Used
+ * for the "one file per house type" fast path (§ isOneFilePerType) and as the
+ * safety fallback when there is no recipe or the AI grouping placed nothing.
+ *
+ * Sets groupingStatus=FALLBACK so the project page shows the house types directly
+ * (only PROPOSED shows the confirm screen). The take-off itself is still
+ * human-confirmed on the review screen before it can be priced.
+ */
+async function segmentPerFileAndQueue(
+  packId: string,
+  project: { id: string; clientId: string },
+  docs: DocWithPages[],
+  reason: string,
+): Promise<void> {
+  const boss = await getBoss();
+  let houseTypeCount = 0;
+  for (const doc of docs) {
+    if (!doc.isReadable || doc.isRasterOnly) continue;
+    const pages: PageClass[] = doc.pages.map((p) => ({
+      page: p.pageNumber,
+      kind: p.kind as PageClass["kind"],
+      relevant: p.relevant,
+      houseTypeCode: p.houseTypeCode,
+      houseTypeName: p.houseTypeName,
+      title: p.sheetTitle ?? "",
+    }));
+    // segmentByHouseType returns [] when the file has no relevant pages (an
+    // answer-key / plot schedule / site plan), so those are skipped automatically.
+    for (const group of segmentByHouseType(pages)) {
+      const houseType = await ensureHouseType(
+        project.id,
+        project.clientId,
+        group.code,
+        group.name ?? houseTypeNameFromFileName(doc.fileName),
+      );
+      const extraction = await prisma.extraction.create({
+        data: {
+          documentId: doc.id,
+          houseTypeId: houseType.id,
+          pageRange: group.pageRange,
+          model: env.extractionModel,
+          promptVersion: "pending",
+          status: "PENDING",
+        },
+      });
+      await boss.send(EXTRACT_DRAWING_QUEUE, {
+        documentId: doc.id,
+        extractionId: extraction.id,
+        pageRange: group.pageRange,
+      });
+      houseTypeCount++;
+    }
+  }
+  await prisma.tenderPack.update({
+    where: { id: packId },
+    data: { groupingStatus: "FALLBACK", builderProfileId: null },
+  });
+  console.log(
+    `[process-pack] ${reason} → ${houseTypeCount} house type(s), per-file extraction (auto-queued)`,
+  );
+}
+
 async function groupAndPrepare(packId: string): Promise<void> {
   const pack = await prisma.tenderPack.findUnique({
     where: { id: packId },
@@ -364,6 +432,17 @@ async function groupAndPrepare(packId: string): Promise<void> {
       sheetTitle: p.sheetTitle,
     })),
   }));
+
+  // ── FAST PATH: one file = one whole house type (a single combined PDF, or a flat
+  //    folder of per-type combined PDFs — the common "simple" upload). Every drawing
+  //    file is self-contained and none are variants of each other, so cross-file
+  //    grouping adds nothing but latency, cost, and a failure mode (a recipe that
+  //    places nothing). Skip the AI recipe + assembly + confirm gate and extract
+  //    straight from each original PDF. (docs/17 §5.2)
+  if (isOneFilePerType(docs)) {
+    await segmentPerFileAndQueue(packId, pack.project, docs, "one file per house type (fast path)");
+    return;
+  }
 
   // Resolve the grouping recipe — AI-first (docs/17 §4), with a deterministic
   // profile fallback, then legacy per-file as a last resort.
@@ -409,56 +488,24 @@ async function groupAndPrepare(packId: string): Promise<void> {
     recipeLabel = `profile · ${detected.label}`;
   }
 
-  const boss = await getBoss();
-
-  // ── No recipe at all → legacy per-file segmentation, auto-queued (unchanged behaviour).
+  // ── No recipe at all → deterministic per-file segmentation (safety fallback).
   if (!profile) {
-    for (const doc of docs) {
-      if (doc.isRasterOnly) continue;
-      const pages: PageClass[] = doc.pages.map((p) => ({
-        page: p.pageNumber,
-        kind: p.kind as PageClass["kind"],
-        relevant: p.relevant,
-        houseTypeCode: p.houseTypeCode,
-        houseTypeName: p.houseTypeName,
-        title: p.sheetTitle ?? "",
-      }));
-      const groups = segmentByHouseType(pages);
-      for (const group of groups) {
-        const houseType = await ensureHouseType(
-          pack.project.id,
-          pack.project.clientId,
-          group.code,
-          group.name ?? baseName(doc.fileName),
-        );
-        const extraction = await prisma.extraction.create({
-          data: {
-            documentId: doc.id,
-            houseTypeId: houseType.id,
-            pageRange: group.pageRange,
-            model: env.extractionModel,
-            promptVersion: "pending",
-            status: "PENDING",
-          },
-        });
-        await boss.send(EXTRACT_DRAWING_QUEUE, {
-          documentId: doc.id,
-          extractionId: extraction.id,
-          pageRange: group.pageRange,
-        });
-      }
-    }
-    await prisma.tenderPack.update({
-      where: { id: packId },
-      data: { groupingStatus: "FALLBACK", builderProfileId: null },
-    });
-    console.log(`[process-pack] no builder profile → legacy per-file extraction (auto-queued)`);
+    await segmentPerFileAndQueue(packId, pack.project, docs, "no builder profile");
     return;
   }
 
   // ── AI/profile recipe → group everything; EAGERLY assemble only the RELEVANT
   //    pages (small + fast); the full dossier is built lazily on "Open full drawing".
   const result = groupPack(files, profile);
+
+  // Safety net: a recipe that placed NOTHING (a strategy that fits no file — the
+  // "stuck, no house type" bug) must not become an empty PROPOSED. Fall back to
+  // deterministic per-file segmentation so a pack never silently yields nothing.
+  if (result.groups.length === 0) {
+    await segmentPerFileAndQueue(packId, pack.project, docs, "empty AI grouping (safety fallback)");
+    return;
+  }
+
   const summaryGroups: GroupingSummaryGroup[] = [];
 
   for (const group of result.groups) {
@@ -649,8 +696,4 @@ function documentKind(pages: PageClass[]): Prisma.DocumentCreateManyInput["kind"
   if (pages.some((p) => p.kind === "PLOT_LAYOUT")) return "PLOT_LAYOUT";
   if (pages.some((p) => p.kind === "SPEC")) return "SPEC";
   return "OTHER";
-}
-
-function baseName(fileName: string): string {
-  return fileName.replace(/\.pdf$/i, "");
 }

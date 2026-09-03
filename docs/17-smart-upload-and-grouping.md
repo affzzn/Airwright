@@ -223,6 +223,43 @@ tag ever wrongly hides a page, Colin still sees it in the full PDF and can flip 
 include ALL pages, carry a `relevant` flag per page, order relevant-first, and split the
 review UI into preview-relevant vs open-full-everything.)*
 
+### 5.2 The single-type fast path — skip grouping when one file IS one house type (✅ 2026-09-02)
+
+Cross-file grouping (AI recipe + assembly + a confirm gate) exists to solve the *hard*
+case: loose single-page PDFs scattered across trade folders. But the **common** upload is
+the opposite — a single multi-page PDF, or a flat folder of them, where **each file already
+is a complete house type** (Bloor `new-laura`; a re-uploaded combined dossier). Forcing that
+through the AI recipe was pure overhead and, worse, a failure mode: on a lone oddly-named
+file the recipe could pick a strategy that places **nothing** → 0 house types, an empty
+`PROPOSED`, and a pack that looks *stuck* with no takeoff, no review (the real SM1 SM2 bug).
+
+**Fast path (`isOneFilePerType`, `src/lib/ingest/singleType.ts`, pure + tested).** Before any
+AI call, the worker checks the pack shape: every **drawing** file (one with a scaffold-relevant
+page) is **self-contained** — it carries BOTH a relevant elevation AND a relevant floor plan —
+and no two files are config/handing **variants** of the same type (`variantStrippedKey`). If so:
+
+- **One house type per file**, extracted straight from the **original PDF's relevant page
+  range** (`slicePages` — already batched, so no resource-duplication bloat / no 413).
+- **No AI recipe, no assembly, no confirm gate** — auto-queued (`groupingStatus=FALLBACK`, which
+  the project page renders as house types directly, not the confirm screen). The take-off is
+  still human-confirmed on the review screen before pricing.
+
+It deliberately does **not** fire for loose single-sheet packs (Vistry/Tilia — files aren't
+self-contained) or variant-split packs (Taylor Wimpey — sibling END/MID files share a variant
+key), which still get the full cross-file grouping that collapses variants. So nothing
+downstream changes for them.
+
+**Safety net (zero-groups fallback).** Independently, when the AI recipe *does* run but
+`groupPack` places **nothing** (0 groups), the worker now falls back to the same per-file
+segmentation instead of an empty `PROPOSED` — so **no pack can ever silently yield nothing**.
+
+Both reuse one helper (`segmentPerFileAndQueue`, refactored from the legacy no-recipe path).
+**Verified live:** the previously-stuck SM1 SM2 single PDF → fast path → house type
+"SM1/SM2 Maisonette Type" → extraction → take-off (7 measurements, 4 walls); a Hallam+Sinclair
+flat folder → 2 house types, both extracted, no confirm gate. (Plus a modest live-refresh
+speed-up in `auto-refresh.tsx`: idle heartbeat 8s→4s so a finished pack shows without a manual
+refresh.)
+
 ---
 
 ## 6. Relevance detection — tiered hybrid, judged by meaning not keywords

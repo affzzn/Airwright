@@ -37,7 +37,7 @@ export function AutoRefresh({ projectId }: { projectId: string }) {
           if (active) sawActive.current = true;
           // Refresh on a real change, or once when work has just settled.
           const settled = !active && sawActive.current;
-          if ((changed || settled) && Date.now() - lastRefresh.current > 3500) {
+          if ((changed || settled) && Date.now() - lastRefresh.current > 3000) {
             lastRefresh.current = Date.now();
             router.refresh();
           }
@@ -46,12 +46,14 @@ export function AutoRefresh({ projectId }: { projectId: string }) {
       } catch {
         // transient network error — keep polling
       }
-      // Fast while the pipeline is working; slow heartbeat when idle so a new
-      // upload is still picked up without a manual refresh.
-      if (!stopped) timer = setTimeout(tick, active ? 2000 : 8000);
+      // Fast while the pipeline is working; a modest heartbeat when idle so a new
+      // upload (or a just-finished fast-path grouping) is picked up promptly
+      // without a manual refresh. The probe is cheap; only a real state CHANGE
+      // triggers the heavy re-render (throttled above), so this can't storm.
+      if (!stopped) timer = setTimeout(tick, active ? 2000 : 4000);
     };
 
-    timer = setTimeout(tick, 1200);
+    timer = setTimeout(tick, 800);
     return () => {
       stopped = true;
       clearTimeout(timer);
