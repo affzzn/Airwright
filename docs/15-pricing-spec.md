@@ -127,15 +127,24 @@ The **Grand Total = Erect & Dismantle (plots) + Garages**. 🔧 **APP GAP: garag
 
 ---
 
-## 7. The Timber-Frame matrix (different structure)
+## 7. The Timber-Frame matrix — ✅ IMPLEMENTED (docs/18, from the 1 Sep call)
 
-`Storey · Erect Timber Frame External 2-4 Lifts · Erect Apex Handrails · Adaption
-1st…6th Lift · Render/Cladding Adaption · Dismantle · Plot Erect 80% · Dismantle
-20% · Erect & Strip Price`.
+**Superseded by the real rules from the 1 Sep Colin/Laura call — the full spec + the
+implementation plan is `docs/18-timber-frame-implementation-plan.md`.** Build system is
+now a **project-level** choice (the new-tender "Build type" dropdown), not a per-house-type
+read. The timber-frame line (from Laura's email):
 
-Differences from Traditional: **a single external erect** (not per-lift), **per-lift
-"Adaptions"** (the frame is adapted as it rises), **apex handrails** as their own item,
-**no birdcage stage**, and an **80 / 20** split. 🔧 **APP GAP: not implemented — `buildType = TIMBER_FRAME` must switch to this matrix.**
+`Storey · Erect Timber Frame External (flat per-lift) · Apex Scaffold · Apex Rails ·
+Inside-Board Adaption (LM) · Hop-Up Adaption (LM) · Render/Cladding Adaption · Dismantle
+· Plot Erect 80% · Dismantle 20% · Erect & Strip Price`.
+
+Differences from Traditional (the three that change the take-off): a **different lift
+rule** (450 mm top step + 2 m lifts → fewer lifts: 2→3, 2.5→4, 3→4; every lift flat-rated),
+**NO birdcage**, and **two LM adaptions** — inside-board (all lifts + apex×4 LM) and hop-up
+(lifts−1 + apex×4 LM). Everything else (perimeter, corners, apex, render) is shared. An
+**80 / 20** split. ✅ Built: `computeLiftsTimberFrame` + `computeAdaptions` (engine),
+`priceTimberFrameLine` (pricing), `timberFrameColumns/Cells` (matrix). ⚠️ Rates + the
+party-wall/80-20 questions in docs/18 §7 still owed by Colin.
 
 ---
 

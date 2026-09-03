@@ -234,14 +234,14 @@ function allocateStages(
 }
 
 /**
- * Price a TIMBER-FRAME house type (docs/15 §7). The frame contractor's own
- * scaffold is ADAPTED as it rises, so the client matrix is a single external
- * erect + apex handrails + per-lift adaptions + render + dismantle, with an 80/20
- * split and NO birdcage stage. The take-off line is the same; only the priced
- * operation set + columns differ.
+ * Price a TIMBER-FRAME house type (docs/18, from the 1 Sep Colin/Laura call). The
+ * whole scaffold goes up before the house and every lift is boarded + flat-rated,
+ * so the client line is: external erect (flat per-lift LM) + apex scaffold + apex
+ * rails + the TWO LM adaptions (inside-board, hop-up) + render + dismantle. NO
+ * birdcage and NO party wall (Laura's semi line has neither — docs/18 §7). An 80/20
+ * stage split. The take-off `line.adaptions` carries the two LM quantities.
  *
- * ⚠ MAPPING (rates open — docs/15 §11.7): external erect + dismantle priced on the
- * total external LM; each adaption on the per-lift LM. Confirm quantities/£ with Colin.
+ * ⚠ RATES are placeholders until Colin's timber-frame rate sheet (docs/18 §7).
  */
 export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceResult {
   const lines: PricedLine[] = [];
@@ -277,14 +277,34 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
   const perLift = line.perimeter.perLiftM;
   const totalExternal = round2(perLift * lifts);
 
-  // One external erect for the whole envelope (matrix col E).
-  add("TF_EXTERNAL", "ERECT", totalExternal, "LM", 0, "erect timber-frame external");
-  // Apex handrails — TF has handrails, not table lifts (matrix col F).
-  if (line.apex.count > 0) add("GABLE_RAILS", "ERECT", line.apex.count, "EACH", null, "apex handrails");
-  // Per-lift adaptions as the frame rises (matrix cols G–L; up to 6).
-  for (let lvl = 1; lvl <= Math.min(lifts, 6); lvl++)
-    add("ADAPTION", "ERECT", perLift, "LM", lvl, `adaption lift ${lvl}`);
-  // Render / cladding adaption (matrix col M).
+  // External erect — flat per-lift LM (all lifts price the same on timber frame),
+  // summed to the whole envelope for the single "Erect Timber Frame External" column.
+  add("TF_EXTERNAL", "ERECT", totalExternal, "LM", 0, "erect timber-frame external (all lifts)");
+  // Apex: scaffold (working platform) + rails, both per apex (Laura's semi = 1 + 1).
+  if (line.apex.count > 0) {
+    add("TABLE_LIFT", "ERECT", line.apex.count, "EACH", null, "apex scaffold");
+    add("GABLE_RAILS", "ERECT", line.apex.count, "EACH", null, "apex rails");
+  }
+  // The two LM adaptions (docs/18 §1.2) — quantities from the take-off engine.
+  if (line.adaptions) {
+    add(
+      "ADAPTION_INSIDE_BOARD",
+      "ERECT",
+      line.adaptions.insideBoardLM,
+      "LM",
+      null,
+      "inside-board adaption (all lifts + apex×4 LM)",
+    );
+    add(
+      "ADAPTION_HOP_UP",
+      "ERECT",
+      line.adaptions.hopUpLM,
+      "LM",
+      null,
+      "hop-up adaption (lifts−1 + apex×4 LM)",
+    );
+  }
+  // Render / cladding adaption.
   if (line.render && line.render.lifts)
     add(
       "RENDER_ADAPTION",
@@ -294,11 +314,7 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
       null,
       `render ${line.render.lengthM} m × ${line.render.lifts} lifts`,
     );
-  // Party wall = inside apex (no rails), one per non-detached house — same spec
-  // item as the traditional path. ⚠ RATE £165 provisional — confirm with Colin.
-  if (line.partyWalls > 0)
-    add("PARTY_WALL", "ERECT", line.partyWalls, "EACH", null, "party-wall inside apex (no rails)");
-  // Single external dismantle (matrix col N). No birdcage in the TF plot matrix.
+  // Single external dismantle. No birdcage, no party wall on timber frame.
   if (totalExternal > 0) add("TF_EXTERNAL", "DISMANTLE", totalExternal, "LM", null, "dismantle");
 
   const subtotalPence = columnedSubtotalPence(lines);

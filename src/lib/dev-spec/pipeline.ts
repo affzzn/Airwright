@@ -59,7 +59,7 @@ export const PIPELINE: PipelineStage[] = [
  */
 export const SCHEMA_FIELDS: SchemaField[] = [
   { name: "houseType", type: "{ name, code?, confidence }", meaning: "House-type name + code (e.g. Dekker / NSS.277)." },
-  { name: "buildType", type: "TRADITIONAL | TIMBER_FRAME | null", meaning: "Selects the pricing matrix; TF also changes sequence/ties." },
+  { name: "buildType", type: "TRADITIONAL | TIMBER_FRAME | null", meaning: "The drawing's build-type read — now only a cross-check (build system is a project-level choice; docs/18)." },
   { name: "structure", type: "DETACHED | PAIR_SEMI | THREE_BLOCK | TERRACE | APARTMENT_BLOCK | null", meaning: "Decides how the take-off is split (named by how many houses are joined; terrace = 4+)." },
   { name: "storeys", type: "number field (1 / 2 / 2.5 / 3)", meaning: "Observed; not used to count lifts." },
   { name: "roomInRoof", type: "bool field", meaning: "Room in the roof → 2.5-storey; adds a lift + a birdcage floor." },

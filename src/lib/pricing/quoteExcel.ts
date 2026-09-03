@@ -56,12 +56,20 @@ export type QuoteLineItemForExcel = {
 export interface QuoteForExcel {
   version: number;
   total: unknown;
-  project: { name: string };
+  project: { name: string; buildType?: string | null };
   lineItems: QuoteLineItemForExcel[];
 }
 
-/** Reconstruct priced plots (by build type) from the frozen line items. */
-function pricedPlotsByBuildType(lineItems: QuoteLineItemForExcel[]): Map<MatrixBuildType, PricedPlot[]> {
+/**
+ * Reconstruct priced plots from the frozen line items, keyed by build type. Build
+ * system is project-level (docs/18), so every plot sits under `projectBuildType`
+ * (a mixed development is no longer possible). The per-house-type buildType read
+ * off the drawing is ignored here.
+ */
+function pricedPlotsByBuildType(
+  lineItems: QuoteLineItemForExcel[],
+  projectBuildType: MatrixBuildType,
+): Map<MatrixBuildType, PricedPlot[]> {
   const byPlot = new Map<
     string,
     { plot: NonNullable<QuoteLineItemForExcel["plot"]>; lines: PricedLine[]; stages: { name: string; percent: number; amount: number }[] }
@@ -90,7 +98,7 @@ function pricedPlotsByBuildType(lineItems: QuoteLineItemForExcel[]): Map<MatrixB
   }
   const out = new Map<MatrixBuildType, PricedPlot[]>();
   for (const { plot, lines, stages } of byPlot.values()) {
-    const bt: MatrixBuildType = plot.houseType.buildType === "TIMBER_FRAME" ? "TIMBER_FRAME" : "TRADITIONAL";
+    const bt = projectBuildType; // one build system per project (docs/18)
     // Subtotal is the COLUMNED cost only — inclusions carry no column (they're
     // listed separately), so they never enter the plot total or the stage split.
     const subtotal =
@@ -157,7 +165,9 @@ export async function buildQuoteWorkbook(quote: QuoteForExcel): Promise<Uint8Arr
   const wb = new ExcelJS.Workbook();
   wb.creator = "Airwright";
 
-  const plotsByType = pricedPlotsByBuildType(quote.lineItems);
+  const projectBuildType: MatrixBuildType =
+    quote.project.buildType === "TIMBER_FRAME" ? "TIMBER_FRAME" : "TRADITIONAL";
+  const plotsByType = pricedPlotsByBuildType(quote.lineItems, projectBuildType);
   const garages = pricedGarages(quote.lineItems);
 
   const sheetName =

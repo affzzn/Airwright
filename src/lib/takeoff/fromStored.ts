@@ -1,5 +1,6 @@
 import type {
   ApexByFace,
+  BuildSystem,
   Configuration,
   FloorArea,
   RoofType,
@@ -29,6 +30,7 @@ export function takeoffInputFromStored(
   walls: Wall[],
   warnings: Warnings,
   config: Configuration,
+  buildSystem: BuildSystem = "TRADITIONAL",
 ): TakeoffInput {
   const num = (key: string): number | null => {
     const m = measurements.find((x) => x.key === key);
@@ -121,5 +123,6 @@ export function takeoffInputFromStored(
     lowLevelCount: num("LOW_LEVEL_QTY") ?? 0,
     chimney: warnings.chimney === true,
     config,
+    buildSystem,
   };
 }

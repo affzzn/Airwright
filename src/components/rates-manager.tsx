@@ -53,7 +53,8 @@ const COMPONENT_OPTS: { value: string; label: string }[] = [
   { value: "TABLE_LIFT", label: "Table lift" },
   { value: "RENDER_ADAPTION", label: "Render adaption" },
   { value: "TF_EXTERNAL", label: "TF external (timber frame)" },
-  { value: "ADAPTION", label: "Adaption (timber frame)" },
+  { value: "ADAPTION_INSIDE_BOARD", label: "Inside-board adaption (TF)" },
+  { value: "ADAPTION_HOP_UP", label: "Hop-up adaption (TF)" },
   { value: "BIRDCAGE_GF", label: "Birdcage (GF)" },
   { value: "BIRDCAGE_FF", label: "Birdcage (FF)" },
   { value: "BIRDCAGE_SF", label: "Birdcage (SF)" },
@@ -97,9 +98,9 @@ const SCENARIO_LABEL: Record<string, string> = {
   GARAGE_NO_BCAGE: "Garage (no birdcage)",
   TIMBER_FRAME: "Timber frame",
 };
-// A lift level 1..8 only means something for per-lift components (LIFT erect,
-// and timber-frame ADAPTION); everything else is the base rate (0), shown as "—".
-const usesLiftLevel = (component: string) => component === "LIFT" || component === "ADAPTION";
+// A lift level 1..8 only means something for the per-lift LIFT erect (1st lift is
+// dearer); everything else — incl. the TF LM adaptions — is the base rate (0, "—").
+const usesLiftLevel = (component: string) => component === "LIFT";
 const liftLevelLabel = (component: string, level: number) =>
   usesLiftLevel(component) && level > 0 ? `${level}` : "—";
 

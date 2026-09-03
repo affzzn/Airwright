@@ -31,7 +31,7 @@ export interface WorkspaceProject {
   id: string;
   name: string;
   clientName: string;
-  mode: "HOUSE_BUILD" | "CONSTRUCTION";
+  buildType: "TRADITIONAL" | "TIMBER_FRAME";
   houseTypes: number;
   plots: number;
   createdAt: string; // ISO
@@ -234,10 +234,10 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
               />
             </div>
             <div>
-              <Label htmlFor="mode">Estimating mode</Label>
-              <Select id="mode" name="mode" defaultValue="HOUSE_BUILD">
-                <option value="HOUSE_BUILD">House build</option>
-                <option value="CONSTRUCTION">Construction</option>
+              <Label htmlFor="buildType">Build type</Label>
+              <Select id="buildType" name="buildType" defaultValue="TRADITIONAL">
+                <option value="TRADITIONAL">Traditional</option>
+                <option value="TIMBER_FRAME">Timber frame</option>
               </Select>
             </div>
             <div>
@@ -342,7 +342,7 @@ function Row({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-ink">{p.name}</p>
           <p className="mt-0.5 truncate text-xs text-ink-subtle">
-            {p.clientName} · {p.mode === "CONSTRUCTION" ? "Construction" : "House build"}
+            {p.clientName} · {p.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional"}
           </p>
           {p.status === "READING" && p.extTotal > 0 && (
             <div className="mt-1.5 h-[3px] w-32 overflow-hidden rounded-full bg-surface-2">

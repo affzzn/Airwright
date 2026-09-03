@@ -161,10 +161,8 @@ export default async function ProjectPage({
             {project.name}
           </h1>
           <p className="mt-1 text-sm text-ink-subtle">
-            {project.estimatingMode === "CONSTRUCTION"
-              ? "Construction"
-              : "House build"}{" "}
-            · Pack v{pack?.version ?? 1}
+            {project.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional"}
+            {" "}· Pack v{pack?.version ?? 1}
           </p>
           <div
             className="mt-2"

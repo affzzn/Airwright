@@ -69,11 +69,13 @@ async function main() {
           // Party-wall spec item — inside apex, no rails; one per non-detached house.
           // ⚠ £165 PROVISIONAL (Colin, 2026-09-01 call) — confirm on the rate sheet.
           { component: "PARTY_WALL", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 165.0 },
-          // Timber-frame placeholders (⚠ real TF rates owed by Colin — docs/15 §11.7).
+          // Timber-frame placeholders (⚠ real TF rates owed by Colin — docs/18 §7).
           { component: "TF_EXTERNAL", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 12.0 },
           { component: "TF_EXTERNAL", action: "DISMANTLE", band: "MEDIUM", unit: "LM", rate: 4.0 },
-          { component: "ADAPTION", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 5.0, liftLevel: 0 },
-          // (GABLE_RAILS defined above — shared by the traditional apex split and TF.)
+          // The two LM adaptions (docs/18). TABLE_LIFT + GABLE_RAILS above cover the
+          // TF apex scaffold + rails; render/dismantle share the traditional lines.
+          { component: "ADAPTION_INSIDE_BOARD", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 5.0 },
+          { component: "ADAPTION_HOP_UP", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 4.0 },
         ],
       },
     },

@@ -11,7 +11,33 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-01
+Last updated: 2026-09-03
+
+### 2026-09-03 — Timber-frame support (project-level build type) — branch `feat/timber-frame`
+
+Full plan: **`docs/18-timber-frame-implementation-plan.md`** (from the 1 Sep Colin/Laura
+"Introduction to Timber Frames" call + Laura's email). Build system is now a **project-level**
+choice; **Construction retired** from the new-tender form (enum/dead code left in place).
+
+- **Track A — UI/model.** New `Project.buildType` (migration `add_timber_frame_support`,
+  default TRADITIONAL). The "Estimating mode" dropdown → **Build type: Traditional / Timber
+  frame**; `createProject` always writes `HOUSE_BUILD` + the chosen build type; the project
+  page + tenders list show the build type.
+- **Track B — the take-off engine (correctness core).** `buildTakeoff` is now
+  build-system-aware: **timber-frame lifts** (`computeLiftsTimberFrame` — storey table 2→3,
+  2.5→4, 3→4, with the 450 mm + 2 m height method as a flagged cross-check), **no birdcage**,
+  and **two LM adaptions** (`computeAdaptions` — inside-board = all lifts + apex×4; hop-up =
+  lifts−1 + apex×4). Validated to **Laura's Aspen semi: 66.49 / 45.66 LM** and the lift table.
+- **Track C — pricing + matrix + rates + display.** `priceTimberFrameLine` reworked to the
+  real line (flat per-lift external, apex scaffold + apex rails, the two LM adaptions, render,
+  dismantle — **no birdcage, no party wall**, 80/20 split). `buildType` threaded project-level
+  through `priceProject` / `loadProjectPricing` / `quoteExcel`. Matrix TF columns/cells reworked;
+  two new components `ADAPTION_INSIDE_BOARD` / `ADAPTION_HOP_UP` (+ seed / fill-placeholder /
+  rates screen). Review editor shows the TF line (no birdcage, adaptions).
+- **Green:** typecheck + lint + build clean, **288 tests** (engine TF + matrix TF + priceProject
+  TF). Docs synced (15 §7, dev-spec, persist note). ⚠️ Rates are placeholders; the docs/18 §7
+  Colin questions (party wall, 80/20 placement, real rate sheet) remain open. Migration applies
+  on the next `db:deploy`.
 
 ### 2026-09-01 — birdcage internal↔overall role reconciliation (dimension double-strip fix)
 

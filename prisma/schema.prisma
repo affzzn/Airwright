@@ -163,7 +163,9 @@ enum ScaffoldComponent {
   BIRDCAGE_SF
   BIRDCAGE_TF
   TF_EXTERNAL // timber-frame: the single external erect (matrix col E) — docs/15 §7
-  ADAPTION // timber-frame: a per-lift adaption as the frame rises (cols G–L)
+  ADAPTION // DEPRECATED (pre-call guess) — replaced by the two LM adaptions below
+  ADAPTION_INSIDE_BOARD // timber-frame: inside-board adaption, all lifts + apex×4 LM (docs/18)
+  ADAPTION_HOP_UP // timber-frame: hop-up adaption, lifts−1 + apex×4 LM (docs/18)
   LOADING_BAY
   HAKI
   LADDER_TOWER
@@ -283,6 +285,10 @@ model Project {
   name           String
   reference      String?
   estimatingMode EstimatingMode     @default(HOUSE_BUILD)
+  // The build system for this tender (project-level — docs/18). Chosen on the
+  // new-tender form; selects the take-off + pricing logic (TRADITIONAL vs
+  // TIMBER_FRAME) for every house type + plot. Supersedes the per-house-type read.
+  buildType      BuildType          @default(TRADITIONAL)
   // Which LLM reads this project's drawings (a model KEY from the provider
   // catalog, e.g. "anthropic-opus-4-8" / "gemini-3-1-pro" / "openai-gpt-5-6").
   // Null → the default (Anthropic Opus 4.8). Chosen on the new-project form.

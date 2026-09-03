@@ -91,10 +91,13 @@ export async function setCustomMeterRate(
 export async function createProject(formData: FormData) {
   const clientName = String(formData.get("clientName") ?? "").trim();
   const projectName = String(formData.get("projectName") ?? "").trim();
-  const mode =
-    String(formData.get("mode") ?? "HOUSE_BUILD") === "CONSTRUCTION"
-      ? "CONSTRUCTION"
-      : "HOUSE_BUILD";
+  // Build system for this tender (docs/18) — selects the take-off + pricing logic.
+  // Construction estimating mode has been retired from the create form; every new
+  // tender is a HOUSE_BUILD, either TRADITIONAL or TIMBER_FRAME.
+  const buildType =
+    String(formData.get("buildType") ?? "TRADITIONAL") === "TIMBER_FRAME"
+      ? "TIMBER_FRAME"
+      : "TRADITIONAL";
   // Which LLM reads this project's drawings; unknown/empty → default (Anthropic).
   const rawModel = String(formData.get("extractionModel") ?? "");
   const extractionModel = isValidModelKey(rawModel) ? rawModel : null;
@@ -110,7 +113,8 @@ export async function createProject(formData: FormData) {
     data: {
       clientId: client.id,
       name: projectName,
-      estimatingMode: mode,
+      estimatingMode: "HOUSE_BUILD",
+      buildType,
       extractionModel,
       packs: { create: { version: 1 } }, // start with an empty pack to upload into
     },

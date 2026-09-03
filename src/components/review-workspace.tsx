@@ -47,6 +47,7 @@ export function ReviewWorkspace({
   raw,
   documentPages,
   storeyLiftTemplate,
+  buildSystem,
 }: {
   backHref: string;
   title: string;
@@ -66,6 +67,7 @@ export function ReviewWorkspace({
   raw: ExtractionResult | null;
   documentPages: PageRef[];
   storeyLiftTemplate?: Record<string, number>;
+  buildSystem?: "TRADITIONAL" | "TIMBER_FRAME";
 }) {
   const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
   const onGoToPage = (page: number) =>
@@ -151,6 +153,7 @@ export function ReviewWorkspace({
             relevantPages={relevantPages}
             onGoToPage={onGoToPage}
             storeyLiftTemplate={storeyLiftTemplate}
+            buildSystem={buildSystem}
           />
         </div>
       </div>

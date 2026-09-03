@@ -27,7 +27,7 @@ export default async function ReviewPage({
     include: {
       document: {
         include: {
-          pack: { include: { project: { select: { extractionModel: true } } } },
+          pack: { include: { project: { select: { extractionModel: true, buildType: true } } } },
           pages: { select: { pageNumber: true, sheetTitle: true } },
         },
       },
@@ -185,6 +185,7 @@ export default async function ReviewPage({
         raw={raw}
         documentPages={documentPages}
         storeyLiftTemplate={storeyLiftTemplate}
+        buildSystem={extraction.document.pack.project.buildType}
       />
     </AppShell>
   );

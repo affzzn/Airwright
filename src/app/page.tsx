@@ -49,7 +49,7 @@ export default async function HomePage() {
       id: p.id,
       name: p.name,
       clientName: p.client.name,
-      mode: p.estimatingMode,
+      buildType: p.buildType,
       houseTypes: p._count.houseTypes,
       plots: p._count.plots,
       createdAt: p.createdAt.toISOString(),

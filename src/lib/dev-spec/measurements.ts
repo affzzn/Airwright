@@ -23,14 +23,19 @@ export const MEASUREMENTS: Measurement[] = [
   {
     id: "buildType",
     name: "Build type (Traditional vs Timber-Frame)",
-    plain: "Whether the house is traditional masonry or timber-frame.",
-    whereRead: ["Spec notes / construction type on the drawing"],
-    layer: "llm",
-    howRead: "Read TRADITIONAL or TIMBER_FRAME if stated.",
+    plain: "Whether the tender is traditional masonry or timber-frame.",
+    whereRead: ["Chosen on the new-tender form (project-level)"],
+    layer: "engine",
+    howRead:
+      "A PROJECT-level choice (docs/18) — the user sets it when creating the tender. The drawing's own read is kept only as a cross-check/flag.",
     derivation:
-      "Downstream (pricing) it SELECTS the matrix (Traditional 27-col / Timber-Frame 17-col, different stage splits). Timber-frame also changes the scaffold sequence/ties — not the LM/lift maths — so a note is surfaced for the estimator to confirm.",
+      "Timber frame changes the take-off itself: a different lift rule (450 mm top step + 2 m lifts → fewer lifts; 2→3, 2.5→4, 3→4), NO birdcage, and two LM adaptions (inside-board + hop-up, each apex = 4 LM). It then selects the Timber-Frame pricing matrix + the 80/20 stage split. Everything else (perimeter, corners, apex, render) is shared with traditional.",
     status: "confirmed",
-    codeRefs: ["src/lib/extract/schema.ts", "src/lib/extract/persist.ts"],
+    codeRefs: [
+      "src/lib/takeoff/engine.ts",
+      "src/lib/pricing/engine.ts",
+      "docs/18-timber-frame-implementation-plan.md",
+    ],
     relatedTerms: ["build-type"],
   },
   {
