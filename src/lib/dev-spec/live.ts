@@ -20,6 +20,10 @@ import {
   STANDARD_STOREY_LIFTS,
   RENDER_LIFTS_BY_STOREY,
   EXPECTED_FLOORS_BY_STOREY,
+  TIMBER_FRAME_STOREY_LIFTS,
+  TF_TOP_STEP_M,
+  TF_LIFT_HEIGHT_M,
+  APEX_LM_PER,
 } from "@/lib/takeoff/engine";
 import {
   EXCLUSION_TERMS,
@@ -48,6 +52,11 @@ export const LIVE = {
     standardStoreyLifts: STANDARD_STOREY_LIFTS,
     renderLiftsByStorey: RENDER_LIFTS_BY_STOREY,
     expectedFloorsByStorey: EXPECTED_FLOORS_BY_STOREY,
+    // Timber frame (docs/18)
+    timberFrameStoreyLifts: TIMBER_FRAME_STOREY_LIFTS,
+    tfTopStepM: TF_TOP_STEP_M,
+    tfLiftHeightM: TF_LIFT_HEIGHT_M,
+    apexLmPer: APEX_LM_PER,
   },
   birdcage: {
     internalXCheckTolerance: BIRDCAGE_INTERNAL_XCHECK_TOLERANCE,

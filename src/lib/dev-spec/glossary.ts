@@ -62,10 +62,15 @@ export const GLOSSARY: GlossaryTerm[] = [
   { id: "render", term: "Render / render adaption", definition: "A wet render or cladding finish on part of an elevation — a separate work type. Re-erected in 2 m boarded lifts. Priced at the same £/LM as the perimeter. Per plot.", layer: "both" },
   { id: "render-lifts", term: "Render lifts", definition: "Colin's table: 1-storey 1, 2-storey 2, 2.5-storey 3, 3-storey 4. Only the rendered section is measured. ⚠️ the full table is owed." },
 
+  // Build type / timber frame (docs/18)
+  { id: "build-type", term: "Build type", definition: "Traditional masonry vs timber-frame — a PROJECT-level choice made when the tender is created. It changes the take-off itself (see Timber frame) and selects the pricing matrix + stage split.", layer: "engine" },
+  { id: "timber-frame", term: "Timber frame", definition: "A house built as a timber frame instead of masonry. The take-off differs in three ways: fewer lifts (450 mm off the soffit + 2 m lifts → 2-storey 3, 2.5 4, 3 4), NO birdcage, and two extra LM adaptions. Perimeter, corners, apex and render are the same as traditional.", layer: "engine" },
+  { id: "kicker-lift", term: "Kicker lift", definition: "On timber frame, the bottom lift — it takes up whatever height is left after the 450 mm top step and the 2 m lifts. Priced the same as every other lift." },
+  { id: "adaption", term: "Adaption", definition: "On timber frame, boards temporarily pulled out and put back so trades can work, priced by the metre (LM). Inside-board adaption covers all lifts; hop-up adaption covers every lift except the bottom kicker. Each apex adds 4 m to both.", layer: "engine" },
+
   // Pricing / process (Layer-3 boundary)
-  { id: "build-type", term: "Build type", definition: "Traditional masonry vs timber-frame. Two different pricing matrices with different columns and stage splits; timber-frame also changes scaffold sequence/ties." },
   { id: "erect-dismantle", term: "Erect vs dismantle", definition: "Put up vs take down — two separate priced operations." },
-  { id: "stage-split", term: "Payment stages / stage split", definition: "The plot total split into billing stages: Plot Erect 50% · Birdcage Erect 25% · Dismantle 25% (bungalow 65/10/25). Configurable per client." },
+  { id: "stage-split", term: "Payment stages / stage split", definition: "The plot total split into billing stages: Plot Erect 50% · Birdcage Erect 25% · Dismantle 25% (bungalow 65/10/25; timber frame 80/20, no birdcage stage). Configurable per client." },
   { id: "rate-band", term: "Rate band", definition: "Colin's commercial tier: super-competitive / competitive / medium / high / custom. Same take-off, different £/unit." },
 
   // Drawings / systems

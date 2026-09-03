@@ -15,7 +15,7 @@ export const ENGINE_RULES: EngineRule[] = [
     formula:
       "hasRoom = roomInRoof OR storeys is a half-storey (2.5)\nheightLifts = ceil(heightToSoffitM ÷ 1.5) + (hasRoom ? 1 : 0)\nstoreyLifts = storeyLiftTemplate[storeys]   (cross-check)",
     plainExtra:
-      "Precedence when they disagree: agree → use the height value; whole-storey disagreement → the storey template wins; half-storey (2.5) → the height rule wins. Either way it's flagged.",
+      "Precedence when they disagree: agree → use the height value; whole-storey disagreement → the storey template wins; half-storey (2.5) → the height rule wins. Either way it's flagged. (This is the TRADITIONAL rule — timber-frame tenders use a different lift rule; see Timber frame below.)",
     status: "confirmed",
     owner: "ben",
     codeRefs: ["src/lib/takeoff/engine.ts"],
@@ -92,6 +92,27 @@ export const ENGINE_RULES: EngineRule[] = [
     },
     status: "confirmed",
     codeRefs: ["src/lib/takeoff/engine.ts"],
+  },
+  {
+    id: "timber-frame",
+    name: "Timber frame (build type)",
+    plain:
+      "If the tender's Build type is Timber frame (chosen when the tender is created), three things change from the rules above. Everything else — perimeter, corners, apex, render — stays exactly the same.",
+    plainExtra:
+      "① Fewer lifts. Worked top-down: 450 mm off the soffit is the top lift, then 2 m boarded lifts come down, and the bottom “kicker” lift takes up whatever's left. Every lift is priced the same. ② No birdcage — there is no internal deck work. ③ Two “adaptions” are added (priced by the metre): boards are pulled out and put back as the trades work. Each apex counts as 4 m in these totals. ⚠️ Still with Colin: whether timber frame has a party-wall item, the 80/20 stage split, and the real rates.",
+    formula:
+      "lifts:  2-storey → 3,   2.5-storey → 4,   3-storey → 4\ninside-board adaption = perimeter × all lifts     + apex × 4 m\nhop-up adaption       = perimeter × (lifts − 1)   + apex × 4 m   (skips the bottom kicker lift)\n\nExample — Aspen semi, perimeter 20.83 m, 3 lifts, 1 apex:\ninside-board = 20.83×3 + 4 = 66.49 m ;   hop-up = 20.83×2 + 4 = 45.66 m",
+    table: {
+      caption: "Timber-frame lifts by storey (vs the traditional count)",
+      head: ["Storeys", "Timber frame", "Traditional"],
+      rows: [
+        ["2", "3", "4"],
+        ["2.5", "4", "5"],
+        ["3", "4", "6"],
+      ],
+    },
+    status: "confirmed",
+    codeRefs: ["src/lib/takeoff/engine.ts", "docs/18-timber-frame-implementation-plan.md"],
   },
   {
     id: "apartment",
