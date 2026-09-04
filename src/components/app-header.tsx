@@ -37,8 +37,7 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
   const pathname = usePathname() ?? "/";
   const onRates = pathname.startsWith("/rates");
   const onDocs = pathname.startsWith("/docs");
-  const onTesting = pathname.startsWith("/testing");
-  const onQuote = !onRates && !onDocs && !onTesting;
+  const onQuote = !onRates && !onDocs;
 
   // Full-height tab: a bottom border that overlaps the header's own hairline
   // (`-mb-px`) so the active underline sits flush on the divider.
@@ -78,17 +77,6 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
               className={cn(tab, "border-transparent text-ink-subtle hover:text-ink")}
             >
               Client view
-            </Link>
-            <Link
-              href="/testing"
-              className={cn(
-                tab,
-                onTesting
-                  ? "border-ink font-medium text-ink"
-                  : "border-transparent text-ink-subtle hover:text-ink",
-              )}
-            >
-              Testing
             </Link>
             <Link
               href="/docs"
