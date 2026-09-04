@@ -268,7 +268,7 @@ export function ClientQuote({ reference }: { reference: string }) {
                         <div>
                           <Eyebrow>Payment stages</Eyebrow>
                           <ul className="mt-2 space-y-1.5">
-                            {STAGES.map((s) => (
+                            {STAGES.filter((s) => asAirwright || s.label !== "Dismantle").map((s) => (
                               <li key={s.label} className="flex justify-between gap-4 text-sm">
                                 <span className="text-ink-muted">{s.label} <span className="text-ink-subtle">({s.pct}%)</span></span>
                                 <span className="tabular-nums text-ink">{gbp((p.total * s.pct) / 100)}</span>
@@ -303,7 +303,7 @@ export function ClientQuote({ reference }: { reference: string }) {
         <section>
           <h2 className="mb-3 text-sm font-semibold">Payment schedule</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {STAGES.map((s, i) => (
+            {STAGES.filter((s) => asAirwright || s.label !== "Dismantle").map((s, i) => (
               <div key={s.label} className="rounded-lg border border-hairline bg-canvas p-4">
                 <div className="flex items-center gap-2 text-xs text-ink-subtle">
                   <span className="grid h-5 w-5 place-items-center rounded-full bg-surface-2 text-[10px] font-medium text-ink-muted">{i + 1}</span>
