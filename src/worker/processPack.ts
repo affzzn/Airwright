@@ -472,6 +472,25 @@ async function groupAndPrepare(packId: string): Promise<void> {
         })),
       );
       const inferred = await inferRecipe(manifest);
+      // Reconcile the AI's junk-folder calls against the CLASSIFICATION (docs/17 §5):
+      // a folder the AI flagged junk by convention (e.g. "Groundworks") but that
+      // actually holds classified drawings is NOT junk — some builders dump the
+      // house-type drawings there. Trust the per-page classifier (recall > precision,
+      // §6): drop any junk keyword whose folder segment carries several relevant pages.
+      const relevantByFolder = new Map<string, number>();
+      for (const d of docs) {
+        if (!d.pages.some((p) => p.relevant)) continue;
+        const segs = (d.relativePath ?? d.fileName).split("/").slice(0, -1);
+        for (const s of new Set(segs.map((x) => x.toUpperCase())))
+          relevantByFolder.set(s, (relevantByFolder.get(s) ?? 0) + 1);
+      }
+      const keptJunk = inferred.recipe.junkFolderKeywords.filter(
+        (kw) => (relevantByFolder.get(kw.trim().toUpperCase()) ?? 0) < 5,
+      );
+      const rescued = inferred.recipe.junkFolderKeywords.filter((kw) => !keptJunk.includes(kw));
+      if (rescued.length)
+        console.log(`[process-pack] un-junked folder(s) holding drawings: ${rescued.join(", ")}`);
+      inferred.recipe.junkFolderKeywords = keptJunk;
       profile = compileRecipe(inferred.recipe);
       recipeLabel = `AI · ${inferred.recipe.strategy} (${inferred.recipe.confidence})`;
       console.log(

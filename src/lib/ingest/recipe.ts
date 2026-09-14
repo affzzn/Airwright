@@ -110,6 +110,32 @@ function filenameNameToken(rp: string): string | null {
   return m2 ? norm(m2[1]) : null;
 }
 
+/**
+ * Match a filename DIRECTLY against the AI's known house-type names — the robust
+ * fallback for filename strategies when the format-specific extractor above misses
+ * (e.g. Vistry/BRP "MZ560-…-KIG-2001_Kingfisher-Elevations…", where the type is a
+ * bounded token, not a "CODE_NAME_ISSUE" run). The AI already listed the exact
+ * names, so scan the filename for one — longest name wins so a multi-word or longer
+ * name isn't shadowed by a shorter one. Every non-alphanumeric run is a boundary,
+ * so short codes (B1/B3/B5) match as whole tokens and never inside a larger number.
+ */
+function makeKnownNameMatcher(names: string[]): (rp: string) => string | null {
+  const canonicalize = makeCanonicalizer(names);
+  const sorted = [...new Set(names.map((n) => n.trim()).filter(Boolean))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const tokens = sorted.map((n) => n.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim());
+  return (rp: string): string | null => {
+    const file = seg(rp).pop() ?? rp;
+    const hay = ` ${file.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim()} `;
+    for (let i = 0; i < sorted.length; i++) {
+      const t = tokens[i];
+      if (t && hay.includes(` ${t} `)) return canonicalize(sorted[i]);
+    }
+    return null;
+  };
+}
+
 /** Compile an AI recipe into the deterministic profile the grouping engine applies. */
 export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
   // A pack can have SEVERAL marker regions (e.g. houses under "Masonry" AND
@@ -119,6 +145,7 @@ export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
     .filter((m): m is string => Boolean(m));
   const combinedFolder = recipe.combinedPdfFolder?.trim() || null;
   const canonicalize = makeCanonicalizer(recipe.houseTypeNames);
+  const knownNameMatcher = makeKnownNameMatcher(recipe.houseTypeNames);
 
   const rawFromPath = (rp: string): string | null => {
     const parts = seg(rp);
@@ -156,7 +183,13 @@ export function compileRecipe(recipe: Recipe): BuilderIngestProfile {
   // filename over-splits); a no-op when the AI listed no names.
   const houseTypeFromPath = (rp: string): string | null => {
     const raw = rawFromPath(rp);
-    return raw ? canonicalize(raw) : null;
+    if (raw) return canonicalize(raw);
+    // Filename strategies: the format-specific extractor missed, so fall back to
+    // scanning the filename for one of the AI's known names (docs/17 §4). Gated to
+    // filename strategies — for folder strategies a null means junk, not a miss.
+    if (recipe.strategy.startsWith("filename") && recipe.houseTypeNames.length > 0)
+      return knownNameMatcher(rp);
+    return null;
   };
 
   const isCombinedPdf =

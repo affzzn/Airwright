@@ -152,3 +152,39 @@ describe("recipeSchema", () => {
     expect(r.confidence).toBe("medium");
   });
 });
+
+describe("filename-name-token — known-name fallback (drawings dumped with code+name filenames)", () => {
+  // Vistry/BRP: "MZ560-…- KIG-2001_Kingfisher-Elevations…" — the CODE_NAME_ISSUE regex
+  // misses (no issue/rev token, starts with letters), so we scan for a known name.
+  const dir = "Leicester Road TF #/Groundworks";
+  it("resolves the type from a bounded known-name token, leaves civils unplaced", () => {
+    const p = compileRecipe(
+      make({
+        strategy: "filename-name-token",
+        houseTypeNames: ["B1", "B3", "B5", "Curlew", "Dahlia", "Jackdaw", "Kingfisher", "Plover"],
+      }),
+    );
+    const f = p.grouping.houseTypeFromPath;
+    expect(f(`${dir}/MZ560-BRP-07-ZZ-D-A- KIG-2001_Kingfisher-Elevations - Render_C07.pdf`)).toBe("KINGFISHER");
+    expect(f(`${dir}/MZ560-BRP-06-ZZ-D-A- JAC-2001_Jackdaw-Elevations - Brick_C10.pdf`)).toBe("JACKDAW");
+    expect(f(`${dir}/MZ560-BRP-04-ZZ-D-A- CUR-2001_Curlew-Elevations_C05.pdf`)).toBe("CURLEW");
+    expect(f(`${dir}/MZ539-BRP-03-ZZ-D-A- B5-2001_B5-Elevations_C07.pdf`)).toBe("B5"); // short code as a whole token
+    expect(f(`${dir}/Typical Retaining Wall Details Sheet.pdf`)).toBeNull(); // no known name → unplaced
+  });
+  it("longest name wins, and a short code never matches inside a larger word", () => {
+    const p = compileRecipe(
+      make({ strategy: "filename-name-token", houseTypeNames: ["B1", "Garage", "Double Garage Split"] }),
+    );
+    const f = p.grouping.houseTypeFromPath;
+    expect(f(`x/MZ-01_Double Garage Split-Elevations.pdf`)).toBe("DOUBLE GARAGE SPLIT");
+    expect(f(`x/MZ-01- B1-2001_B1-Elevations.pdf`)).toBe("B1");
+    expect(f(`x/MZ-01_SUB1-Substructure.pdf`)).toBeNull(); // B1 not matched inside SUB1
+  });
+  it("the fallback is gated to filename strategies (folder strategy null = junk, not a name scan)", () => {
+    const p = compileRecipe(
+      make({ strategy: "folder-after-marker", folderMarker: "Scaffold", houseTypeNames: ["Kingfisher"] }),
+    );
+    // A path NOT under the marker but whose filename contains a known name stays null.
+    expect(p.grouping.houseTypeFromPath(`pack/Junk/KIG_Kingfisher-Elevations.pdf`)).toBeNull();
+  });
+});
