@@ -164,8 +164,10 @@ enum ScaffoldComponent {
   BIRDCAGE_TF
   TF_EXTERNAL // timber-frame: the single external erect (matrix col E) — docs/15 §7
   ADAPTION // DEPRECATED (pre-call guess) — replaced by the two LM adaptions below
-  ADAPTION_INSIDE_BOARD // timber-frame: inside-board adaption, all lifts + apex×4 LM (docs/18)
-  ADAPTION_HOP_UP // timber-frame: hop-up adaption, lifts−1 + apex×4 LM (docs/18)
+  ADAPTION_INSIDE_BOARD // timber-frame: inside-board adaption LM, all adaption lifts (docs/18)
+  ADAPTION_HOP_UP // timber-frame: hop-up adaption LM, adaption lifts − kicker (docs/18)
+  ADAPTION_INSIDE_BOARD_APEX // timber-frame: inside-board adaption to apex, a UNIT (docs/18)
+  ADAPTION_HOP_UP_APEX // timber-frame: hop-up adaption to apex, a UNIT (docs/18)
   LOADING_BAY
   HAKI
   LADDER_TOWER

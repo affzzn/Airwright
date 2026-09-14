@@ -99,12 +99,20 @@ export const TIMBER_FRAME_STOREY_LIFTS: Record<string, number> = {
   "3": 4,
 };
 
+/** Timber-frame storey → ADAPTION lifts (docs/18, Laura's revised email). Differs
+ * from the total lifts ONLY on a 2.5-storey: its short 1 m lift comes off before
+ * any adaptions, so 2.5 gets 3 adaption lifts (not 4). The engine derives this as
+ * totalLifts − (2.5-storey ? 1 : 0); this table is the reference. */
+export const TIMBER_FRAME_ADAPTION_LIFTS: Record<string, number> = {
+  "2": 3,
+  "2.5": 3,
+  "3": 4,
+};
+
 /** The fixed step off the roof/apex onto the scaffold — the top (highest) lift. */
 export const TF_TOP_STEP_M = 0.45;
 /** Timber-frame boarded lifts come down in 2 m increments below the top step. */
 export const TF_LIFT_HEIGHT_M = 2.0;
-/** Each apex converts to this many LM when folded into the adaption totals (docs/18 §1.2). */
-export const APEX_LM_PER = 4;
 
 /** Tunable rules. Defaults are the confirmed values; ⚠️ ones await Colin (docs/11 §8). */
 export interface EngineParams {
@@ -368,31 +376,40 @@ export function computeBirdcage(input: TakeoffInput): BirdcageResult {
 const NO_BIRDCAGE: BirdcageResult = { floors: [], totalM2: 0, floorCount: 0 };
 
 export interface AdaptionResult {
-  /** Inside-board adaption — ALL lifts + each apex as 4 LM. */
+  /** Lifts that get adaptions — the total lifts minus the 2.5-storey's short 1 m
+   *  lift (which comes off before any adaptions). 2→3, 2.5→3, 3→4 (docs/18). */
+  adaptionLifts: number;
+  /** Inside-board adaption LM — perimeter × every adaption lift. */
   insideBoardLM: number;
-  /** Hop-up adaption — every lift EXCEPT the 1st (kicker) + each apex as 4 LM. */
+  /** Hop-up adaption LM — perimeter × every adaption lift EXCEPT the 1st (kicker). */
   hopUpLM: number;
-  /** The apex contribution (apexCount × 4 LM), folded into both totals above. */
-  apexLM: number;
+  /** Apex inside-board adaption — a UNIT per apex (not converted to LM). */
+  apexInsideBoardUnits: number;
+  /** Apex hop-up adaption — a UNIT per apex (not converted to LM). */
+  apexHopUpUnits: number;
 }
 
 /**
- * Timber-frame adaptions (docs/18 §1.2, Laura's Aspen-semi worked example). Priced
- * on an LM rate, NOT units. `perLiftM` is the per-lift perimeter (already includes
- * the corner allowance). Each apex converts to 4 LM. Validated:
- * `computeAdaptions(20.83, 3, 1)` → { insideBoardLM 66.49, hopUpLM 45.66, apexLM 4 }.
+ * Timber-frame adaptions (docs/18, Laura's revised email). Priced on an LM rate per
+ * adaption lift, and the apex as its own UNIT (NOT converted to LM). `perLiftM` is
+ * the per-lift perimeter (already includes the corner allowance). `adaptionLifts` is
+ * the take-off's adaption-lift count (2→3, 2.5→3, 3→4). Validated:
+ * `computeAdaptions(20.83, 3, 1)` → { insideBoardLM 62.49, hopUpLM 41.66,
+ * apexInsideBoardUnits 1, apexHopUpUnits 1 }.
  */
 export function computeAdaptions(
   perLiftM: number,
-  lifts: number,
+  adaptionLifts: number,
   apexCount: number,
 ): AdaptionResult {
-  const apexLM = round3(Math.max(0, apexCount) * APEX_LM_PER);
-  const n = Math.max(0, lifts);
+  const n = Math.max(0, adaptionLifts);
+  const apex = Math.max(0, Math.round(apexCount));
   return {
-    insideBoardLM: round3(perLiftM * n + apexLM),
-    hopUpLM: round3(perLiftM * Math.max(0, n - 1) + apexLM),
-    apexLM,
+    adaptionLifts: n,
+    insideBoardLM: round3(perLiftM * n),
+    hopUpLM: round3(perLiftM * Math.max(0, n - 1)),
+    apexInsideBoardUnits: apex,
+    apexHopUpUnits: apex,
   };
 }
 
@@ -499,9 +516,13 @@ export function buildTakeoff(
     isTF || input.isApartmentBlock || input.includePartyWall === false
       ? 0
       : partyWalls(input.config);
-  // Timber-frame adaptions (LM). Traditional → null.
+  // Timber-frame adaptions (LM per adaption lift + apex units). Traditional → null.
+  // Adaption lifts = total lifts minus the 2.5-storey's short 1 m lift, which comes
+  // off before any adaptions take place (docs/18): 2→3, 2.5→3, 3→4.
+  const is2p5 = tfEffectiveStorey(input.storeys, input.roomInRoof) === "2.5";
+  const adaptionLifts = Math.max(0, (lifts.lifts ?? 0) - (is2p5 ? 1 : 0));
   const adaptions = isTF
-    ? computeAdaptions(perimeter.perLiftM, lifts.lifts ?? 0, apex.count)
+    ? computeAdaptions(perimeter.perLiftM, adaptionLifts, apex.count)
     : null;
 
   const flags: string[] = [];
@@ -608,10 +629,13 @@ function formatTakeoffText(x: {
     // Timber frame: no birdcage; show the two LM adaptions instead.
     if (x.apex.count > 0) parts.push(`${x.apex.count} apex (scaffold + rails)`);
     if (x.render) parts.push(`render ${x.render.lengthM} × ${x.render.lifts ?? "?"} lifts`);
-    if (x.adaptions)
+    if (x.adaptions) {
+      const a = x.adaptions;
+      const apexNote = a.apexInsideBoardUnits > 0 ? ` + ${a.apexInsideBoardUnits} apex` : "";
       parts.push(
-        `adaptions ${x.adaptions.insideBoardLM} / ${x.adaptions.hopUpLM} LM (inside-board / hop-up)`,
+        `adaptions ${a.insideBoardLM} / ${a.hopUpLM} LM (inside-board / hop-up${apexNote})`,
       );
+    }
     if (x.lowLevel > 0) parts.push(`${x.lowLevel} low level`);
     if (x.chimney) parts.push(`chimney scaffold`);
     return parts.join(" / ");

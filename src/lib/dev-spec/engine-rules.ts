@@ -99,16 +99,16 @@ export const ENGINE_RULES: EngineRule[] = [
     plain:
       "If the tender's Build type is Timber frame (chosen when the tender is created), three things change from the rules above. Everything else — perimeter, corners, apex, render — stays exactly the same.",
     plainExtra:
-      "① Fewer lifts. Worked top-down: 450 mm off the soffit is the top lift, then 2 m boarded lifts come down, and the bottom “kicker” lift takes up whatever's left. Every lift is priced the same. ② No birdcage — there is no internal deck work. ③ Two “adaptions” are added (priced by the metre): boards are pulled out and put back as the trades work. Each apex counts as 4 m in these totals. ⚠️ Still with Colin: whether timber frame has a party-wall item, the 80/20 stage split, and the real rates.",
+      "① Fewer lifts. Worked top-down: 450 mm off the soffit is the top lift, then 2 m boarded lifts come down, and the bottom “kicker” lift takes up whatever's left. Every lift is priced the same. ② No birdcage — there is no internal deck work. ③ Two “adaptions” (boards pulled out and put back as the trades work): inside-board on every adaption lift, hop-up on every adaption lift except the kicker — each priced by the metre, plus the apex as its own UNIT cost. NOTE the adaption-lift count differs from the total lifts on a 2.5-storey (its 1 m lift comes off before adaptions). ⚠️ Still with Colin: whether timber frame has a party-wall item, the 80/20 stage split, and the real rates.",
     formula:
-      "lifts:  2-storey → 3,   2.5-storey → 4,   3-storey → 4\ninside-board adaption = perimeter × all lifts     + apex × 4 m\nhop-up adaption       = perimeter × (lifts − 1)   + apex × 4 m   (skips the bottom kicker lift)\n\nExample — Aspen semi, perimeter 20.83 m, 3 lifts, 1 apex:\ninside-board = 20.83×3 + 4 = 66.49 m ;   hop-up = 20.83×2 + 4 = 45.66 m",
+      "total lifts:     2-storey → 3,  2.5-storey → 4,  3-storey → 4\nadaption lifts:  2-storey → 3,  2.5-storey → 3,  3-storey → 4   (2.5 drops its 1 m lift)\n\ninside-board adaption = perimeter × (adaption lifts)          + apex × 1 unit\nhop-up adaption       = perimeter × (adaption lifts − kicker) + apex × 1 unit\n\nExample — Aspen semi, perimeter 20.83 m, 3 adaption lifts, 1 apex:\ninside-board = 20.83×3 = 62.49 LM + 1 apex unit ;  hop-up = 20.83×2 = 41.66 LM + 1 apex unit",
     table: {
-      caption: "Timber-frame lifts by storey (vs the traditional count)",
-      head: ["Storeys", "Timber frame", "Traditional"],
+      caption: "Timber-frame lifts by storey — total (scaffold) vs adaption vs traditional",
+      head: ["Storeys", "TF total", "TF adaption", "Traditional"],
       rows: [
-        ["2", "3", "4"],
-        ["2.5", "4", "5"],
-        ["3", "4", "6"],
+        ["2", "3", "3", "4"],
+        ["2.5", "4", "3", "5"],
+        ["3", "4", "4", "6"],
       ],
     },
     status: "confirmed",

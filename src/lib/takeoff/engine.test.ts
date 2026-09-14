@@ -449,25 +449,30 @@ describe("timber-frame lifts (storey template 2→3, 2.5→4, 3→4)", () => {
   });
 });
 
-describe("computeAdaptions — Laura's Aspen-semi worked example", () => {
-  it("inside-board = all lifts + apex×4; hop-up = lifts−1 + apex×4", () => {
-    // perimeter 20.83 LM (incl. 2 corners), 3 lifts, 1 apex.
+describe("computeAdaptions — Laura's revised Aspen-semi example (docs/18)", () => {
+  it("inside-board = perim × adaption lifts; hop-up = drop the kicker; apex = a UNIT", () => {
+    // perimeter 20.83 LM (incl. 2 corners), 3 adaption lifts, 1 apex.
     const a = computeAdaptions(20.83, 3, 1);
-    expect(a.apexLM).toBe(4);
-    expect(a.insideBoardLM).toBe(66.49); // 20.83×3 + 4
-    expect(a.hopUpLM).toBe(45.66); // 20.83×2 + 4
+    expect(a.adaptionLifts).toBe(3);
+    expect(a.insideBoardLM).toBe(62.49); // 20.83 × 3 (NO apex in the LM)
+    expect(a.hopUpLM).toBe(41.66); // 20.83 × 2 (all except the 1st/kicker)
+    expect(a.apexInsideBoardUnits).toBe(1); // apex is a unit, not LM
+    expect(a.apexHopUpUnits).toBe(1);
   });
 
-  it("no apex → the 4 LM term drops out", () => {
+  it("no apex → the apex units are 0 (LM unchanged)", () => {
     const a = computeAdaptions(20.83, 3, 0);
     expect(a.insideBoardLM).toBe(62.49);
     expect(a.hopUpLM).toBe(41.66);
+    expect(a.apexInsideBoardUnits).toBe(0);
+    expect(a.apexHopUpUnits).toBe(0);
   });
 
-  it("a single lift → hop-up excludes it entirely (only the apex remains)", () => {
+  it("a single adaption lift → hop-up LM is 0 (only the apex unit remains)", () => {
     const a = computeAdaptions(20, 1, 1);
-    expect(a.insideBoardLM).toBe(24); // 20×1 + 4
-    expect(a.hopUpLM).toBe(4); // 20×0 + 4
+    expect(a.insideBoardLM).toBe(20); // 20 × 1
+    expect(a.hopUpLM).toBe(0); // 20 × 0
+    expect(a.apexHopUpUnits).toBe(1);
   });
 });
 
@@ -506,10 +511,26 @@ describe("buildTakeoff — timber-frame Aspen semi (full line)", () => {
     expect(t.flags.some((f) => /birdcage/i.test(f))).toBe(false);
   });
 
-  it("adaptions reproduce 66.49 / 45.66 LM", () => {
+  it("adaptions reproduce 62.49 / 41.66 LM + 1 apex unit each (revised email)", () => {
     const t = buildTakeoff(aspen);
-    expect(t.adaptions?.insideBoardLM).toBe(66.49);
-    expect(t.adaptions?.hopUpLM).toBe(45.66);
+    expect(t.adaptions?.adaptionLifts).toBe(3); // 2-storey → 3 adaption lifts
+    expect(t.adaptions?.insideBoardLM).toBe(62.49);
+    expect(t.adaptions?.hopUpLM).toBe(41.66);
+    expect(t.adaptions?.apexInsideBoardUnits).toBe(1);
+    expect(t.adaptions?.apexHopUpUnits).toBe(1);
+  });
+
+  it("2.5-storey uses 3 adaption lifts (the 1 m lift is excluded), 3-storey uses 4", () => {
+    // 2.5-storey: 4 total lifts, but 3 adaption lifts.
+    const t25 = buildTakeoff({ ...aspen, storeys: 2.5, heightToSoffitM: 5.5 });
+    expect(t25.lifts.lifts).toBe(4); // total lifts
+    expect(t25.adaptions?.adaptionLifts).toBe(3); // adaption lifts (1 m lift excluded)
+    expect(t25.adaptions?.insideBoardLM).toBe(62.49); // 20.83 × 3
+    // 3-storey: 4 total lifts, 4 adaption lifts.
+    const t3 = buildTakeoff({ ...aspen, storeys: 3, heightToSoffitM: 6.5 });
+    expect(t3.lifts.lifts).toBe(4);
+    expect(t3.adaptions?.adaptionLifts).toBe(4);
+    expect(t3.adaptions?.insideBoardLM).toBe(83.32); // 20.83 × 4
   });
 
   it("no party-wall unit on timber frame (Laura's semi line has none)", () => {

@@ -724,3 +724,83 @@ export function liftsProvenance(
     confidenceLabel: null,
   };
 }
+
+// ── Timber-frame provenance (docs/18) — the review's TF take-off hovers ─────────
+
+/** Adaption-lift count = total lifts − the 2.5-storey's short 1 m lift (docs/18). */
+export function adaptionLiftsProvenance(
+  totalLifts: number | null,
+  adaptionLifts: number | null,
+): ProvContent {
+  const excluded =
+    totalLifts != null && adaptionLifts != null && adaptionLifts < totalLifts;
+  const steps: ProvStep[] = [{ text: `Total lifts (external scaffold) = ${totalLifts ?? "?"}` }];
+  if (excluded)
+    steps.push({ text: `− 1: the 2.5-storey's 1 m lift comes off before adaptions` });
+  steps.push({ text: `Adaption lifts = ${adaptionLifts ?? "?"}` });
+  return {
+    title: "Adaption lifts",
+    summary: excluded ? "Total lifts − the short 1 m lift" : "Every lift gets adaptions",
+    method: "computed",
+    steps,
+    footnotes: [
+      "Inside-board and hop-up adaptions are priced per adaption lift. On a 2.5-storey the extra 1 m lift is removed before any boards are adapted — it gets a scaffold lift but no adaptions (2→3, 2.5→3, 3→4).",
+    ],
+    confidenceLabel: null,
+  };
+}
+
+/** Inside-board / hop-up adaption working (docs/18, Laura's revised email). */
+export function tfAdaptionProvenance(
+  kind: "inside-board" | "hop-up",
+  perLiftM: number,
+  adaptionLifts: number,
+  lm: number,
+  apexUnits: number,
+): ProvContent {
+  const liftsUsed = kind === "inside-board" ? adaptionLifts : Math.max(0, adaptionLifts - 1);
+  const steps: ProvStep[] = [
+    {
+      text:
+        kind === "inside-board"
+          ? `${n2(perLiftM)} m/lift × ${liftsUsed} adaption lift${liftsUsed === 1 ? "" : "s"} = ${n2(lm)} LM`
+          : `${n2(perLiftM)} m/lift × ${liftsUsed} lift${liftsUsed === 1 ? "" : "s"} (all except the 1st/kicker) = ${n2(lm)} LM`,
+    },
+  ];
+  if (apexUnits > 0)
+    steps.push({ text: `+ apex adaption × ${apexUnits} (unit — priced separately)` });
+  return {
+    title: kind === "inside-board" ? "Inside-board adaption" : "Hop-up adaption",
+    summary:
+      kind === "inside-board"
+        ? "Perimeter × every adaption lift"
+        : "Perimeter × adaption lifts, dropping the kicker",
+    method: "computed",
+    steps,
+    footnotes: [
+      kind === "inside-board"
+        ? "Inside boards are adapted on every lift. Each apex is priced as its own unit (not converted to LM)."
+        : "Hop-up brackets go on every lift except the bottom kicker. Each apex is priced as its own unit.",
+    ],
+    confidenceLabel: null,
+  };
+}
+
+/** Where the apex count flows on timber frame — four unit-priced items (docs/18). */
+export function tfApexProvenance(apexCount: number): ProvContent {
+  return {
+    title: "Apex",
+    summary: "Feeds four unit-priced items",
+    method: "computed",
+    steps: [
+      { text: `${apexCount} apex → apex scaffold (unit)` },
+      { text: `${apexCount} apex → apex rails (unit)` },
+      { text: `${apexCount} apex → inside-board apex adaption (unit)` },
+      { text: `${apexCount} apex → hop-up apex adaption (unit)` },
+    ],
+    footnotes: [
+      "On timber frame the apex is a unit cost across all four items (never converted to LM). Reduced by configuration — a semi/end drops the party-wall gable, a mid-terrace drops both.",
+    ],
+    confidenceLabel: null,
+  };
+}

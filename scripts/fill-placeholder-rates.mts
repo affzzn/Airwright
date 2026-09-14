@@ -57,6 +57,9 @@ const RATES: [string, "ERECT" | "DISMANTLE", "LM" | "M2" | "EACH", number, numbe
   ["TF_EXTERNAL", "DISMANTLE", "LM", 4.0, 0],
   ["ADAPTION_INSIDE_BOARD", "ERECT", "LM", 5.0, 0],
   ["ADAPTION_HOP_UP", "ERECT", "LM", 4.0, 0],
+  // Apex adaptions are UNIT costs (docs/18).
+  ["ADAPTION_INSIDE_BOARD_APEX", "ERECT", "EACH", 20.0, 0],
+  ["ADAPTION_HOP_UP_APEX", "ERECT", "EACH", 16.0, 0],
   ["GABLE_RAILS", "ERECT", "EACH", 40.0, 0],
   // Extras still priced as client lines (pending the P6 bundling decision).
   ["LOW_LEVEL", "ERECT", "EACH", 150.0, 0],

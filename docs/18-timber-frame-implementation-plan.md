@@ -11,7 +11,7 @@ new-tender form and makes **build system a project-level choice**. Read `docs/11
 
 > **STATUS (2026-09-03): ✅ IMPLEMENTED (branch `feat/timber-frame`).** All three tracks
 > built + green (typecheck, lint, 288 tests, build). Engine (`computeLiftsTimberFrame`,
-> `computeAdaptions`) validated to Laura's Aspen figures (66.49 / 45.66) and the lift table
+> `computeAdaptions`) validated to Laura’s revised Aspen figures (62.49 / 41.66 LM + apex units) and the lift table
 > (3/4/4). Migration `20260903000000_add_timber_frame_support` (project `buildType` + the
 > two adaption components) applies on the next `db:deploy`. Rates are placeholders (the §7
 > Colin questions remain open).
@@ -81,29 +81,41 @@ have an inside handrail). Worked example (the drawing shown on the call, 2-store
 if asked, added after"). Drop birdcage m² × floors entirely, and the birdcage payment
 stage.
 
-**(c) Adaptions — new, priced on a linear-metre (LM) rate.** Because the whole scaffold
-goes up **before** the house and is fully boarded, boards are pulled and replaced as the
-trades work. **Two types, each with its own LM rate:**
+**(c) Adaptions — new (REVISED per Laura's 2nd, later email — supersedes the first).**
+Because the whole scaffold goes up **before** the house and is fully boarded, boards are
+pulled and replaced as the trades work. **Two types, priced per ADAPTION LIFT on an LM rate,
+plus the apex as its own UNIT** (the apex is NO LONGER converted to 4 LM):
 
-- **Inside-board adaption — ALL lifts** + each apex converted to **4 LM**:
-  `insideBoardLM = perimeterPerLift × lifts  +  apexCount × 4`
-- **Hop-up adaption — every lift EXCEPT the 1st (kicker)** + each apex as **4 LM**:
-  `hopUpLM = perimeterPerLift × (lifts − 1)  +  apexCount × 4`
+- **Adaption lifts ≠ total lifts.** A 2.5-storey's short **1 m lift comes off before
+  adaptions**, so it gets a scaffold lift but no adaptions: **total lifts** 2→3, 2.5→4, 3→4;
+  **adaption lifts** 2→3, **2.5→3**, 3→4. (Engine: `adaptionLifts = totalLifts − (2.5 ? 1 : 0)`.)
+- **Inside-board adaption — every adaption lift** + **apex as a unit**:
+  `insideBoardLM = perimeterPerLift × adaptionLifts` ; `apexInsideBoardUnits = apexCount`
+- **Hop-up adaption — every adaption lift EXCEPT the 1st (kicker)** + **apex as a unit**:
+  `hopUpLM = perimeterPerLift × (adaptionLifts − 1)` ; `apexHopUpUnits = apexCount`
 
-### 1.3 The canonical fixture — Aspen Semi, 2-storey (Laura's email)
-`perimeterPerLift = 20.83 LM` (incl. 2 corners) · `lifts = 3` · `apexCount = 1`:
+> The **first** email folded the apex into the LM (apex × 4 → 66.49 / 45.66 LM). The
+> **second, later** email supersedes it: apex adaptions are **unit costs** (62.49 / 41.66 LM
+> + 1 apex unit each). We follow the second email. ⚠️ Worth a quick confirm with Laura that
+> the apex is a unit (not LM), since the two emails conflict.
+
+### 1.3 The canonical fixture — Aspen Semi, 2-storey (Laura's revised email)
+`perimeterPerLift = 20.83 LM` (incl. 2 corners) · total lifts `3` · **adaption lifts `3`** ·
+`apexCount = 1`:
 
 | Line | Qty | Check |
 |---|---|---|
 | External erect | 3 × 20.83 = **62.49 LM** | flat rate, all lifts |
 | Apex scaffold | **1** (unit) | |
 | Apex rails | **1** (unit) | |
-| Inside-board adaption | 62.49 + (1×4) = **66.49 LM** | × adaption-rate-1 |
-| Hop-up adaption | (2 × 20.83) + (1×4) = **45.66 LM** | × adaption-rate-2 |
+| Inside-board adaption | 20.83 × 3 = **62.49 LM** | × adaption-rate-1 |
+| Inside-board apex adaption | **1** (unit) | × apex-adaption-rate |
+| Hop-up adaption | 20.83 × 2 = **41.66 LM** | × adaption-rate-2 |
+| Hop-up apex adaption | **1** (unit) | × apex-adaption-rate |
 | Birdcage | — | none |
-| Loading bay / Haki / chute | 1 each (shared) | deferred (as today) |
+| Loading bay / Haki / chute | 1 per lift (shared) | deferred (gang-pay) |
 
-**These two numbers — 66.49 and 45.66 — are the engine's acceptance test.**
+**The acceptance test is now: inside-board 62.49 LM + 1 apex unit, hop-up 41.66 LM + 1 apex unit.**
 
 ---
 
@@ -154,7 +166,7 @@ in isolation, against the §1.3 / §6 fixtures.
    export const TIMBER_FRAME_STOREY_LIFTS: Record<string, number> = { "2": 3, "2.5": 4, "3": 4 };
    export const TF_TOP_STEP_M = 0.45;   // fixed step off the roof/apex → the top lift
    export const TF_LIFT_HEIGHT_M = 2.0; // boarded 2 m lifts
-   export const APEX_LM_PER = 4;        // each apex = 4 LM when converted for adaptions
+   export const TIMBER_FRAME_ADAPTION_LIFTS = { "2": 3, "2.5": 3, "3": 4 }; // apex is a UNIT, not LM
    ```
 2. 🔧 **`TakeoffInput` gains `buildSystem: BuildSystem`** (default `TRADITIONAL`).
 3. 🔧 **`computeLiftsTimberFrame(input, params): LiftResult`** —

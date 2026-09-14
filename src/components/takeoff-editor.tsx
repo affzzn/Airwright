@@ -24,6 +24,9 @@ import {
   buildProvenanceCards,
   liftsProvenance,
   perimeterProvenance,
+  adaptionLiftsProvenance,
+  tfAdaptionProvenance,
+  tfApexProvenance,
   resolvePage,
   wallProvenance,
   wallSumProvenance,
@@ -688,57 +691,136 @@ export function TakeoffEditor({
           <div className="space-y-2">
             {takeoffLines
               .filter((t) => t.label === shownTakeoff?.label)
-              .map(({ label, line }) => (
-              <div
-                key={label}
-                className="rounded-md border border-hairline bg-surface px-3 py-2.5"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-xs font-medium text-ink-muted">{label}</span>
-                  <span className="text-xs tabular-nums text-ink-subtle">
-                    <Provenance
-                      content={liftsProvenance(
-                        parseNum(mVals.HEIGHT_TO_SOFFIT ?? ""),
-                        parseNum(mVals.STOREYS ?? ""),
-                        cats.roomInRoof === true,
-                        line.lifts.heightLifts,
-                        line.lifts.storeyLifts,
+              .map(({ label, line }) => {
+                const liftsCard = liftsProvenance(
+                  parseNum(mVals.HEIGHT_TO_SOFFIT ?? ""),
+                  parseNum(mVals.STOREYS ?? ""),
+                  cats.roomInRoof === true,
+                  line.lifts.heightLifts,
+                  line.lifts.storeyLifts,
+                  line.lifts.lifts,
+                  line.lifts.flag,
+                  buildSystem,
+                );
+                const perimCard =
+                  line.perimeter.totalM !== null
+                    ? perimeterProvenance(
+                        line.perimeter.corners,
+                        1,
+                        line.perimeter.wallsM,
+                        line.perimeter.perLiftM,
                         line.lifts.lifts,
-                        line.lifts.flag,
-                        buildSystem,
-                      )}
-                      onGoToPage={onGoToPage}
-                    >
-                      {line.lifts.lifts ?? "?"} lifts
-                    </Provenance>
-                    {line.perimeter.totalM !== null && (
-                      <>
-                        {" · "}
-                        <Provenance
-                          content={perimeterProvenance(
-                            line.perimeter.corners,
-                            1,
-                            line.perimeter.wallsM,
-                            line.perimeter.perLiftM,
-                            line.lifts.lifts,
-                            line.perimeter.totalM,
+                        line.perimeter.totalM,
+                      )
+                    : null;
+
+                if (line.buildSystem === "TIMBER_FRAME") {
+                  const a = line.adaptions;
+                  const totalLifts = line.lifts.lifts;
+                  const aLifts = a?.adaptionLifts ?? null;
+                  return (
+                    <div key={label} className="rounded-md border border-hairline bg-surface px-3 py-2.5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-xs font-medium text-ink-muted">{label}</span>
+                        <span className="text-[11px] text-ink-subtle">
+                          Timber frame · no birdcage
+                        </span>
+                      </div>
+                      <dl className="mt-2 divide-y divide-hairline">
+                        <TfRow label="Lifts">
+                          <Provenance content={liftsCard} onGoToPage={onGoToPage}>
+                            {totalLifts ?? "?"}
+                          </Provenance>
+                        </TfRow>
+                        {aLifts !== null && (
+                          <TfRow label="Adaption lifts">
+                            <Provenance content={adaptionLiftsProvenance(totalLifts, aLifts)} onGoToPage={onGoToPage}>
+                              {aLifts}
+                              {totalLifts !== null && aLifts < totalLifts ? ` of ${totalLifts}` : ""}
+                            </Provenance>
+                          </TfRow>
+                        )}
+                        <TfRow label="Perimeter">
+                          {perimCard ? (
+                            <Provenance content={perimCard} onGoToPage={onGoToPage}>
+                              {line.perimeter.perLiftM} m/lift × {totalLifts ?? "?"} = {line.perimeter.totalM} m
+                            </Provenance>
+                          ) : (
+                            <span className="text-ink-subtle">—</span>
                           )}
-                          onGoToPage={onGoToPage}
-                        >
-                          {line.perimeter.totalM} m total
+                        </TfRow>
+                        <TfRow label="Apex">
+                          <Provenance content={tfApexProvenance(line.apex.count)} onGoToPage={onGoToPage}>
+                            {line.apex.count}
+                          </Provenance>
+                        </TfRow>
+                        {a && (
+                          <TfRow label="Inside-board adaption">
+                            <Provenance
+                              content={tfAdaptionProvenance("inside-board", line.perimeter.perLiftM, a.adaptionLifts, a.insideBoardLM, a.apexInsideBoardUnits)}
+                              onGoToPage={onGoToPage}
+                            >
+                              {a.insideBoardLM} LM{a.apexInsideBoardUnits > 0 ? ` + ${a.apexInsideBoardUnits} apex` : ""}
+                            </Provenance>
+                          </TfRow>
+                        )}
+                        {a && (
+                          <TfRow label="Hop-up adaption">
+                            <Provenance
+                              content={tfAdaptionProvenance("hop-up", line.perimeter.perLiftM, a.adaptionLifts, a.hopUpLM, a.apexHopUpUnits)}
+                              onGoToPage={onGoToPage}
+                            >
+                              {a.hopUpLM} LM{a.apexHopUpUnits > 0 ? ` + ${a.apexHopUpUnits} apex` : ""}
+                            </Provenance>
+                          </TfRow>
+                        )}
+                        {line.render && (
+                          <TfRow label="Render adaption">
+                            {line.render.lengthM} m × {line.render.lifts ?? "?"} lifts
+                          </TfRow>
+                        )}
+                        {line.lowLevel > 0 && <TfRow label="Low level">{line.lowLevel}</TfRow>}
+                        <TfRow label="Birdcage">
+                          <span className="text-ink-subtle">— none (timber frame)</span>
+                        </TfRow>
+                      </dl>
+                      <p className="mt-2 text-[11px] text-ink-subtle">
+                        Access: always Haki · loading bay / chute shared across the block
+                        (apportioned — not yet priced).
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={label} className="rounded-md border border-hairline bg-surface px-3 py-2.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-xs font-medium text-ink-muted">{label}</span>
+                      <span className="text-xs tabular-nums text-ink-subtle">
+                        <Provenance content={liftsCard} onGoToPage={onGoToPage}>
+                          {line.lifts.lifts ?? "?"} lifts
                         </Provenance>
-                      </>
-                    )}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm tabular-nums text-ink">{line.text}</p>
-              </div>
-            ))}
+                        {perimCard && (
+                          <>
+                            {" · "}
+                            <Provenance content={perimCard} onGoToPage={onGoToPage}>
+                              {line.perimeter.totalM} m total
+                            </Provenance>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm tabular-nums text-ink">{line.text}</p>
+                  </div>
+                );
+              })}
           </div>
-          <p className="mt-2 text-[11px] text-ink-subtle">
-            Extras (loading bay, chute, access, propping) come from the builder
-            profile — not yet applied.
-          </p>
+          {buildSystem !== "TIMBER_FRAME" && (
+            <p className="mt-2 text-[11px] text-ink-subtle">
+              Extras (loading bay, chute, access, propping) come from the builder
+              profile — not yet applied.
+            </p>
+          )}
         </div>
       </CardBody>
     </Card>
@@ -856,6 +938,17 @@ function DetailRow({
         )}
       </span>
       {children}
+    </div>
+  );
+}
+
+/** One row of the timber-frame take-off panel: a label on the left, the computed
+ *  value (usually a provenance-on-hover) on the right. */
+function TfRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-1.5">
+      <dt className="text-sm text-ink-muted">{label}</dt>
+      <dd className="text-sm tabular-nums text-ink">{children}</dd>
     </div>
   );
 }
