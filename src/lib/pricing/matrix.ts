@@ -127,7 +127,7 @@ function traditionalColumns(stageCols: StageCol[]): MatrixColumn[] {
 
 function timberFrameColumns(stageCols: StageCol[]): MatrixColumn[] {
   // docs/18: external erect (flat per-lift) · apex scaffold + rails · the two LM
-  // adaptions · render · dismantle. No birdcage, no party wall.
+  // adaptions + their apex-unit adaptions · render · dismantle. No birdcage/party wall.
   const cols: MatrixColumn[] = [
     { key: "plot", header: "Plot", kind: "id" },
     { key: "code", header: "House Type Code", kind: "id" },
@@ -137,7 +137,9 @@ function timberFrameColumns(stageCols: StageCol[]): MatrixColumn[] {
     { key: "apexScaffold", header: "Apex Scaffold", kind: "cost" },
     { key: "apexRails", header: "Apex Rails", kind: "cost" },
     { key: "insideBoard", header: "Inside-Board Adaption", kind: "cost" },
+    { key: "insideBoardApex", header: "Inside-Board Apex Adaption", kind: "cost" },
     { key: "hopUp", header: "Hop-Up Adaption", kind: "cost" },
+    { key: "hopUpApex", header: "Hop-Up Apex Adaption", kind: "cost" },
     { key: "render", header: "Render/Cladding Adaption", kind: "cost" },
     { key: "dismantle", header: "Dismantle", kind: "cost" },
   ];
@@ -186,7 +188,9 @@ function timberFrameCells(lines: PricedLine[]): Record<string, number> {
   put("apexScaffold", sumPence(lines, (l) => l.component === "TABLE_LIFT" && l.action === "ERECT"));
   put("apexRails", sumPence(lines, (l) => l.component === "GABLE_RAILS" && l.action === "ERECT"));
   put("insideBoard", sumPence(lines, (l) => l.component === "ADAPTION_INSIDE_BOARD" && l.action === "ERECT"));
+  put("insideBoardApex", sumPence(lines, (l) => l.component === "ADAPTION_INSIDE_BOARD_APEX" && l.action === "ERECT"));
   put("hopUp", sumPence(lines, (l) => l.component === "ADAPTION_HOP_UP" && l.action === "ERECT"));
+  put("hopUpApex", sumPence(lines, (l) => l.component === "ADAPTION_HOP_UP_APEX" && l.action === "ERECT"));
   put("render", sumPence(lines, (l) => l.component === "RENDER_ADAPTION" && l.action === "ERECT"));
   put("dismantle", sumPence(lines, (l) => l.component === "TF_EXTERNAL" && l.action === "DISMANTLE"));
   return cells;

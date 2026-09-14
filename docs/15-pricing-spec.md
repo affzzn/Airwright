@@ -140,7 +140,9 @@ Inside-Board Adaption (LM) · Hop-Up Adaption (LM) · Render/Cladding Adaption �
 
 Differences from Traditional (the three that change the take-off): a **different lift
 rule** (450 mm top step + 2 m lifts → fewer lifts: 2→3, 2.5→4, 3→4; every lift flat-rated),
-**NO birdcage**, and **two LM adaptions** — inside-board (all lifts + apex×4 LM) and hop-up
+**NO birdcage**, and **adaptions** — inside-board (per adaption lift) and hop-up
+(per adaption lift, dropping the kicker), each an LM line **plus the apex as a UNIT**;
+adaption lifts differ from total lifts on a 2.5-storey (docs/18). Formerly stated as (all lifts + apex×4 LM) and hop-up
 (lifts−1 + apex×4 LM). Everything else (perimeter, corners, apex, render) is shared. An
 **80 / 20** split. ✅ Built: `computeLiftsTimberFrame` + `computeAdaptions` (engine),
 `priceTimberFrameLine` (pricing), `timberFrameColumns/Cells` (matrix). ⚠️ Rates + the

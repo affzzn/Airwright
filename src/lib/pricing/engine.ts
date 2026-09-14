@@ -285,24 +285,14 @@ export function priceTimberFrameLine(line: TakeoffLine, opts: PriceOpts): PriceR
     add("TABLE_LIFT", "ERECT", line.apex.count, "EACH", null, "apex scaffold");
     add("GABLE_RAILS", "ERECT", line.apex.count, "EACH", null, "apex rails");
   }
-  // The two LM adaptions (docs/18 §1.2) — quantities from the take-off engine.
+  // Adaptions (docs/18, Laura's revised email): per-adaption-lift LM + the apex as
+  // its own UNIT (no longer converted to LM). Quantities from the take-off engine.
   if (line.adaptions) {
-    add(
-      "ADAPTION_INSIDE_BOARD",
-      "ERECT",
-      line.adaptions.insideBoardLM,
-      "LM",
-      null,
-      "inside-board adaption (all lifts + apex×4 LM)",
-    );
-    add(
-      "ADAPTION_HOP_UP",
-      "ERECT",
-      line.adaptions.hopUpLM,
-      "LM",
-      null,
-      "hop-up adaption (lifts−1 + apex×4 LM)",
-    );
+    const a = line.adaptions;
+    add("ADAPTION_INSIDE_BOARD", "ERECT", a.insideBoardLM, "LM", null, "inside-board adaption (all adaption lifts)");
+    add("ADAPTION_HOP_UP", "ERECT", a.hopUpLM, "LM", null, "hop-up adaption (adaption lifts − kicker)");
+    add("ADAPTION_INSIDE_BOARD_APEX", "ERECT", a.apexInsideBoardUnits, "EACH", null, "inside-board adaption to apex (unit)");
+    add("ADAPTION_HOP_UP_APEX", "ERECT", a.apexHopUpUnits, "EACH", null, "hop-up adaption to apex (unit)");
   }
   // Render / cladding adaption.
   if (line.render && line.render.lifts)

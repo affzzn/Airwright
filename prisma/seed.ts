@@ -76,6 +76,9 @@ async function main() {
           // TF apex scaffold + rails; render/dismantle share the traditional lines.
           { component: "ADAPTION_INSIDE_BOARD", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 5.0 },
           { component: "ADAPTION_HOP_UP", action: "ERECT", band: "MEDIUM", unit: "LM", rate: 4.0 },
+          // Apex adaptions are UNIT costs, not LM (docs/18, Laura's revised email).
+          { component: "ADAPTION_INSIDE_BOARD_APEX", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 20.0 },
+          { component: "ADAPTION_HOP_UP_APEX", action: "ERECT", band: "MEDIUM", unit: "EACH", rate: 16.0 },
         ],
       },
     },

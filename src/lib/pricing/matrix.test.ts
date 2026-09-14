@@ -130,6 +130,8 @@ describe("buildClientMatrix — Timber Frame (docs/18)", () => {
     { component: "GABLE_RAILS", action: "ERECT", band: "MEDIUM", rate: 40.0 }, // apex rails
     { component: "ADAPTION_INSIDE_BOARD", action: "ERECT", band: "MEDIUM", rate: 5.0 },
     { component: "ADAPTION_HOP_UP", action: "ERECT", band: "MEDIUM", rate: 4.0 },
+    { component: "ADAPTION_INSIDE_BOARD_APEX", action: "ERECT", band: "MEDIUM", rate: 20.0 },
+    { component: "ADAPTION_HOP_UP_APEX", action: "ERECT", band: "MEDIUM", rate: 16.0 },
   ];
   const TF_SPLITS = [
     { name: "Plot Erect", percent: 80 },
@@ -163,7 +165,9 @@ describe("buildClientMatrix — Timber Frame (docs/18)", () => {
     expect(keys).toContain("apexScaffold");
     expect(keys).toContain("apexRails");
     expect(keys).toContain("insideBoard");
+    expect(keys).toContain("insideBoardApex");
     expect(keys).toContain("hopUp");
+    expect(keys).toContain("hopUpApex");
     expect(keys).toContain("dismantle");
     expect(keys).not.toContain("lift1"); // no per-lift erect columns
     expect(keys).not.toContain("bcageErectGF"); // no birdcage in TF plot rows
@@ -172,12 +176,14 @@ describe("buildClientMatrix — Timber Frame (docs/18)", () => {
     expect(keys).toContain("stage:Plot Erect");
   });
 
-  it("populates external erect, both adaptions, apex, and an 80/20 split", () => {
+  it("populates external erect, the LM adaptions, the apex units, and an 80/20 split", () => {
     const row = m.rows[0];
-    // 3 lifts, perimeter/lift 38.2, apex 2 (apexLM 8).
+    // Detached 2-storey: 3 total lifts, 3 adaption lifts, perimeter/lift 38.2, apex 2.
     expect(row.cells.externalErect).toBeCloseTo(38.2 * 3 * 12, 2);
-    expect(row.cells.insideBoard).toBeCloseTo((38.2 * 3 + 8) * 5, 2); // 122.6 × 5
-    expect(row.cells.hopUp).toBeCloseTo((38.2 * 2 + 8) * 4, 2); // 84.4 × 4
+    expect(row.cells.insideBoard).toBeCloseTo(38.2 * 3 * 5, 2); // 114.6 LM × 5 (no apex in LM)
+    expect(row.cells.hopUp).toBeCloseTo(38.2 * 2 * 4, 2); // 76.4 LM × 4
+    expect(row.cells.insideBoardApex).toBeCloseTo(2 * 20, 2); // apex unit × rate
+    expect(row.cells.hopUpApex).toBeCloseTo(2 * 16, 2);
     expect(row.cells.apexScaffold).toBeCloseTo(2 * 120, 2);
     expect(row.cells.apexRails).toBeCloseTo(2 * 40, 2);
     expect(row.cells.bcageErectGF).toBeUndefined(); // no birdcage on TF

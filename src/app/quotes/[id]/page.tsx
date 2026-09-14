@@ -37,7 +37,9 @@ const BUCKETS: { label: string; match: (l: Li) => boolean }[] = [
     match: (l) =>
       (l.component === "ADAPTION" ||
         l.component === "ADAPTION_INSIDE_BOARD" ||
-        l.component === "ADAPTION_HOP_UP") &&
+        l.component === "ADAPTION_HOP_UP" ||
+        l.component === "ADAPTION_INSIDE_BOARD_APEX" ||
+        l.component === "ADAPTION_HOP_UP_APEX") &&
       l.action === "ERECT",
   },
   { label: "Apex (table lift / scaffold + rails)", match: (l) => (l.component === "TABLE_LIFT" || l.component === "GABLE" || l.component === "GABLE_RAILS") && l.action === "ERECT" },

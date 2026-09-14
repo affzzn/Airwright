@@ -100,7 +100,7 @@ export default function DevSpecPage() {
     ["Timber frame · storey → lifts", fmtMap(LIVE.engine.timberFrameStoreyLifts), <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
     ["Timber frame · top step off soffit", `${LIVE.engine.tfTopStepM} m (the top lift)`, <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
     ["Timber frame · boarded lift height", `${LIVE.engine.tfLiftHeightM} m`, <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
-    ["Timber frame · apex → LM (in adaptions)", `${LIVE.engine.apexLmPer} m per apex`, <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
+    ["Timber frame · storey → adaption lifts", fmtMap(LIVE.engine.timberFrameAdaptionLifts), <StatusBadge key="s" status="confirmed" />, mono("takeoff/engine.ts")],
     ["Birdcage: internal vs derived tolerance", LIVE.birdcage.internalXCheckTolerancePct, <StatusBadge key="s" status="open" owner="rayyan" />, mono("extract/birdcage.ts")],
     ["Height: gap-note threshold", `${LIVE.height.gapNoteM} m`, <StatusBadge key="s" status="confirmed" />, mono("extract/height.ts")],
     ["max_tokens", String(LIVE.request.maxTokens), <StatusBadge key="s" status="confirmed" />, mono("extract/config.ts")],
