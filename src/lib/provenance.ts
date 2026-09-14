@@ -17,6 +17,7 @@ import { lowLevelQty, type ExtractionResult } from "@/lib/extract/schema";
 import { STRUCTURE_LABEL, isMultiHome } from "@/lib/structure";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 import { computeHeight } from "@/lib/extract/height";
+import { computeTimberFrameLifts, type BuildSystem } from "@/lib/takeoff/engine";
 
 export interface ProvSource {
   sheet: string | null;
@@ -192,7 +193,9 @@ export function aiMeasurementValues(raw: ExtractionResult): Record<string, numbe
 export function buildProvenanceCards(
   raw: ExtractionResult,
   resolve: Resolver,
+  buildSystem: BuildSystem = "TRADITIONAL",
 ): Record<string, ProvContent> {
+  const isTF = buildSystem === "TIMBER_FRAME";
   const cards: Record<string, ProvContent> = {};
   const src = (
     sheet: string | null | undefined,
@@ -242,8 +245,20 @@ export function buildProvenanceCards(
         });
       if (raw.storeyHeightsM.length > 0)
         steps.push({ text: `Storey ladder ${raw.storeyHeightsM.join(" + ")} = ${hr.ladderSumM} m` });
-      steps.push({ text: hr.note });
-      steps.push({ text: `Height to soffit = ${hr.soffitM} m` });
+      // The lift count differs by build system. `computeHeight`'s note assumes the
+      // traditional ÷1.5 rule, so for timber frame swap in the 450 mm + 2 m result.
+      const tfLifts = isTF
+        ? computeTimberFrameLifts(raw.storeys.value, raw.roomInRoof.value === true, hr.soffitM)
+        : null;
+      if (isTF) {
+        const agree = raw.storeyHeightsM.length > 0 && hr.directM != null && hr.reconciled === true;
+        steps.push({
+          text: `Soffit ${hr.soffitM} m${agree ? ` ✓ (storey ladder agrees)` : ""} → timber frame ${tfLifts?.lifts ?? "?"} lift${tfLifts?.lifts === 1 ? "" : "s"}`,
+        });
+      } else {
+        steps.push({ text: hr.note });
+        steps.push({ text: `Height to soffit = ${hr.soffitM} m` });
+      }
       const foot = looksMm(dim)
         ? [`Converted from the printed millimetres: ${dim} → ${hr.directM} m.`]
         : [];
@@ -254,7 +269,9 @@ export function buildProvenanceCards(
         steps,
         footnotes: [
           ...foot,
-          "The lift count divides this by 1.5 m. Datum = soffit / underside of wallplate (confirmed).",
+          isTF
+            ? `Timber frame: 450 mm off the soffit, then 2 m boarded lifts (not ÷1.5) → ${tfLifts?.lifts ?? "?"} lift${tfLifts?.lifts === 1 ? "" : "s"}. Datum = soffit / U/S wallplate.`
+            : "The lift count divides this by 1.5 m. Datum = soffit / underside of wallplate (confirmed).",
         ],
         confidenceLabel: hr.confidence,
         reason:
@@ -649,7 +666,10 @@ export function perimeterProvenance(
   };
 }
 
-/** Provenance for the lift count (height ÷ 1.5, storey cross-check). */
+/** Provenance for the lift count. Traditional: height ÷ 1.5 with a storey
+ *  cross-check. Timber frame: 450 mm off the soffit + 2 m boarded lifts, storey
+ *  template primary (docs/18). The lift numbers are already computed by the engine
+ *  and passed in — this only explains them. */
 export function liftsProvenance(
   heightM: number | null,
   storeys: number | null,
@@ -658,28 +678,46 @@ export function liftsProvenance(
   storeyLifts: number | null,
   chosen: number | null,
   flag: boolean,
+  buildSystem: BuildSystem = "TRADITIONAL",
 ): ProvContent {
   const steps: ProvStep[] = [];
-  if (heightM != null) {
-    const base = Math.ceil(heightM / 1.5);
-    steps.push({ text: `⌈${heightM} m ÷ 1.5 m⌉ = ${base} lift${base === 1 ? "" : "s"}` });
-    if (roomInRoof) steps.push({ text: `+ 1 for the room in roof = ${heightLifts}` });
+  const isTF = buildSystem === "TIMBER_FRAME";
+  if (isTF) {
+    if (storeyLifts != null)
+      steps.push({
+        text: `Storey template: ${storeys}-storey → ${storeyLifts} lift${storeyLifts === 1 ? "" : "s"}`,
+      });
+    if (heightM != null)
+      steps.push({
+        text: `Height method (450 mm off soffit + 2 m lifts): ${heightM} m → ${heightLifts ?? "?"} lift${heightLifts === 1 ? "" : "s"}`,
+      });
+    steps.push({ text: `Result: ${chosen ?? "?"} lift${chosen === 1 ? "" : "s"}` });
+  } else {
+    if (heightM != null) {
+      const base = Math.ceil(heightM / 1.5);
+      steps.push({ text: `⌈${heightM} m ÷ 1.5 m⌉ = ${base} lift${base === 1 ? "" : "s"}` });
+      if (roomInRoof) steps.push({ text: `+ 1 for the room in roof = ${heightLifts}` });
+    }
+    if (storeyLifts != null)
+      steps.push({
+        text: `Storey template cross-check: ${storeys}-storey → ${storeyLifts} lift${storeyLifts === 1 ? "" : "s"}`,
+      });
+    steps.push({ text: `Result: ${chosen ?? "?"} lift${chosen === 1 ? "" : "s"}` });
   }
-  if (storeyLifts != null)
-    steps.push({
-      text: `Storey template cross-check: ${storeys}-storey → ${storeyLifts} lift${storeyLifts === 1 ? "" : "s"}`,
-    });
-  steps.push({ text: `Result: ${chosen ?? "?"} lift${chosen === 1 ? "" : "s"}` });
-  const footnotes = [
-    "One lift ≈ 1.5 m of height, rounded up. The storey template is a cross-check.",
-  ];
+  const footnotes = isTF
+    ? [
+        "Timber frame: 450 mm off the soffit is the top lift, then 2 m boarded lifts come down and the bottom “kicker” takes the rest. Every lift prices the same. Storey template is the primary rule (2-storey → 3, 2.5 → 4, 3 → 4).",
+      ]
+    : ["One lift ≈ 1.5 m of height, rounded up. The storey template is a cross-check."];
   if (flag)
     footnotes.push(
-      "Height and storey template disagree — the template wins for whole storeys, height for a 2.5-storey. Flagged for review.",
+      isTF
+        ? "The 450 mm + 2 m height method and the storey template disagree — the storey template wins; flagged for review (an unusual house height)."
+        : "Height and storey template disagree — the template wins for whole storeys, height for a 2.5-storey. Flagged for review.",
     );
   return {
     title: "Lifts",
-    summary: "Height ÷ 1.5, rounded up",
+    summary: isTF ? "450 mm + 2 m lifts (timber frame)" : "Height ÷ 1.5, rounded up",
     method: "computed",
     steps,
     footnotes,

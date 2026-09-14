@@ -60,3 +60,21 @@ describe("confidenceReason", () => {
     expect(confidenceReason("low", { detail })).toBe(detail);
   });
 });
+
+import { liftsProvenance } from "./provenance";
+
+describe("liftsProvenance — build-system aware (docs/18)", () => {
+  it("timber frame explains the 450 mm + 2 m method, not ÷ 1.5", () => {
+    const p = liftsProvenance(4.8, 2, false, 3, 3, 3, false, "TIMBER_FRAME");
+    expect(p.summary).toMatch(/timber frame/i);
+    const text = [p.summary, ...p.steps.map((s) => s.text), ...(p.footnotes ?? [])].join(" ");
+    expect(text).toMatch(/450 mm/);
+    expect(text).toMatch(/Result: 3 lift/);
+    expect(text).not.toMatch(/÷ 1\.5/);
+  });
+  it("traditional still explains height ÷ 1.5", () => {
+    const p = liftsProvenance(6, 3, false, 4, 6, 6, false); // default TRADITIONAL
+    expect(p.summary).toMatch(/÷ 1\.5/);
+    expect(p.steps.map((s) => s.text).join(" ")).toMatch(/÷ 1\.5/);
+  });
+});

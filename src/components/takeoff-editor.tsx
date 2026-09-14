@@ -228,7 +228,7 @@ export function TakeoffEditor({
     [documentPages, relevantPages],
   );
   const cards = useMemo<Record<string, ProvContent>>(
-    () => (raw ? buildProvenanceCards(raw, resolve) : {}),
+    () => (raw ? buildProvenanceCards(raw, resolve, buildSystem) : {}),
     [raw, resolve],
   );
   // Wall length → its cited page, keyed by the dimension string (walls are edited
@@ -468,7 +468,11 @@ export function TakeoffEditor({
         <div>
           <p className="eyebrow mb-2">Measurements</p>
           <dl className="divide-y divide-hairline">
-            {MEASUREMENTS.map(({ key, label, unit }) => {
+            {MEASUREMENTS
+              // Timber frame has no birdcage (internal decks) — hide the internal
+              // floor-area rows so the review doesn't imply a birdcage will be priced.
+              .filter((m) => buildSystem !== "TIMBER_FRAME" || !m.key.startsWith("BIRDCAGE_"))
+              .map(({ key, label, unit }) => {
               const meta = mMeta[key];
               const edited =
                 mVals[key] !== initialMVals[key] ||
@@ -701,6 +705,7 @@ export function TakeoffEditor({
                         line.lifts.storeyLifts,
                         line.lifts.lifts,
                         line.lifts.flag,
+                        buildSystem,
                       )}
                       onGoToPage={onGoToPage}
                     >

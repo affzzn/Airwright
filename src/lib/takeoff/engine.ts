@@ -242,11 +242,27 @@ export function computeLiftsTimberFrame(
   input: TakeoffInput,
   params: EngineParams = DEFAULT_PARAMS,
 ): LiftResult {
-  const eff = tfEffectiveStorey(input.storeys, input.roomInRoof);
+  return computeTimberFrameLifts(
+    input.storeys,
+    input.roomInRoof,
+    input.heightToSoffitM,
+    params.timberFrameStoreyLifts ?? TIMBER_FRAME_STOREY_LIFTS,
+  );
+}
+
+/** The timber-frame lift result from the scalar inputs (so the provenance/UI can
+ *  explain it without building a full TakeoffInput). Storey template is primary;
+ *  the 450 mm + 2 m height method is the cross-check that flags a divergence. */
+export function computeTimberFrameLifts(
+  storeys: number | null,
+  roomInRoof: boolean,
+  heightToSoffitM: number | null,
+  template: Record<string, number> = TIMBER_FRAME_STOREY_LIFTS,
+): LiftResult {
+  const eff = tfEffectiveStorey(storeys, roomInRoof);
   const is2p5 = eff === "2.5";
-  const template = params.timberFrameStoreyLifts ?? TIMBER_FRAME_STOREY_LIFTS;
   const sLifts = eff !== null ? (template[eff] ?? null) : null;
-  const hLifts = tfHeightLifts(input.heightToSoffitM, is2p5);
+  const hLifts = tfHeightLifts(heightToSoffitM, is2p5);
   const disagree = hLifts !== null && sLifts !== null && hLifts !== sLifts;
 
   let lifts: number | null;
