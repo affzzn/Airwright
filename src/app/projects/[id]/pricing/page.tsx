@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { loadProjectPricing } from "@/server/pricing";
 import { AppShell } from "@/components/app-shell";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GenerateQuoteButton } from "@/components/quote-actions";
@@ -46,11 +47,15 @@ export default async function PricingPage({
 
   return (
     <AppShell>
-      <Link href={`/projects/${id}`} className="text-sm text-ink-muted hover:text-ink">
-        ← Back to project
-      </Link>
+      <Breadcrumbs
+        items={[
+          { label: "Tenders", href: "/" },
+          { label: project.name, href: `/projects/${id}` },
+          { label: "Pricing" },
+        ]}
+      />
 
-      <div className="mt-4 mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <p className="eyebrow mb-2">Pricing matrix</p>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{project.name}</h1>

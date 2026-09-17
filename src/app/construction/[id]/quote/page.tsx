@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { loadConstructionQuote, priceLoadedQuote } from "@/server/construction";
 import { ConstructionPrintBar } from "@/components/construction/construction-print-bar";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { AirwrightLogo } from "@/components/brand/airwright-logo";
 import { AirwrightFooter } from "@/components/brand/airwright-footer";
 import { AIRWRIGHT } from "@/lib/brand";
@@ -28,6 +29,15 @@ export default async function ConstructionQuoteOutputPage({
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl">
+        <div className="print:hidden">
+          <Breadcrumbs
+            items={[
+              { label: "Construction", href: "/construction" },
+              { label: quoteRef, href: `/construction/${quote.id}` },
+              { label: "Quotation" },
+            ]}
+          />
+        </div>
         <ConstructionPrintBar quoteId={quote.id} />
 
         {/* Print styling — white page, brand doc, tidy page breaks. */}

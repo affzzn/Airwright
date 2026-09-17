@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Copy, Loader2, Lock, PanelRight, Plus, Trash2, Unlock } from "lucide-react";
+import { Copy, Loader2, Lock, PanelRight, Plus, Trash2, Unlock } from "lucide-react";
 import {
   addConstructionCustomLine,
   addConstructionLineFromElement,
@@ -45,6 +45,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ConstructionAttachments } from "@/components/construction/construction-attachments";
 import {
   ReferencePane,
@@ -144,9 +145,12 @@ export function ConstructionBuilder({
     <div>
       {/* Header */}
       <div className="mb-6">
-        <Link href="/construction" className="mb-3 inline-flex items-center gap-1 text-sm text-ink-subtle hover:text-ink">
-          <ChevronLeft className="h-4 w-4" strokeWidth={1.75} /> Construction quotes
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Construction", href: "/construction" },
+            { label: quote.reference || quote.customerName || "Quote" },
+          ]}
+        />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">

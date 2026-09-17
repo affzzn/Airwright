@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -167,15 +168,17 @@ export default async function QuotePage({
   return (
     <AppShell>
       <div className="print:hidden">
-        <Link
-          href={`/projects/${quote.projectId}/pricing`}
-          className="text-sm text-ink-muted hover:text-ink"
-        >
-          ← Back to pricing
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Tenders", href: "/" },
+            { label: quote.project.name, href: `/projects/${quote.projectId}` },
+            { label: "Pricing", href: `/projects/${quote.projectId}/pricing` },
+            { label: `Quote v${quote.version}` },
+          ]}
+        />
       </div>
 
-      <div className="mt-4 mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <p className="eyebrow mb-2">Quote v{quote.version}</p>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">

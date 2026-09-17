@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { UploadForm } from "@/components/upload-form";
@@ -150,11 +151,9 @@ export default async function ProjectPage({
       <AutoRefresh projectId={project.id} />
       {/* `processing` still gates the stepper below; the poller self-manages. */}
 
-      <Link href="/" className="text-sm text-ink-muted hover:text-ink">
-        ← Projects
-      </Link>
+      <Breadcrumbs items={[{ label: "Tenders", href: "/" }, { label: project.name }]} />
 
-      <div className="mt-4 mb-8 flex items-start justify-between gap-4">
+      <div className="mb-8 flex items-start justify-between gap-4">
         <div>
           <p className="eyebrow mb-2">{project.client.name}</p>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
