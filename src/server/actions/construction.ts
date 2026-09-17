@@ -11,7 +11,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
-import { createSignedUploadUrl } from "@/lib/supabase/storage";
+import { createSignedUploadUrl, createSignedUrl } from "@/lib/supabase/storage";
 
 /**
  * Server actions for the construction estimator (docs/19). Everything is MANUAL —
@@ -465,4 +465,17 @@ export async function deleteConstructionAttachment(
   await prisma.constructionAttachment.delete({ where: { id } });
   revalidatePath(`/construction/${quoteId}`);
   return { ok: true };
+}
+
+/** A short-lived signed URL for previewing one attachment inline (PDF/image). */
+export async function signConstructionAttachment(
+  id: string,
+): Promise<{ url: string | null }> {
+  const att = await prisma.constructionAttachment.findUnique({ where: { id } });
+  if (!att) return { url: null };
+  try {
+    return { url: await createSignedUrl(att.storagePath, 60 * 60 * 4) };
+  } catch {
+    return { url: null };
+  }
 }

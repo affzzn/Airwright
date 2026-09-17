@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Copy, Loader2, Lock, Plus, Trash2, Unlock } from "lucide-react";
+import { ChevronLeft, Copy, Loader2, Lock, PanelRight, Plus, Trash2, Unlock } from "lucide-react";
 import {
   addConstructionCustomLine,
   addConstructionLineFromElement,
@@ -46,7 +46,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConstructionAttachments } from "@/components/construction/construction-attachments";
-import { formatGBP } from "@/lib/utils";
+import {
+  ConstructionReferenceDrawer,
+  isPreviewable,
+} from "@/components/construction/construction-reference-viewer";
+import { cn, formatGBP } from "@/lib/utils";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
 const SITE_OPTS = (Object.keys(SITE_TYPE_LABEL) as SiteType[]).map((s) => ({ value: s, label: SITE_TYPE_LABEL[s] }));
@@ -124,8 +128,17 @@ export function ConstructionBuilder({
       router.refresh();
     });
 
+  // Reference viewer (drawings/photos beside the form).
+  const previewable = quote.attachments.filter(isPreviewable);
+  const [refOpen, setRefOpen] = useState(false);
+  const [refFile, setRefFile] = useState<string | null>(previewable[0]?.id ?? null);
+  const openRef = (id: string) => {
+    setRefFile(id);
+    setRefOpen(true);
+  };
+
   return (
-    <div>
+    <div className={cn(refOpen && "lg:pr-[45vw]")}>
       {/* Header */}
       <div className="mb-6">
         <Link href="/construction" className="mb-3 inline-flex items-center gap-1 text-sm text-ink-subtle hover:text-ink">
@@ -144,6 +157,17 @@ export function ConstructionBuilder({
             {quote.siteAddress && <p className="mt-1 text-sm text-ink-subtle">{quote.siteAddress}</p>}
           </div>
           <div className="flex items-center gap-2">
+            {previewable.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setRefOpen((v) => !v)}
+                className="gap-1.5"
+                title="Show the drawings beside the form"
+              >
+                <PanelRight className="h-4 w-4" strokeWidth={1.75} />
+                {refOpen ? "Hide reference" : "Reference"}
+              </Button>
+            )}
             <Link href={`/construction/${quote.id}/quote`}>
               <Button variant="secondary">Open quote</Button>
             </Link>
@@ -185,7 +209,12 @@ export function ConstructionBuilder({
                 <p className="mb-2 text-[11px] text-ink-subtle">
                   Reference only — drawings and the enquiry email are shown, never read by AI.
                 </p>
-                <ConstructionAttachments quoteId={quote.id} attachments={quote.attachments} locked={locked} />
+                <ConstructionAttachments
+                  quoteId={quote.id}
+                  attachments={quote.attachments}
+                  locked={locked}
+                  onView={openRef}
+                />
               </CardBody>
             </Card>
             <Card>
@@ -208,6 +237,15 @@ export function ConstructionBuilder({
           </div>
         </div>
       </div>
+
+      <ConstructionReferenceDrawer
+        open={refOpen}
+        onClose={() => setRefOpen(false)}
+        quoteId={quote.id}
+        attachments={previewable}
+        selectedId={refFile}
+        onSelect={setRefFile}
+      />
     </div>
   );
 }

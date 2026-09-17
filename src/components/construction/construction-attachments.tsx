@@ -2,42 +2,48 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Loader2, Trash2, Upload } from "lucide-react";
+import { Eye, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import {
   createSignedConstructionUploads,
   deleteConstructionAttachment,
   registerConstructionAttachments,
 } from "@/server/actions/construction";
 import type { ConstructionAttachmentVM } from "@/server/construction";
+import { isPreviewable } from "@/components/construction/construction-reference-viewer";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 
 /**
- * Attachment panel (docs/19 §3/§8) — upload the enquiry email + drawings + photos.
- * Files are STORED and DISPLAYED only; they are NEVER parsed (no AI, no reading).
- * Upload goes browser → Supabase Storage via a signed URL, then registers the row.
+ * Attachment panel (docs/19 §3/§8) — upload the enquiry drawings + photos. Files
+ * are STORED and DISPLAYED only; NEVER parsed (no AI, no reading). Upload goes
+ * browser → Supabase Storage via a signed URL. Supports multi-file select AND
+ * folder drag-and-drop. "View" opens a file in the reference viewer beside the
+ * form; a non-previewable file just opens in a new tab.
  */
 export function ConstructionAttachments({
   quoteId,
   attachments,
   locked,
+  onView,
 }: {
   quoteId: string;
   attachments: ConstructionAttachmentVM[];
   locked: boolean;
+  onView?: (id: string) => void;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const onFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const uploadFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setBusy(true);
     setErr(null);
     try {
-      const list = Array.from(files).map((f) => ({ name: f.name, type: f.type, size: f.size }));
+      const list = files.map((f) => ({ name: f.name, type: f.type, size: f.size }));
       const { targets } = await createSignedConstructionUploads(quoteId, list);
       const done: { path: string; name: string; type: string; size: number }[] = [];
       for (const t of targets) {
@@ -60,6 +66,14 @@ export function ConstructionAttachments({
     }
   };
 
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (locked) return;
+    const files = await filesFromDataTransfer(e.dataTransfer);
+    if (files.length) await uploadFiles(files);
+  };
+
   const remove = (id: string) =>
     start(async () => {
       await deleteConstructionAttachment(id, quoteId);
@@ -67,43 +81,76 @@ export function ConstructionAttachments({
     });
 
   return (
-    <div>
+    <div
+      onDragOver={(e) => {
+        if (locked) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+      className={cn(
+        "rounded-md",
+        dragOver && "outline-dashed outline-2 outline-offset-2 outline-ink/40",
+      )}
+    >
       {attachments.length === 0 ? (
         <p className="text-xs text-ink-subtle">
-          No attachments yet — add the enquiry email, drawings and site photos to work from.
+          No attachments yet — add or drag in the drawings and site photos to work from.
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {attachments.map((a) => (
-            <li
-              key={a.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-hairline bg-surface px-3 py-2"
-            >
-              <a
-                href={`/construction/attachments/${a.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex min-w-0 items-center gap-2 text-sm text-ink hover:underline"
+          {attachments.map((a) => {
+            const canView = isPreviewable(a);
+            const isImg = (a.mimeType || "").startsWith("image/");
+            return (
+              <li
+                key={a.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-hairline bg-surface px-3 py-2"
               >
-                <FileText className="h-4 w-4 shrink-0 text-ink-subtle" strokeWidth={1.75} />
-                <span className="truncate">{a.fileName}</span>
-                {a.sizeBytes != null && (
-                  <span className="shrink-0 text-[11px] text-ink-subtle">{formatBytes(a.sizeBytes)}</span>
-                )}
-              </a>
-              {!locked && (
                 <button
                   type="button"
-                  aria-label="Remove attachment"
-                  onClick={() => remove(a.id)}
-                  disabled={pending}
-                  className="shrink-0 rounded-md p-1 text-ink-subtle transition-colors hover:bg-canvas hover:text-ink disabled:opacity-40"
+                  onClick={() => (canView && onView ? onView(a.id) : window.open(`/construction/attachments/${a.id}`, "_blank"))}
+                  className="flex min-w-0 items-center gap-2 text-left text-sm text-ink hover:underline"
+                  title={canView ? "View beside the form" : "Open in a new tab"}
                 >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  {isImg ? (
+                    <ImageIcon className="h-4 w-4 shrink-0 text-ink-subtle" strokeWidth={1.75} />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-ink-subtle" strokeWidth={1.75} />
+                  )}
+                  <span className="truncate">{a.fileName}</span>
+                  {a.sizeBytes != null && (
+                    <span className="shrink-0 text-[11px] text-ink-subtle">{formatBytes(a.sizeBytes)}</span>
+                  )}
                 </button>
-              )}
-            </li>
-          ))}
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {canView && onView && (
+                    <button
+                      type="button"
+                      aria-label="View drawing"
+                      onClick={() => onView(a.id)}
+                      className="rounded-md p-1 text-ink-subtle transition-colors hover:bg-canvas hover:text-ink"
+                      title="View beside the form"
+                    >
+                      <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  )}
+                  {!locked && (
+                    <button
+                      type="button"
+                      aria-label="Remove attachment"
+                      onClick={() => remove(a.id)}
+                      disabled={pending}
+                      className="rounded-md p-1 text-ink-subtle transition-colors hover:bg-canvas hover:text-ink disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -114,7 +161,7 @@ export function ConstructionAttachments({
             type="file"
             multiple
             className="hidden"
-            onChange={(e) => onFiles(e.target.files)}
+            onChange={(e) => e.target.files && uploadFiles(Array.from(e.target.files))}
           />
           <Button
             variant="secondary"
@@ -130,9 +177,45 @@ export function ConstructionAttachments({
             )}
             Add files
           </Button>
+          <span className="ml-2 text-[11px] text-ink-subtle">or drag a folder here</span>
           {err && <span className="ml-3 text-xs text-ink">{err}</span>}
         </div>
       )}
     </div>
   );
+}
+
+/** Collect all files from a drop, recursing into any dropped folders. */
+async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
+  const items = Array.from(dt.items ?? []);
+  const entries = items
+    .map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+    .filter(Boolean) as FileSystemEntry[];
+  if (entries.length === 0) return Array.from(dt.files ?? []);
+  const out: File[] = [];
+  await Promise.all(entries.map((e) => walkEntry(e, out)));
+  return out;
+}
+
+function walkEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      (entry as FileSystemFileEntry).file((f) => {
+        out.push(f);
+        resolve();
+      }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const readAll = () => {
+        reader.readEntries(async (batch) => {
+          if (batch.length === 0) return resolve();
+          await Promise.all(batch.map((e) => walkEntry(e, out)));
+          readAll(); // keep reading — readEntries returns in chunks
+        }, () => resolve());
+      };
+      readAll();
+    } else {
+      resolve();
+    }
+  });
 }
