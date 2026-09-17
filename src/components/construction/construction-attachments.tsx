@@ -110,9 +110,9 @@ export function ConstructionAttachments({
               >
                 <button
                   type="button"
-                  onClick={() => (canView && onView ? onView(a.id) : window.open(`/construction/attachments/${a.id}`, "_blank"))}
+                  onClick={() => window.open(`/construction/attachments/${a.id}`, "_blank")}
                   className="flex min-w-0 items-center gap-2 text-left text-sm text-ink hover:underline"
-                  title={canView ? "View beside the form" : "Open in a new tab"}
+                  title="Open in a new tab"
                 >
                   {isImg ? (
                     <ImageIcon className="h-4 w-4 shrink-0 text-ink-subtle" strokeWidth={1.75} />
@@ -128,9 +128,9 @@ export function ConstructionAttachments({
                   {canView && onView && (
                     <button
                       type="button"
-                      aria-label="View drawing"
+                      aria-label="View drawing beside the form"
                       onClick={() => onView(a.id)}
-                      className="rounded-md p-1 text-ink-subtle transition-colors hover:bg-canvas hover:text-ink"
+                      className="hidden rounded-md p-1 text-ink-subtle transition-colors hover:bg-canvas hover:text-ink lg:inline-flex"
                       title="View beside the form"
                     >
                       <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />

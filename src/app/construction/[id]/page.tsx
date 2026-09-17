@@ -18,7 +18,7 @@ export default async function ConstructionQuotePage({
   if (!quote) notFound();
 
   return (
-    <AppShell>
+    <AppShell variant="wide">
       <ConstructionBuilder quote={quote} library={library} />
     </AppShell>
   );

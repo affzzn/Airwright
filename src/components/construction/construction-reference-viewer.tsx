@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, FileText, ImageIcon, Loader2, X } from "lucide-react";
 import { signConstructionAttachment } from "@/server/actions/construction";
 import { PdfViewerClient } from "@/components/pdf-viewer-client";
@@ -127,32 +127,26 @@ export function ReferenceViewerBody({
 }
 
 /**
- * The in-builder reference DRAWER — a fixed, full-height panel on the right that
- * shows the selected drawing beside the form, so the estimator reads and types at
- * once. A pop-out button opens the same viewer in its own window (dual-monitor).
+ * The in-builder reference PANE — an inline (non-fixed) panel that the builder
+ * places as a flex child beside the form on large screens, so the estimator reads
+ * the drawing and types the take-off at once. Container-based layout (no fixed +
+ * padding hack), so nothing squishes. Pop-out opens the same viewer in its own
+ * window (dual-monitor). The parent controls width / sticky positioning + when it
+ * shows (large screens only).
  */
-export function ConstructionReferenceDrawer({
-  open,
+export function ReferencePane({
   onClose,
   quoteId,
   attachments,
   selectedId,
   onSelect,
 }: {
-  open: boolean;
   onClose: () => void;
   quoteId: string;
   attachments: RefAttachment[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const firstRef = useRef(false);
-  useEffect(() => {
-    if (open && !firstRef.current) firstRef.current = true;
-  }, [open]);
-
-  if (!open) return null;
-
   const popOut = () => {
     const q = selectedId ? `?file=${selectedId}` : "";
     window.open(
@@ -164,38 +158,31 @@ export function ConstructionReferenceDrawer({
   };
 
   return (
-    <>
-      {/* Mobile scrim */}
-      <div className="fixed inset-0 z-30 bg-ink/30 lg:hidden" onClick={onClose} aria-hidden />
-      <aside
-        className="fixed right-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] w-full flex-col border-l border-hairline bg-canvas shadow-overlay lg:w-[44vw]"
-        aria-label="Reference drawings"
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-hairline px-3 py-2">
-          <span className="text-sm font-semibold text-ink">Reference</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={popOut}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-surface hover:text-ink"
-              title="Open in a separate window (for a second monitor)"
-            >
-              <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} /> Pop out
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close reference"
-              className="rounded-md p-1.5 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
-            >
-              <X className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          </div>
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-hairline bg-canvas">
+      <div className="flex shrink-0 items-center justify-between border-b border-hairline px-3 py-2">
+        <span className="text-sm font-semibold text-ink">Reference</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={popOut}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+            title="Open in a separate window (for a second monitor)"
+          >
+            <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} /> Pop out
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close reference"
+            className="rounded-md p-1.5 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
+          >
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
         </div>
-        <div className="min-h-0 flex-1">
-          <ReferenceViewerBody attachments={attachments} selectedId={selectedId} onSelect={onSelect} />
-        </div>
-      </aside>
-    </>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ReferenceViewerBody attachments={attachments} selectedId={selectedId} onSelect={onSelect} />
+      </div>
+    </div>
   );
 }

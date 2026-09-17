@@ -47,7 +47,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConstructionAttachments } from "@/components/construction/construction-attachments";
 import {
-  ConstructionReferenceDrawer,
+  ReferencePane,
   isPreviewable,
 } from "@/components/construction/construction-reference-viewer";
 import { cn, formatGBP } from "@/lib/utils";
@@ -137,8 +137,11 @@ export function ConstructionBuilder({
     setRefOpen(true);
   };
 
+  // The reference pane shows inline beside the form on large screens only.
+  const showPane = refOpen && previewable.length > 0;
+
   return (
-    <div className={cn(refOpen && "lg:pr-[45vw]")}>
+    <div>
       {/* Header */}
       <div className="mb-6">
         <Link href="/construction" className="mb-3 inline-flex items-center gap-1 text-sm text-ink-subtle hover:text-ink">
@@ -161,7 +164,7 @@ export function ConstructionBuilder({
               <Button
                 variant="secondary"
                 onClick={() => setRefOpen((v) => !v)}
-                className="gap-1.5"
+                className="hidden gap-1.5 lg:inline-flex"
                 title="Show the drawings beside the form"
               >
                 <PanelRight className="h-4 w-4" strokeWidth={1.75} />
@@ -185,23 +188,28 @@ export function ConstructionBuilder({
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left column — the working area */}
-        <div className="space-y-6 lg:col-span-2">
-          <EnquiryReview quote={quote} locked={locked} />
-          <MeasurementsPanel quote={quote} locked={locked} />
-          <LineBuilder
-            quote={quote}
-            library={library}
-            lines={lines}
-            setLines={setLines}
-            locked={locked}
-          />
-        </div>
+      <div className="flex gap-6">
+        {/* The builder. When the reference pane is open it collapses to a single
+            column (so it stays readable in the remaining width) — NOT a squished
+            3-column grid. */}
+        <div className="min-w-0 flex-1">
+          <div className={cn("grid gap-6", showPane ? "grid-cols-1" : "lg:grid-cols-3")}>
+            {/* Working area */}
+            <div className={cn("space-y-6", showPane ? "" : "lg:col-span-2")}>
+              <EnquiryReview quote={quote} locked={locked} />
+              <MeasurementsPanel quote={quote} locked={locked} />
+              <LineBuilder
+                quote={quote}
+                library={library}
+                lines={lines}
+                setLines={setLines}
+                locked={locked}
+              />
+            </div>
 
-        {/* Right column — summary, attachments, checks */}
-        <div className="space-y-6">
-          <div className="lg:sticky lg:top-20 space-y-6">
+            {/* Summary, attachments, checks */}
+            <div className="space-y-6">
+              <div className={cn("space-y-6", showPane ? "" : "lg:sticky lg:top-20")}>
             <QuoteSummary quote={quote} total={priced.total} extraHire={priced.extraHirePerWeek} locked={locked} />
             <Card>
               <CardHeader className="py-3"><h2 className="text-sm font-semibold text-ink">Attachments</h2></CardHeader>
@@ -234,18 +242,28 @@ export function ConstructionBuilder({
                 )}
               </CardBody>
             </Card>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <ConstructionReferenceDrawer
-        open={refOpen}
-        onClose={() => setRefOpen(false)}
-        quoteId={quote.id}
-        attachments={previewable}
-        selectedId={refFile}
-        onSelect={setRefFile}
-      />
+        {/* Reference pane — inline flex child on large screens (a real column, not
+            a fixed overlay), so nothing squishes. Hidden below lg (no room to
+            split); there, "View" opens the file in a new tab instead. */}
+        {showPane && (
+          <aside className="hidden w-[42vw] max-w-[820px] shrink-0 lg:block">
+            <div className="sticky top-20 h-[calc(100vh-6.5rem)]">
+              <ReferencePane
+                onClose={() => setRefOpen(false)}
+                quoteId={quote.id}
+                attachments={previewable}
+                selectedId={refFile}
+                onSelect={setRefFile}
+              />
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

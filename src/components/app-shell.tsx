@@ -16,7 +16,7 @@ export function AppShell({
 }: {
   children: React.ReactNode;
   showSignOut?: boolean;
-  variant?: "default" | "workspace";
+  variant?: "default" | "workspace" | "wide";
 }) {
   return (
     <div className="min-h-screen bg-page">
@@ -25,6 +25,10 @@ export function AppShell({
         <main className="lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
           {children}
         </main>
+      ) : variant === "wide" ? (
+        // Full-width work area (capped) — for split screens like the construction
+        // builder + its reference drawing pane, which need real horizontal room.
+        <main className="mx-auto w-full max-w-[1600px] px-6 py-8">{children}</main>
       ) : (
         <main className="mx-auto max-w-content px-6 py-10">{children}</main>
       )}
