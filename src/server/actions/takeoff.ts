@@ -28,6 +28,11 @@ export interface TakeoffEditsInput {
     rendered: boolean | null;
     chimney: boolean | null;
   };
+  /** The house type's build form (Detached / Semi / End / Mid) — a real column on
+   *  the take-off (drives sides scaffolded, corners, apex, party wall). */
+  configuration?: string | null;
+  /** Party-wall spec-item default for this house type. */
+  includePartyWall?: boolean | null;
 }
 
 const EDITABLE_KEYS = new Set([
@@ -44,6 +49,7 @@ const EDITABLE_KEYS = new Set([
 const WALL_POSITIONS = new Set(["FRONT", "REAR", "GABLE_LEFT", "GABLE_RIGHT", "OTHER"]);
 const ROOF_TYPES = new Set(["PITCHED", "HIPPED", "MIXED"]);
 const STRUCTURES = new Set<string>(STRUCTURE_FORMS);
+const CONFIGURATIONS = new Set(["DETACHED", "SEMI_DETACHED", "END_TERRACE", "MID_TERRACE"]);
 
 type MKey = Prisma.TakeoffMeasurementCreateManyInput["key"];
 type WPos = Prisma.WallSegmentCreateManyInput["position"];
@@ -139,10 +145,15 @@ export async function saveTakeoffEdits(
       if (typeof c.chimney === "boolean") next.chimney = c.chimney;
       else delete next.chimney;
 
-      await tx.takeoff.update({
-        where: { id: takeoffId },
-        data: { warnings: next, status: "IN_REVIEW" },
-      });
+      // The house type's build form + party-wall default are real columns (not
+      // warnings) — validated against the enum.
+      const takeoffData: Prisma.TakeoffUpdateInput = { warnings: next, status: "IN_REVIEW" };
+      if (edits.configuration && CONFIGURATIONS.has(edits.configuration))
+        takeoffData.configuration = edits.configuration as Prisma.TakeoffUpdateInput["configuration"];
+      if (typeof edits.includePartyWall === "boolean")
+        takeoffData.includePartyWall = edits.includePartyWall;
+
+      await tx.takeoff.update({ where: { id: takeoffId }, data: takeoffData });
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

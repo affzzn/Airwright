@@ -451,6 +451,14 @@ model Takeoff {
   seedExtractionId String?              @unique
   seedExtraction   Extraction?          @relation("TakeoffSeed", fields: [seedExtractionId], references: [id], onDelete: SetNull)
   status           ReviewStatus         @default(DRAFT)
+  // The house type's fixed build form, read off the drawing and confirmed on the
+  // review screen. Each drawing IS one type (a semi is a separate drawing), so this
+  // lives on the take-off — it drives which sides are scaffolded, the corners, the
+  // apex reduction and the party wall. Plots created from this take-off inherit it.
+  configuration    Configuration        @default(DETACHED)
+  // Party-wall spec item default for this house type (a non-detached carries one);
+  // a plot can still opt out per job (Plot.includePartyWall).
+  includePartyWall Boolean              @default(true)
   warnings         Json?
   confirmedById    String?              @db.Uuid
   confirmedAt      DateTime?

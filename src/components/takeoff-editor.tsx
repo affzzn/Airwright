@@ -18,7 +18,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { formatDate } from "@/lib/utils";
 import { Provenance } from "@/components/ui/provenance";
 import type { ExtractionResult } from "@/lib/extract/schema";
-import { STRUCTURE_FORMS, STRUCTURE_LABEL, isMultiHome, type StructureForm } from "@/lib/structure";
+import type { StructureForm } from "@/lib/structure";
 import {
   aiMeasurementValues,
   buildProvenanceCards,
@@ -27,6 +27,8 @@ import {
   adaptionLiftsProvenance,
   tfAdaptionProvenance,
   tfApexProvenance,
+  partyWallProvenance,
+  birdcageTotalProvenance,
   resolvePage,
   wallProvenance,
   wallSumProvenance,
@@ -69,6 +71,11 @@ interface Props {
   walls: EditorWall[];
   warnings: Record<string, unknown>;
   categoricals: EditorCategoricals;
+  /** The house type's build form (a real column on the take-off). Drives which
+   *  sides are scaffolded, the corners, the apex reduction and the party wall. */
+  configuration: string;
+  /** Party-wall spec-item default for this house type (removable per job). */
+  includePartyWall: boolean;
   /** The verbatim model output, for provenance (null on legacy extractions). */
   raw: ExtractionResult | null;
   /** Per-page sheet titles, for resolving a source label to a page number. */
@@ -77,7 +84,7 @@ interface Props {
   relevantPages?: number[];
   /** Jump the drawing viewer to a page (wired to the workspace). */
   onGoToPage?: (page: number) => void;
-  /** AI notes for this house type, shown with the live review flags. */
+  /** AI notes for this house type, shown first. */
   notes?: string | null;
   /** Per-builder storey→lifts template; falls back to the engine default. */
   storeyLiftTemplate?: Record<string, number>;
@@ -86,18 +93,21 @@ interface Props {
   buildSystem?: BuildSystem;
 }
 
-// The canonical, always-shown measurement rows (a blank one is fillable).
-const MEASUREMENTS: { key: string; label: string; unit: string }[] = [
-  { key: "STOREYS", label: "Storeys", unit: "" },
-  { key: "HEIGHT_TO_SOFFIT", label: "Height to soffit", unit: "m" },
-  { key: "CORNER_COUNT", label: "Corners", unit: "" },
-  { key: "GABLE_QTY", label: "Gables / apex", unit: "" },
-  { key: "RENDER_LENGTH", label: "Render length", unit: "m" },
-  { key: "BIRDCAGE_GF_M2", label: "Birdcage (GF)", unit: "m²" },
-  { key: "BIRDCAGE_FF_M2", label: "Birdcage (FF)", unit: "m²" },
-  { key: "BIRDCAGE_SF_M2", label: "Birdcage (SF)", unit: "m²" },
-  { key: "LOW_LEVEL_QTY", label: "Low-level", unit: "" },
-];
+// The editable measurement rows. `birdcage` rows are dropped for timber frame.
+const MEAS_LABEL: Record<string, { label: string; unit: string }> = {
+  STOREYS: { label: "Storeys", unit: "" },
+  HEIGHT_TO_SOFFIT: { label: "Height to soffit", unit: "m" },
+  CORNER_COUNT: { label: "Corners", unit: "" },
+  GABLE_QTY: { label: "Gables / apex", unit: "" },
+  RENDER_LENGTH: { label: "Render length", unit: "m" },
+  BIRDCAGE_GF_M2: { label: "Birdcage (GF)", unit: "m²" },
+  BIRDCAGE_FF_M2: { label: "Birdcage (FF)", unit: "m²" },
+  BIRDCAGE_SF_M2: { label: "Birdcage (SF)", unit: "m²" },
+  LOW_LEVEL_QTY: { label: "Low-level", unit: "" },
+};
+// Every measurement key we render an input for (order-independent — the layout
+// below places each explicitly, interleaved with the computed rows).
+const MEASUREMENT_KEYS = Object.keys(MEAS_LABEL);
 
 const WALL_OPTIONS: { value: string; label: string }[] = [
   { value: "FRONT", label: "Front" },
@@ -113,10 +123,18 @@ const ROOF_OPTIONS: { value: string; label: string }[] = [
   { value: "HIPPED", label: "Hipped" },
   { value: "MIXED", label: "Mixed" },
 ];
-const STRUCTURE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "—" },
-  ...STRUCTURE_FORMS.map((f) => ({ value: f, label: STRUCTURE_LABEL[f] })),
+
+const CONFIG_OPTIONS: { value: Configuration; label: string }[] = [
+  { value: "DETACHED", label: "Detached" },
+  { value: "SEMI_DETACHED", label: "Semi-detached" },
+  { value: "END_TERRACE", label: "End terrace" },
+  { value: "MID_TERRACE", label: "Mid-terrace" },
 ];
+const CONFIG_LABEL: Record<string, string> = Object.fromEntries(
+  CONFIG_OPTIONS.map((o) => [o.value, o.label]),
+);
+const isConfig = (v: string): v is Configuration =>
+  v === "DETACHED" || v === "SEMI_DETACHED" || v === "END_TERRACE" || v === "MID_TERRACE";
 
 type WallRow = {
   key: string;
@@ -135,13 +153,7 @@ const parseNum = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/**
- * Break the AI's free-text notes into readable bullet points — one per sentence.
- * Splits on a `.`, `!` or `?` followed by whitespace and a capital/opening
- * bracket, so each bullet is a complete, capitalised thought. A decimal like
- * `5.48` (no space after the point) and an abbreviation like `e.g.` (lowercase
- * next) are left intact; semicolon clauses stay with their sentence.
- */
+/** Break the AI's free-text notes into readable bullet points — one per sentence. */
 function splitNotes(notes: string): string[] {
   return notes
     .split(/(?<=[.!?])\s+(?=[A-Z(])/)
@@ -157,6 +169,8 @@ export function TakeoffEditor({
   walls,
   warnings,
   categoricals,
+  configuration,
+  includePartyWall,
   raw,
   documentPages,
   relevantPages,
@@ -167,6 +181,7 @@ export function TakeoffEditor({
 }: Props) {
   const router = useRouter();
   const locked = status === "CONFIRMED";
+  const isTF = buildSystem === "TIMBER_FRAME";
   const [confirmPending, startConfirm] = useTransition();
   const doConfirm = () =>
     startConfirm(async () => {
@@ -182,7 +197,7 @@ export function TakeoffEditor({
   // --- Initial editable state (memoised from the immutable props) ---
   const initialMVals = useMemo(() => {
     const r: Record<string, string> = {};
-    for (const { key } of MEASUREMENTS) r[key] = "";
+    for (const key of MEASUREMENT_KEYS) r[key] = "";
     for (const m of measurements)
       if (m.valueNumber !== null) r[m.key] = String(m.valueNumber);
     return r;
@@ -209,13 +224,22 @@ export function TakeoffEditor({
   const [mVals, setMVals] = useState(initialMVals);
   const [wallRows, setWallRows] = useState(initialWallRows);
   const [cats, setCats] = useState(categoricals);
+  const [config, setConfig] = useState<Configuration>(
+    isConfig(configuration) ? configuration : "DETACHED",
+  );
+  const [includePW, setIncludePW] = useState<boolean>(includePartyWall);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const newCounter = useRef(0);
 
+  const isApartment = cats.structure === "APARTMENT_BLOCK";
+  const isDetached = config === "DETACHED";
+  const isAttached = !isDetached && !isApartment;
+  // Front/rear frontage is divided by how many houses it spans (default 1). The
+  // engine reads this from warnings.dwellingsWide — we drive both from one value
+  // so the "covers" control and the perimeter can never disagree.
+  const covers = isApartment ? 1 : (cats.dwellingsWide ?? 1);
+
   // --- Provenance ("how was this derived") from the verbatim model output ---
-  // Prefer the page the model actually cited (its 1-based page WITHIN the sliced
-  // PDF maps exactly to the Nth relevant document page); fall back to matching the
-  // sheet label against the classified page titles.
   const resolve = useMemo(
     () => (label: string | null | undefined, sourcePage?: number | null) => {
       if (
@@ -232,10 +256,8 @@ export function TakeoffEditor({
   );
   const cards = useMemo<Record<string, ProvContent>>(
     () => (raw ? buildProvenanceCards(raw, resolve, buildSystem) : {}),
-    [raw, resolve],
+    [raw, resolve, buildSystem],
   );
-  // Wall length → its cited page, keyed by the dimension string (walls are edited
-  // live, so match the raw wall by its dimension string to recover the page).
   const wallPageByDim = useMemo(() => {
     const m = new Map<string, number>();
     for (const w of raw?.wallSegments ?? []) {
@@ -249,7 +271,6 @@ export function TakeoffEditor({
     () => (raw ? aiMeasurementValues(raw) : {}),
     [raw],
   );
-  // A measurement's card, with an "edited" note appended once it's been corrected.
   const measurementCard = (key: string): ProvContent | null => {
     const base = cards[key];
     if (!base) return null;
@@ -264,7 +285,7 @@ export function TakeoffEditor({
     return base;
   };
 
-  // --- Live recompute of the deterministic take-off (client-side, instant) ---
+  // --- Live recompute of the deterministic take-off (one line, the selected type) ---
   const engineMeasurements = useMemo(
     () =>
       Object.entries(mVals)
@@ -276,10 +297,6 @@ export function TakeoffEditor({
     () => wallRows.map((w) => ({ position: w.position, lengthM: parseNum(w.lengthM) ?? 0 })),
     [wallRows],
   );
-  const perimeter = useMemo(
-    () => engineWalls.reduce((s, w) => s + w.lengthM, 0),
-    [engineWalls],
-  );
   const engineWarnings = useMemo(
     () => ({
       ...warnings,
@@ -288,53 +305,57 @@ export function TakeoffEditor({
       rendered: cats.rendered ?? undefined,
       chimney: cats.chimney ?? undefined,
       structure: cats.structure ?? undefined,
-      dwellingsWide: cats.dwellingsWide ?? undefined,
+      dwellingsWide: covers,
     }),
-    [warnings, cats],
+    [warnings, cats, covers],
   );
-
-  const isApartment = cats.structure === "APARTMENT_BLOCK";
-  const takeoffLines = useMemo(() => {
-    const options: { label: string; config: Configuration }[] = isApartment
-      ? [{ label: "Whole block", config: "DETACHED" }]
-      : [
-          { label: "Detached", config: "DETACHED" },
-          { label: "Semi / End", config: "SEMI_DETACHED" },
-          { label: "Mid-terrace", config: "MID_TERRACE" },
-        ];
+  const line = useMemo(() => {
     const params = storeyLiftTemplate
       ? { ...DEFAULT_PARAMS, storeyLiftTemplate }
       : DEFAULT_PARAMS;
-    return options.map(({ label, config }) => ({
-      label,
-      line: buildTakeoff(
-        takeoffInputFromStored(engineMeasurements, engineWalls, engineWarnings, config, buildSystem),
-        params,
-      ),
-    }));
-  }, [isApartment, engineMeasurements, engineWalls, engineWarnings, storeyLiftTemplate, buildSystem]);
-  const engineFlags = takeoffLines[0]?.line.flags ?? [];
-  // Which configuration's take-off to show (dropdown); default to the first.
-  const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
-  const shownTakeoff =
-    takeoffLines.find((t) => t.label === selectedConfig) ?? takeoffLines[0];
+    const input = takeoffInputFromStored(
+      engineMeasurements,
+      engineWalls,
+      engineWarnings,
+      config,
+      buildSystem,
+    );
+    input.includePartyWall = includePW;
+    return buildTakeoff(input, params);
+  }, [engineMeasurements, engineWalls, engineWarnings, config, includePW, storeyLiftTemplate, buildSystem]);
+
+  const perimeter = useMemo(
+    () => engineWalls.reduce((s, w) => s + w.lengthM, 0),
+    [engineWalls],
+  );
+  const engineFlags = line.flags;
+
+  // --- Which wall positions the selected type does NOT scaffold (greyed) ---
+  const suppressed = useMemo<Set<string>>(() => {
+    if (isDetached || isApartment) return new Set();
+    if (config === "MID_TERRACE") return new Set(["GABLE_LEFT", "GABLE_RIGHT", "OTHER"]);
+    // Semi / end: keep the larger gable, drop the smaller (the party-wall side).
+    const sum = (pos: string) =>
+      wallRows.filter((w) => w.position === pos).reduce((a, w) => a + (parseNum(w.lengthM) ?? 0), 0);
+    return new Set([sum("GABLE_RIGHT") <= sum("GABLE_LEFT") ? "GABLE_RIGHT" : "GABLE_LEFT"]);
+  }, [config, isDetached, isApartment, wallRows]);
 
   // --- Auto-save (debounced) whenever the editable state differs from saved ---
   const serialise = (
     m: Record<string, string>,
     w: WallRow[],
     c: EditorCategoricals,
+    cfg: string,
+    ipw: boolean,
   ): string =>
-    JSON.stringify({
-      m,
-      w: w.map((r) => [r.key, r.position, r.lengthM]),
-      c,
-    });
-  const baseline = useRef(serialise(initialMVals, initialWallRows, categoricals));
+    JSON.stringify({ m, w: w.map((r) => [r.key, r.position, r.lengthM]), c, cfg, ipw });
+  const baseline = useRef(
+    serialise(initialMVals, initialWallRows, categoricals, configuration, includePartyWall),
+  );
 
   useEffect(() => {
-    if (locked) return; // confirmed → read-only, nothing to save
-    const snap = serialise(mVals, wallRows, cats);
+    if (locked) return;
+    const snap = serialise(mVals, wallRows, cats, config, includePW);
     if (snap === baseline.current) {
       setSaveState((s) => (s === "saved" ? "saved" : "idle"));
       return;
@@ -342,7 +363,7 @@ export function TakeoffEditor({
     setSaveState("dirty");
     const timer = setTimeout(async () => {
       setSaveState("saving");
-      const payload = buildPayload(mVals, initialMVals, wallRows, cats);
+      const payload = buildPayload(mVals, initialMVals, wallRows, cats, config, includePW);
       const res = await saveTakeoffEdits(takeoffId, payload);
       if (res?.ok) {
         baseline.current = snap;
@@ -353,7 +374,7 @@ export function TakeoffEditor({
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mVals, wallRows, cats]);
+  }, [mVals, wallRows, cats, config, includePW]);
 
   // --- Handlers ---
   const setMeasurement = (key: string, v: string) =>
@@ -363,22 +384,342 @@ export function TakeoffEditor({
   const addWall = () =>
     setWallRows((p) => [
       ...p,
-      {
-        key: `new-${newCounter.current++}`,
-        id: null,
-        position: "FRONT",
-        lengthM: "",
-        sourceDimension: null,
-      },
+      { key: `new-${newCounter.current++}`, id: null, position: "FRONT", lengthM: "", sourceDimension: null },
     ]);
   const removeWall = (key: string) =>
     setWallRows((p) => p.filter((w) => w.key !== key));
 
-  const details = [
+  const smartRoofChip =
     typeof warnings.smartRoofPeakM === "number"
       ? `High roof peak ${warnings.smartRoofPeakM} m — check smart roof`
-      : null,
-  ].filter(Boolean) as string[];
+      : null;
+
+  // --- Row renderers (measured + computed share one list) ---
+  const measureRow = (key: string) => {
+    const conf = MEAS_LABEL[key];
+    if (!conf) return null;
+    const meta = mMeta[key];
+    const edited =
+      mVals[key] !== initialMVals[key] || meta?.source === "EDITED" || meta?.source === "MANUAL";
+    const card = measurementCard(key);
+    return (
+      <div key={key} className="flex items-center justify-between border-b border-hairline py-2 last:border-0">
+        <span className="text-sm text-ink-muted">
+          {card ? (
+            <Provenance content={card} onGoToPage={onGoToPage}>
+              {conf.label}
+            </Provenance>
+          ) : (
+            conf.label
+          )}
+        </span>
+        <div className="flex items-center gap-2">
+          <NumField
+            value={mVals[key]}
+            unit={conf.unit}
+            disabled={locked}
+            onChange={(v) => setMeasurement(key, v)}
+          />
+          <span className="flex w-10 justify-end">
+            {edited ? (
+              <span className="text-[10px] text-ink-subtle">edited</span>
+            ) : meta ? (
+              <ConfidenceDot value={meta.confidence} />
+            ) : null}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const calcRow = (label: string, card: ProvContent | null, value: React.ReactNode) => (
+    <div className="flex items-center justify-between border-b border-hairline py-2 last:border-0">
+      <span className="text-sm text-ink">
+        {card ? (
+          <Provenance content={card} onGoToPage={onGoToPage}>
+            {label}
+          </Provenance>
+        ) : (
+          label
+        )}
+      </span>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium tabular-nums text-ink">{value}</span>
+        <span className="w-10 text-right text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+          calc
+        </span>
+      </div>
+    </div>
+  );
+
+  // Provenance cards for the computed rows.
+  const liftsCard = liftsProvenance(
+    parseNum(mVals.HEIGHT_TO_SOFFIT ?? ""),
+    parseNum(mVals.STOREYS ?? ""),
+    cats.roomInRoof === true,
+    line.lifts.heightLifts,
+    line.lifts.storeyLifts,
+    line.lifts.lifts,
+    line.lifts.flag,
+    buildSystem,
+  );
+  const perimCard =
+    line.perimeter.totalM !== null
+      ? perimeterProvenance(
+          line.perimeter.corners,
+          1,
+          line.perimeter.wallsM,
+          line.perimeter.perLiftM,
+          line.lifts.lifts,
+          line.perimeter.totalM,
+        )
+      : null;
+
+  const wallRuleText = isApartment
+    ? "Apartment block — the whole building is scaffolded."
+    : isDetached
+      ? "Detached — all four sides scaffolded."
+      : config === "MID_TERRACE"
+        ? "Mid-terrace — front and rear only. Both gables are shared walls (greyed below)."
+        : `${CONFIG_LABEL[config]} — front, rear and one gable. The other gable is the shared wall (greyed below).`;
+
+  // The wall-segments block (rule caption → editable rows → covers helper).
+  const wallsBlock = (
+    <div className="border-b border-hairline py-2">
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <p className="eyebrow">Wall segments</p>
+        <Provenance
+          content={wallSumProvenance(engineWalls, perimeter)}
+          onGoToPage={onGoToPage}
+          className="text-xs text-ink-subtle"
+        >
+          measured total {perimeter.toFixed(3)} m
+        </Provenance>
+      </div>
+      <p className="mb-2 rounded-md border border-hairline bg-surface px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-muted">
+        {wallRuleText}
+      </p>
+      <ul className="divide-y divide-hairline">
+        {wallRows.map((w) => {
+          const sup = suppressed.has(w.position);
+          return (
+            <li
+              key={w.key}
+              className={`flex items-center gap-2 py-1.5 ${sup ? "opacity-50" : ""}`}
+            >
+              <select
+                value={w.position}
+                disabled={locked}
+                onChange={(e) => patchWall(w.key, { position: e.target.value })}
+                className={`h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60 ${sup ? "line-through" : ""}`}
+              >
+                {WALL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <NumField
+                value={w.lengthM}
+                unit="m"
+                disabled={locked}
+                onChange={(v) => patchWall(w.key, { lengthM: v })}
+              />
+              <Provenance
+                content={wallProvenance(
+                  parseNum(w.lengthM) ?? 0,
+                  w.sourceDimension,
+                  w.sourceDimension ? (wallPageByDim.get(w.sourceDimension) ?? null) : null,
+                )}
+                onGoToPage={onGoToPage}
+                className="text-xs text-ink-subtle"
+              >
+                {w.sourceDimension ? `dim ${w.sourceDimension}` : "source"}
+              </Provenance>
+              {sup && (
+                <span className="rounded-md border border-hairline-strong px-1.5 py-0.5 text-[10px] text-ink-subtle">
+                  shared — not scaffolded
+                </span>
+              )}
+              {!locked && (
+                <button
+                  type="button"
+                  aria-label="Remove wall"
+                  onClick={() => removeWall(w.key)}
+                  className="ml-auto rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
+              )}
+            </li>
+          );
+        })}
+        {wallRows.length === 0 && (
+          <p className="py-3 text-sm text-ink-subtle">No wall segments.</p>
+        )}
+      </ul>
+      {!locked && (
+        <button
+          type="button"
+          onClick={addWall}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-muted transition-colors hover:text-ink"
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add wall
+        </button>
+      )}
+      {isAttached && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-hairline-strong bg-surface px-2.5 py-2 text-[12px] text-ink-muted">
+          <span>Front / rear measurement covers</span>
+          <select
+            aria-label="Front/rear measurement covers how many houses"
+            value={covers}
+            disabled={locked}
+            onChange={(e) => setCats((c) => ({ ...c, dwellingsWide: parseNum(e.target.value) }))}
+            className="h-7 rounded-md border border-hairline-strong bg-canvas px-1.5 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60"
+          >
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span>house(s) — the frontage is divided by this to get one house.</span>
+        </div>
+      )}
+    </div>
+  );
+
+  // The one take-off list — measured + computed together, in reading order.
+  const partyRow =
+    isTF || isApartment
+      ? null
+      : calcRow(
+          "Party wall",
+          partyWallProvenance(config, includePW, line.partyWalls),
+          isDetached ? (
+            <span className="font-normal text-ink-subtle">— none (detached)</span>
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              <span className="rounded-full border border-hairline-strong px-2 py-0.5 text-[10.5px] text-ink-subtle">
+                £165 · unit
+              </span>
+              <Toggle
+                checked={includePW}
+                onChange={(v) => setIncludePW(v)}
+                label="Include party wall"
+                disabled={locked}
+              />
+              <span className={includePW ? "" : "font-normal text-ink-subtle"}>
+                {includePW ? "1 unit" : "excluded"}
+              </span>
+            </span>
+          ),
+        );
+
+  const takeoffList = isTF ? (
+    // Timber frame — no birdcage; adaption lifts + LM adaptions + apex units.
+    <div>
+      {measureRow("STOREYS")}
+      {measureRow("HEIGHT_TO_SOFFIT")}
+      {calcRow("Lifts", liftsCard, line.lifts.lifts ?? "?")}
+      {line.adaptions &&
+        calcRow(
+          "Adaption lifts",
+          adaptionLiftsProvenance(line.lifts.lifts, line.adaptions.adaptionLifts),
+          <>
+            {line.adaptions.adaptionLifts}
+            {line.lifts.lifts !== null && line.adaptions.adaptionLifts < line.lifts.lifts
+              ? ` of ${line.lifts.lifts}`
+              : ""}
+          </>,
+        )}
+      {wallsBlock}
+      {measureRow("CORNER_COUNT")}
+      {perimCard &&
+        calcRow(
+          "Perimeter",
+          perimCard,
+          <>
+            {line.perimeter.perLiftM} m/lift × {line.lifts.lifts ?? "?"} = {line.perimeter.totalM} m
+          </>,
+        )}
+      {measureRow("GABLE_QTY")}
+      {calcRow("Apex", tfApexProvenance(line.apex.count), <>{line.apex.count} → 4 units</>)}
+      {line.adaptions &&
+        calcRow(
+          "Inside-board adaption",
+          tfAdaptionProvenance(
+            "inside-board",
+            line.perimeter.perLiftM,
+            line.adaptions.adaptionLifts,
+            line.adaptions.insideBoardLM,
+            line.adaptions.apexInsideBoardUnits,
+          ),
+          <>
+            {line.adaptions.insideBoardLM} LM
+            {line.adaptions.apexInsideBoardUnits > 0 ? ` + ${line.adaptions.apexInsideBoardUnits} apex` : ""}
+          </>,
+        )}
+      {line.adaptions &&
+        calcRow(
+          "Hop-up adaption",
+          tfAdaptionProvenance(
+            "hop-up",
+            line.perimeter.perLiftM,
+            line.adaptions.adaptionLifts,
+            line.adaptions.hopUpLM,
+            line.adaptions.apexHopUpUnits,
+          ),
+          <>
+            {line.adaptions.hopUpLM} LM
+            {line.adaptions.apexHopUpUnits > 0 ? ` + ${line.adaptions.apexHopUpUnits} apex` : ""}
+          </>,
+        )}
+      {measureRow("RENDER_LENGTH")}
+      {line.render &&
+        calcRow(
+          "Render adaption",
+          null,
+          <>
+            {line.render.lengthM} m × {line.render.lifts ?? "?"} lifts
+          </>,
+        )}
+      {measureRow("LOW_LEVEL_QTY")}
+      {calcRow("Birdcage", null, <span className="font-normal text-ink-subtle">— none (timber frame)</span>)}
+    </div>
+  ) : (
+    // Traditional — the full list.
+    <div>
+      {measureRow("STOREYS")}
+      {measureRow("HEIGHT_TO_SOFFIT")}
+      {calcRow("Lifts", liftsCard, line.lifts.lifts ?? "?")}
+      {wallsBlock}
+      {measureRow("CORNER_COUNT")}
+      {perimCard &&
+        calcRow(
+          "Perimeter",
+          perimCard,
+          <>
+            {line.perimeter.perLiftM} m/lift × {line.lifts.lifts ?? "?"} = {line.perimeter.totalM} m
+          </>,
+        )}
+      {measureRow("GABLE_QTY")}
+      {measureRow("RENDER_LENGTH")}
+      {measureRow("BIRDCAGE_GF_M2")}
+      {measureRow("BIRDCAGE_FF_M2")}
+      {measureRow("BIRDCAGE_SF_M2")}
+      {line.birdcage.floorCount > 0 &&
+        calcRow(
+          "Birdcage total",
+          birdcageTotalProvenance(line.birdcage.floors, line.birdcage.totalM2),
+          <>
+            {line.birdcage.totalM2} m² × {line.birdcage.floorCount} floors
+          </>,
+        )}
+      {measureRow("LOW_LEVEL_QTY")}
+      {partyRow}
+    </div>
+  );
 
   return (
     <Card className="lg:flex lg:h-full lg:flex-col">
@@ -407,9 +748,7 @@ export function TakeoffEditor({
               onClick={doConfirm}
               disabled={confirmPending || saveState === "saving" || saveState === "dirty"}
               title={
-                saveState === "dirty" || saveState === "saving"
-                  ? "Saving changes first…"
-                  : undefined
+                saveState === "dirty" || saveState === "saving" ? "Saving changes first…" : undefined
               }
               className="gap-1.5"
             >
@@ -428,166 +767,80 @@ export function TakeoffEditor({
           <div className="flex items-center gap-2 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-muted">
             <Lock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
             <span>
-              Confirmed{confirmedAt ? ` on ${formatDate(confirmedAt)}` : ""} · locked for
-              pricing. Re-open to edit.
+              Confirmed{confirmedAt ? ` on ${formatDate(confirmedAt)}` : ""} · locked for pricing.
+              Re-open to edit.
             </span>
           </div>
         )}
 
-        {/* Review flags + AI notes (kept with the take-off, not the drawing) */}
-        {(engineFlags.length > 0 || notes) && (
-          <div className="space-y-4 rounded-md border border-hairline bg-surface px-3 py-3">
-            {engineFlags.length > 0 && (
-              <div>
-                <p className="eyebrow mb-1.5">Review flags</p>
-                <ul className="space-y-1">
-                  {engineFlags.map((f) => (
-                    <li key={f} className="text-[11px] leading-snug text-ink-muted">
-                      ⚠ {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {notes && (
-              <div>
-                <p className="eyebrow mb-2">AI notes</p>
-                <ul className="list-disc space-y-1.5 pl-4 marker:text-ink-subtle">
-                  {splitNotes(notes).map((s, i) => (
-                    <li
-                      key={i}
-                      className="pl-0.5 text-[13px] leading-relaxed text-ink-muted"
-                    >
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+        {/* 1 — AI notes (first) */}
+        {notes && (
+          <div>
+            <p className="eyebrow mb-2">AI notes</p>
+            <div className="rounded-md border border-hairline bg-surface px-3 py-3">
+              <ul className="list-disc space-y-1.5 pl-4 marker:text-ink-subtle">
+                {splitNotes(notes).map((s, i) => (
+                  <li key={i} className="pl-0.5 text-[13px] leading-relaxed text-ink-muted">
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 
-        {/* Measurements */}
+        {/* 2 — House type (cascades) */}
         <div>
-          <p className="eyebrow mb-2">Measurements</p>
-          <dl className="divide-y divide-hairline">
-            {MEASUREMENTS
-              // Timber frame has no birdcage (internal decks) — hide the internal
-              // floor-area rows so the review doesn't imply a birdcage will be priced.
-              .filter((m) => buildSystem !== "TIMBER_FRAME" || !m.key.startsWith("BIRDCAGE_"))
-              .map(({ key, label, unit }) => {
-              const meta = mMeta[key];
-              const edited =
-                mVals[key] !== initialMVals[key] ||
-                meta?.source === "EDITED" ||
-                meta?.source === "MANUAL";
-              const card = measurementCard(key);
-              return (
-                <div key={key} className="flex items-center justify-between py-1.5">
-                  <dt className="text-sm text-ink-muted">
-                    {card ? (
-                      <Provenance content={card} onGoToPage={onGoToPage}>
-                        {label}
-                      </Provenance>
-                    ) : (
-                      label
-                    )}
-                  </dt>
-                  <dd className="flex items-center gap-2">
-                    <NumField
-                      value={mVals[key]}
-                      unit={unit}
-                      disabled={locked}
-                      onChange={(v) => setMeasurement(key, v)}
-                    />
-                    <span className="flex w-10 justify-end">
-                      {edited ? (
-                        <span className="text-[10px] text-ink-subtle">edited</span>
-                      ) : meta ? (
-                        <ConfidenceDot value={meta.confidence} />
-                      ) : null}
-                    </span>
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-        </div>
-
-        {/* Wall segments → perimeter */}
-        <div>
-          <div className="mb-2 flex items-baseline justify-between">
-            <p className="eyebrow">Wall segments → perimeter</p>
-            <Provenance
-              content={wallSumProvenance(engineWalls, perimeter)}
-              onGoToPage={onGoToPage}
-              className="text-sm font-medium tabular-nums text-ink"
+          <p className="eyebrow mb-2">House type</p>
+          {isApartment ? (
+            <div className="rounded-md border border-hairline-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink">
+              Apartment block · whole building
+            </div>
+          ) : (
+            <select
+              aria-label="House type"
+              value={config}
+              disabled={locked}
+              onChange={(e) => isConfig(e.target.value) && setConfig(e.target.value)}
+              className="h-11 w-full rounded-md border border-hairline-strong bg-canvas px-3 text-base font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-70"
             >
-              {perimeter.toFixed(3)} m
-            </Provenance>
-          </div>
-          <ul className="divide-y divide-hairline">
-            {wallRows.map((w) => (
-              <li key={w.key} className="flex items-center gap-2 py-1.5">
-                <select
-                  value={w.position}
-                  disabled={locked}
-                  onChange={(e) => patchWall(w.key, { position: e.target.value })}
-                  className="h-8 rounded-md border border-hairline-strong bg-canvas pl-2 pr-1 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60"
-                >
-                  {WALL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <NumField
-                  value={w.lengthM}
-                  unit="m"
-                  disabled={locked}
-                  onChange={(v) => patchWall(w.key, { lengthM: v })}
-                />
-                <Provenance
-                  content={wallProvenance(
-                    parseNum(w.lengthM) ?? 0,
-                    w.sourceDimension,
-                    w.sourceDimension ? (wallPageByDim.get(w.sourceDimension) ?? null) : null,
-                  )}
-                  onGoToPage={onGoToPage}
-                  className="text-xs text-ink-subtle"
-                >
-                  {w.sourceDimension ? `dim ${w.sourceDimension}` : "source"}
-                </Provenance>
-                {!locked && (
-                  <button
-                    type="button"
-                    aria-label="Remove wall"
-                    onClick={() => removeWall(w.key)}
-                    className="ml-auto rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
-                  >
-                    <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  </button>
-                )}
-              </li>
-            ))}
-            {wallRows.length === 0 && (
-              <p className="py-3 text-sm text-ink-subtle">No wall segments.</p>
-            )}
-          </ul>
-          {!locked && (
-            <button
-              type="button"
-              onClick={addWall}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-muted transition-colors hover:text-ink"
-            >
-              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add wall
-            </button>
+              {CONFIG_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           )}
         </div>
 
-        {/* Details (categorical, editable) */}
+        {/* 3 — The one take-off list */}
         <div>
-          <p className="eyebrow mb-2">Details</p>
+          <p className="eyebrow mb-1">Take-off</p>
+          <div className="border-t border-hairline">{takeoffList}</div>
+          <p className="mt-2 text-[11px] text-ink-subtle">
+            {isTF
+              ? "Access: always Haki · loading bay / chute shared across the block (apportioned — not yet applied)."
+              : "Extras (loading bay, chute, access, propping) come from the builder profile — not yet applied."}
+          </p>
+        </div>
+
+        {/* Review flags (contextual) */}
+        {engineFlags.length > 0 && (
+          <div className="rounded-md border border-hairline bg-surface px-3 py-3">
+            <p className="eyebrow mb-1.5">Review flags</p>
+            <ul className="space-y-1">
+              {engineFlags.map((f) => (
+                <li key={f} className="text-[11px] leading-snug text-ink-muted">
+                  ⚠ {f}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 4 — Also read from the drawing */}
+        <div>
+          <p className="eyebrow mb-2">Also read from the drawing</p>
           <div className="divide-y divide-hairline">
             <DetailRow label="Roof type" card={cards.ROOF_TYPE} onGoToPage={onGoToPage}>
               <MiniSelect
@@ -595,37 +848,10 @@ export function TakeoffEditor({
                 options={ROOF_OPTIONS}
                 disabled={locked}
                 onChange={(v) =>
-                  setCats((c) => ({
-                    ...c,
-                    roofType: (v || null) as EditorCategoricals["roofType"],
-                  }))
+                  setCats((c) => ({ ...c, roofType: (v || null) as EditorCategoricals["roofType"] }))
                 }
               />
             </DetailRow>
-            <DetailRow label="Structure" card={cards.STRUCTURE} onGoToPage={onGoToPage}>
-              <MiniSelect
-                value={cats.structure ?? ""}
-                options={STRUCTURE_OPTIONS}
-                disabled={locked}
-                onChange={(v) =>
-                  setCats((c) => ({
-                    ...c,
-                    structure: (v || null) as EditorCategoricals["structure"],
-                  }))
-                }
-              />
-            </DetailRow>
-            {isMultiHome(cats.structure) && (
-              <DetailRow label="Dwellings wide">
-                <NumField
-                  value={cats.dwellingsWide != null ? String(cats.dwellingsWide) : ""}
-                  disabled={locked}
-                  onChange={(v) =>
-                    setCats((c) => ({ ...c, dwellingsWide: parseNum(v) }))
-                  }
-                />
-              </DetailRow>
-            )}
             <DetailRow
               label="Room in roof (2.5-storey)"
               card={cards.ROOM_IN_ROOF}
@@ -655,171 +881,12 @@ export function TakeoffEditor({
               />
             </DetailRow>
           </div>
-          {details.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {details.map((d) => (
-                <span
-                  key={d}
-                  className="rounded-md border border-hairline bg-surface px-2.5 py-1 text-xs text-ink-muted"
-                >
-                  {d}
-                </span>
-              ))}
+          {smartRoofChip && (
+            <div className="mt-3">
+              <span className="rounded-md border border-hairline bg-surface px-2.5 py-1 text-xs text-ink-muted">
+                {smartRoofChip}
+              </span>
             </div>
-          )}
-        </div>
-
-        {/* Computed take-off (recomputed live from the edits) */}
-        <div>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <p className="eyebrow">Computed take-off</p>
-            {takeoffLines.length > 1 && (
-              <select
-                aria-label="Configuration"
-                value={shownTakeoff?.label ?? ""}
-                onChange={(e) => setSelectedConfig(e.target.value)}
-                className="rounded-md border border-hairline bg-surface px-2.5 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-ink/15"
-              >
-                {takeoffLines.map((t) => (
-                  <option key={t.label} value={t.label}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="space-y-2">
-            {takeoffLines
-              .filter((t) => t.label === shownTakeoff?.label)
-              .map(({ label, line }) => {
-                const liftsCard = liftsProvenance(
-                  parseNum(mVals.HEIGHT_TO_SOFFIT ?? ""),
-                  parseNum(mVals.STOREYS ?? ""),
-                  cats.roomInRoof === true,
-                  line.lifts.heightLifts,
-                  line.lifts.storeyLifts,
-                  line.lifts.lifts,
-                  line.lifts.flag,
-                  buildSystem,
-                );
-                const perimCard =
-                  line.perimeter.totalM !== null
-                    ? perimeterProvenance(
-                        line.perimeter.corners,
-                        1,
-                        line.perimeter.wallsM,
-                        line.perimeter.perLiftM,
-                        line.lifts.lifts,
-                        line.perimeter.totalM,
-                      )
-                    : null;
-
-                if (line.buildSystem === "TIMBER_FRAME") {
-                  const a = line.adaptions;
-                  const totalLifts = line.lifts.lifts;
-                  const aLifts = a?.adaptionLifts ?? null;
-                  return (
-                    <div key={label} className="rounded-md border border-hairline bg-surface px-3 py-2.5">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-xs font-medium text-ink-muted">{label}</span>
-                        <span className="text-[11px] text-ink-subtle">
-                          Timber frame · no birdcage
-                        </span>
-                      </div>
-                      <dl className="mt-2 divide-y divide-hairline">
-                        <TfRow label="Lifts">
-                          <Provenance content={liftsCard} onGoToPage={onGoToPage}>
-                            {totalLifts ?? "?"}
-                          </Provenance>
-                        </TfRow>
-                        {aLifts !== null && (
-                          <TfRow label="Adaption lifts">
-                            <Provenance content={adaptionLiftsProvenance(totalLifts, aLifts)} onGoToPage={onGoToPage}>
-                              {aLifts}
-                              {totalLifts !== null && aLifts < totalLifts ? ` of ${totalLifts}` : ""}
-                            </Provenance>
-                          </TfRow>
-                        )}
-                        <TfRow label="Perimeter">
-                          {perimCard ? (
-                            <Provenance content={perimCard} onGoToPage={onGoToPage}>
-                              {line.perimeter.perLiftM} m/lift × {totalLifts ?? "?"} = {line.perimeter.totalM} m
-                            </Provenance>
-                          ) : (
-                            <span className="text-ink-subtle">—</span>
-                          )}
-                        </TfRow>
-                        <TfRow label="Apex">
-                          <Provenance content={tfApexProvenance(line.apex.count)} onGoToPage={onGoToPage}>
-                            {line.apex.count}
-                          </Provenance>
-                        </TfRow>
-                        {a && (
-                          <TfRow label="Inside-board adaption">
-                            <Provenance
-                              content={tfAdaptionProvenance("inside-board", line.perimeter.perLiftM, a.adaptionLifts, a.insideBoardLM, a.apexInsideBoardUnits)}
-                              onGoToPage={onGoToPage}
-                            >
-                              {a.insideBoardLM} LM{a.apexInsideBoardUnits > 0 ? ` + ${a.apexInsideBoardUnits} apex` : ""}
-                            </Provenance>
-                          </TfRow>
-                        )}
-                        {a && (
-                          <TfRow label="Hop-up adaption">
-                            <Provenance
-                              content={tfAdaptionProvenance("hop-up", line.perimeter.perLiftM, a.adaptionLifts, a.hopUpLM, a.apexHopUpUnits)}
-                              onGoToPage={onGoToPage}
-                            >
-                              {a.hopUpLM} LM{a.apexHopUpUnits > 0 ? ` + ${a.apexHopUpUnits} apex` : ""}
-                            </Provenance>
-                          </TfRow>
-                        )}
-                        {line.render && (
-                          <TfRow label="Render adaption">
-                            {line.render.lengthM} m × {line.render.lifts ?? "?"} lifts
-                          </TfRow>
-                        )}
-                        {line.lowLevel > 0 && <TfRow label="Low level">{line.lowLevel}</TfRow>}
-                        <TfRow label="Birdcage">
-                          <span className="text-ink-subtle">— none (timber frame)</span>
-                        </TfRow>
-                      </dl>
-                      <p className="mt-2 text-[11px] text-ink-subtle">
-                        Access: always Haki · loading bay / chute shared across the block
-                        (apportioned — not yet priced).
-                      </p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={label} className="rounded-md border border-hairline bg-surface px-3 py-2.5">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-xs font-medium text-ink-muted">{label}</span>
-                      <span className="text-xs tabular-nums text-ink-subtle">
-                        <Provenance content={liftsCard} onGoToPage={onGoToPage}>
-                          {line.lifts.lifts ?? "?"} lifts
-                        </Provenance>
-                        {perimCard && (
-                          <>
-                            {" · "}
-                            <Provenance content={perimCard} onGoToPage={onGoToPage}>
-                              {line.perimeter.totalM} m total
-                            </Provenance>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm tabular-nums text-ink">{line.text}</p>
-                  </div>
-                );
-              })}
-          </div>
-          {buildSystem !== "TIMBER_FRAME" && (
-            <p className="mt-2 text-[11px] text-ink-subtle">
-              Extras (loading bay, chute, access, propping) come from the builder
-              profile — not yet applied.
-            </p>
           )}
         </div>
       </CardBody>
@@ -834,10 +901,11 @@ function buildPayload(
   initialMVals: Record<string, string>,
   wallRows: WallRow[],
   cats: EditorCategoricals,
+  config: Configuration,
+  includePW: boolean,
 ): TakeoffEditsInput {
-  const measurements = MEASUREMENTS.filter(({ key }) => mVals[key] !== initialMVals[key])
-    .map(({ key }) => ({ key, value: parseNum(mVals[key]) }))
-    // A newly-blank field that was never set has nothing to persist.
+  const measurements = MEASUREMENT_KEYS.filter((key) => mVals[key] !== initialMVals[key])
+    .map((key) => ({ key, value: parseNum(mVals[key]) }))
     .filter((m) => !(m.value === null && initialMVals[m.key] === ""));
 
   const walls = wallRows
@@ -855,6 +923,8 @@ function buildPayload(
       rendered: cats.rendered,
       chimney: cats.chimney,
     },
+    configuration: config,
+    includePartyWall: includePW,
   };
 }
 
@@ -938,17 +1008,6 @@ function DetailRow({
         )}
       </span>
       {children}
-    </div>
-  );
-}
-
-/** One row of the timber-frame take-off panel: a label on the left, the computed
- *  value (usually a provenance-on-hover) on the right. */
-function TfRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between py-1.5">
-      <dt className="text-sm text-ink-muted">{label}</dt>
-      <dd className="text-sm tabular-nums text-ink">{children}</dd>
     </div>
   );
 }

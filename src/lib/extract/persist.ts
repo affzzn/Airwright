@@ -168,10 +168,25 @@ export async function persistExtraction(
       }
     }
 
+    // Initial house-type build form, read off the drawing's structure. Set on
+    // CREATE only — a re-run must never overwrite the estimator's confirmed choice
+    // (the empty `update` preserves it). Apartment blocks scaffold whole-building
+    // (keyed off warnings.structure), so DETACHED is the safe placeholder.
+    const STRUCTURE_TO_CONFIG: Record<string, "DETACHED" | "SEMI_DETACHED" | "END_TERRACE" | "MID_TERRACE"> = {
+      DETACHED: "DETACHED",
+      PAIR_SEMI: "SEMI_DETACHED",
+      THREE_BLOCK: "END_TERRACE",
+      TERRACE: "END_TERRACE",
+      APARTMENT_BLOCK: "DETACHED",
+    };
+    const initialConfig = result.structure.form
+      ? (STRUCTURE_TO_CONFIG[result.structure.form] ?? "DETACHED")
+      : "DETACHED";
+
     // Ensure a Takeoff exists; seed it from this extraction if not already seeded.
     const takeoff = await tx.takeoff.upsert({
       where: { houseTypeId },
-      create: { houseTypeId, seedExtractionId: extractionId },
+      create: { houseTypeId, seedExtractionId: extractionId, configuration: initialConfig },
       update: {},
     });
 

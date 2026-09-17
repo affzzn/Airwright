@@ -11,7 +11,38 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-03
+Last updated: 2026-09-17
+
+### 2026-09-17 — Review screen reordered around the house type — branch `feat/review-page-house-type`
+
+Corrected model (was wrong before): each drawing IS a fixed house type (a semi is a
+separate drawing); the type is not a per-plot preview. Plot numbers are QUANTITY (a
+pricing-stage field), not a type variation. Nothing on the review page is a separate
+"answer" — it's all one take-off.
+
+- **New `Takeoff.configuration` column** (migration `20260917095357_add_takeoff_configuration`,
+  additive, `@default(DETACHED)`) + `Takeoff.includePartyWall`. The house-type build form now
+  lives on the take-off, set on review, and cascades. `persist.ts` seeds it from the read
+  structure on CREATE only (a re-run never overwrites the estimator's choice). `saveTakeoffEdits`
+  persists both (validated). `ensureDefaultPlot` — new plots INHERIT the take-off's configuration +
+  includePartyWall (a legacy row falls back to the structure-derived default).
+- **`takeoff-editor.tsx` rebuilt to the agreed order:** AI notes first → a single **House type**
+  selector (Detached / Semi / End / Mid; hidden → "whole building" for apartments) → **one unified
+  take-off list** (measured + computed interleaved, each with the same provenance hover) → "Also
+  read from the drawing" (roof / room-in-roof / rendered / chimney). The old 3-config preview
+  dropdown and the separate "Computed take-off" box are gone.
+- **Cascade is visible:** picking Semi/End greys the shared gable ("shared — not scaffolded") and
+  drops it from the perimeter; Mid greys both. The **Building/Structure dropdown was removed** and
+  replaced by a small "Front/rear measurement covers N house(s)" helper (= dwellingsWide) that
+  only shows for attached types. **Party wall is its own line item** (£165 unit, include/remove
+  toggle, "— none (detached)"), never grouped with apex.
+- **Timber frame** kept its distinct rows (adaption lifts, LM adaptions + apex units, explicit
+  "no birdcage", access note) but now follows the same top-down order; no birdcage/party-wall rows.
+- **Docs tab (dev-spec) synced:** fixed a real bug (party-wall mid-terrace said 2 → now 1),
+  reframed the Configuration glossary (house-type-level, not plot-level), and the pipeline
+  "Take-off"/"Confirm" stages. New provenance builders `partyWallProvenance` + `birdcageTotalProvenance`.
+- **Green:** typecheck + lint clean, **313 tests** (+3 provenance), production build clean. Migration
+  applied to the DB. Not yet driven in-browser here (auth-gated).
 
 ### 2026-09-03 — Timber-frame support (project-level build type) — branch `feat/timber-frame`
 

@@ -42,13 +42,13 @@ export const PIPELINE: PipelineStage[] = [
     id: "takeoff",
     name: "Take-off line",
     runsIn: "app",
-    what: "The engine computes Colin's line per configuration (honouring edits), shown live on the review screen.",
+    what: "The review screen states the house type (its fixed build form) first; the engine computes Colin's line for it — everything cascades from that one choice — and shows it live (honouring edits) as one unified list of measured + computed values.",
   },
   {
     id: "confirm",
     name: "Confirm",
     runsIn: "app",
-    what: "A human confirms the take-off (locks it) → only then is it priced. Nothing is auto-priced.",
+    what: "A human confirms the take-off (locks it) → its house type + measurements become the frozen basis, plots inherit them, and only then is it priced. Nothing is auto-priced.",
   },
 ];
 

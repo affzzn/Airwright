@@ -181,6 +181,8 @@ export default async function ReviewPage({
         walls={editorWalls}
         warnings={rawWarnings}
         categoricals={categoricals}
+        configuration={takeoff.configuration}
+        includePartyWall={takeoff.includePartyWall}
         notes={notes}
         raw={raw}
         documentPages={documentPages}

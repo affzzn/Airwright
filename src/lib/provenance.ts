@@ -666,6 +666,72 @@ export function perimeterProvenance(
   };
 }
 
+const CONFIG_LABEL: Record<string, string> = {
+  DETACHED: "Detached",
+  SEMI_DETACHED: "Semi-detached",
+  END_TERRACE: "End terrace",
+  MID_TERRACE: "Mid-terrace",
+};
+
+/** Provenance for the party-wall line — its own unit-priced item (never grouped
+ *  with the apex/table-lift items). One per non-detached house; removable per job. */
+export function partyWallProvenance(
+  config: string,
+  include: boolean,
+  qty: number,
+): ProvContent {
+  const detached = config === "DETACHED";
+  const steps: ProvStep[] = [];
+  if (detached) {
+    steps.push({ text: "Detached → no party wall." });
+  } else {
+    steps.push({ text: `${CONFIG_LABEL[config] ?? config} → 1 party-wall scaffold` });
+    if (!include) steps.push({ text: "Excluded on this job (opt-out) → 0." });
+    steps.push({ text: `Result: ${qty} party wall${qty === 1 ? "" : "s"}` });
+  }
+  return {
+    title: "Party wall",
+    summary: "Its own unit-priced item",
+    method: "computed",
+    steps,
+    footnotes: [
+      "The party wall is the inside apex (apex shape, no rails) on a shared wall — a separate unit-priced spec item (£165 provisional), one per non-detached house.",
+      "Removable per job with the toggle. It is NOT part of the apex / table-lift items.",
+    ],
+    confidenceLabel: null,
+  };
+}
+
+const FLOOR_NAME: Record<string, string> = {
+  GF: "Ground floor",
+  FF: "First floor",
+  SF: "Second floor",
+  TF: "Third floor",
+};
+
+/** Provenance for the birdcage total — the internal decks summed (one lift each). */
+export function birdcageTotalProvenance(
+  floors: { level: string; m2: number }[],
+  total: number,
+): ProvContent {
+  const steps: ProvStep[] = floors.map((f) => ({
+    text: `${FLOOR_NAME[f.level] ?? f.level} = ${n2(f.m2)} m²`,
+  }));
+  steps.push({
+    text: `Total = ${n2(total)} m² across ${floors.length} floor${floors.length === 1 ? "" : "s"} (1 lift each)`,
+  });
+  return {
+    title: "Birdcage total",
+    summary: "Internal decks summed, one lift per floor",
+    method: "computed",
+    steps,
+    footnotes: [
+      "Internal area inside the external walls, per floor. Per house — the same whatever the house type; never divided.",
+    ],
+    confidenceLabel: null,
+  };
+}
+
 /** Provenance for the lift count. Traditional: height ÷ 1.5 with a storey
  *  cross-check. Timber frame: 450 mm off the soffit + 2 m boarded lifts, storey
  *  template primary (docs/18). The lift numbers are already computed by the engine

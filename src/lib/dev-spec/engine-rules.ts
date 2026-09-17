@@ -79,14 +79,15 @@ export const ENGINE_RULES: EngineRule[] = [
   },
   {
     id: "party-walls",
-    name: "Party walls",
-    plain: "The count of shared walls (not scaffolded), by configuration.",
+    name: "Party wall",
+    plain:
+      "Its OWN unit-priced spec item — the inside apex (apex shape, no rails) on a shared wall — NOT part of the apex / table-lift items. Colin's rule (2026-09-01): exactly ONE unit for every non-detached house (a mid-terrace is still one, not two), detached zero. £165 provisional. Removable per job (Plot.includePartyWall). Timber frame has none.",
     table: {
-      head: ["Config", "Party walls"],
+      head: ["Config", "Party wall units"],
       rows: [
         ["Detached", "0"],
         ["Semi / End-terrace", "1"],
-        ["Mid-terrace", "2"],
+        ["Mid-terrace", "1"],
         ["Apartment block", "0"],
       ],
     },

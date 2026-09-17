@@ -43,6 +43,8 @@ export function ReviewWorkspace({
   walls,
   warnings,
   categoricals,
+  configuration,
+  includePartyWall,
   notes,
   raw,
   documentPages,
@@ -63,6 +65,8 @@ export function ReviewWorkspace({
   walls: EditorWall[];
   warnings: Record<string, unknown>;
   categoricals: EditorCategoricals;
+  configuration: string;
+  includePartyWall: boolean;
   notes: string | null;
   raw: ExtractionResult | null;
   documentPages: PageRef[];
@@ -147,6 +151,8 @@ export function ReviewWorkspace({
             walls={walls}
             warnings={warnings}
             categoricals={categoricals}
+            configuration={configuration}
+            includePartyWall={includePartyWall}
             notes={notes}
             raw={raw}
             documentPages={documentPages}

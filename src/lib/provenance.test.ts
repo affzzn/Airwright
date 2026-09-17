@@ -61,6 +61,40 @@ describe("confidenceReason", () => {
   });
 });
 
+import { partyWallProvenance, birdcageTotalProvenance } from "./provenance";
+
+describe("partyWallProvenance — its own unit-priced item (not apex)", () => {
+  it("detached has no party wall", () => {
+    const p = partyWallProvenance("DETACHED", true, 0);
+    expect(p.steps.map((s) => s.text).join(" ")).toMatch(/no party wall/i);
+  });
+  it("a non-detached house is one unit, and says it is not an apex item", () => {
+    const p = partyWallProvenance("MID_TERRACE", true, 1);
+    const text = [...p.steps.map((s) => s.text), ...p.footnotes].join(" ");
+    expect(text).toMatch(/1 party-wall scaffold/i);
+    expect(text).toMatch(/NOT part of the apex/i);
+  });
+  it("an opt-out drops the unit to 0", () => {
+    const p = partyWallProvenance("SEMI_DETACHED", false, 0);
+    expect(p.steps.map((s) => s.text).join(" ")).toMatch(/Excluded on this job/i);
+  });
+});
+
+describe("birdcageTotalProvenance — decks summed, one lift each", () => {
+  it("lists each floor and the total across n floors", () => {
+    const p = birdcageTotalProvenance(
+      [
+        { level: "GF", m2: 41.239 },
+        { level: "FF", m2: 41.239 },
+      ],
+      82.478,
+    );
+    const text = p.steps.map((s) => s.text).join(" ");
+    expect(text).toMatch(/Ground floor = 41.24/);
+    expect(text).toMatch(/Total = 82.48 m² across 2 floors/);
+  });
+});
+
 import { liftsProvenance } from "./provenance";
 
 describe("liftsProvenance — build-system aware (docs/18)", () => {

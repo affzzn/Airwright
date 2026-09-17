@@ -51,12 +51,17 @@ export async function ensureDefaultPlot(houseTypeId: string): Promise<void> {
       id: true,
       projectId: true,
       _count: { select: { plots: true } },
-      takeoff: { select: { warnings: true } },
+      takeoff: { select: { warnings: true, configuration: true, includePartyWall: true } },
     },
   });
   if (!ht || ht._count.plots > 0) return;
 
-  const { configuration, isRendered } = defaultPlotFromWarnings(ht.takeoff?.warnings);
+  // The confirmed house-type build form is the source of truth (a real column);
+  // fall back to the structure-derived default only for legacy rows that predate it.
+  const fromWarnings = defaultPlotFromWarnings(ht.takeoff?.warnings);
+  const configuration = ht.takeoff?.configuration ?? fromWarnings.configuration;
+  const isRendered = fromWarnings.isRendered;
+  const includePartyWall = ht.takeoff?.includePartyWall ?? true;
 
   // Next free integer plot number in the project.
   const existing = await prisma.plot.findMany({
@@ -78,6 +83,7 @@ export async function ensureDefaultPlot(houseTypeId: string): Promise<void> {
       plotNumber: String(n),
       configuration,
       isRendered,
+      includePartyWall,
     },
   });
 }
