@@ -3,8 +3,53 @@ loadEnv({ path: ".env.local" });
 loadEnv();
 
 import { PrismaClient } from "@prisma/client";
+import { CONSTRUCTION_ELEMENT_SEED } from "../src/lib/construction/library";
 
 const prisma = new PrismaClient();
+
+/**
+ * Seed the global construction scaffold-element library (docs/19 §5) — the
+ * "picking list" Colin builds a construction quote from. Idempotent (deterministic
+ * ids + upsert). Rates are PLACEHOLDERS, editable on the Rates → Construction tab.
+ */
+async function seedConstructionLibrary() {
+  for (const el of CONSTRUCTION_ELEMENT_SEED) {
+    await prisma.constructionElement.upsert({
+      where: { id: el.id },
+      update: {
+        name: el.name,
+        aliases: el.aliases,
+        category: el.category,
+        unit: el.unit,
+        usesLifts: el.usesLifts,
+        usesHeightBracket: el.usesHeightBracket,
+        defaultRuleNote: el.defaultRuleNote ?? null,
+        sortOrder: el.sortOrder,
+      },
+      create: {
+        id: el.id,
+        name: el.name,
+        aliases: el.aliases,
+        category: el.category,
+        unit: el.unit,
+        usesLifts: el.usesLifts,
+        usesHeightBracket: el.usesHeightBracket,
+        defaultRuleNote: el.defaultRuleNote ?? null,
+        sortOrder: el.sortOrder,
+      },
+    });
+    for (const r of el.rates) {
+      await prisma.constructionRate.upsert({
+        where: {
+          elementId_band_bracket: { elementId: el.id, band: r.band, bracket: r.bracket },
+        },
+        update: { rate: r.rate },
+        create: { elementId: el.id, band: r.band, bracket: r.bracket, rate: r.rate },
+      });
+    }
+  }
+  console.log(`Seeded ${CONSTRUCTION_ELEMENT_SEED.length} construction elements.`);
+}
 
 /**
  * Minimal seed so the app isn't empty and the pricing engine (Week 4) has a
@@ -123,6 +168,8 @@ async function main() {
       notes: "PLACEHOLDER — Barratt 2-storey = 3 lifts (docs/08); confirm the full template.",
     },
   });
+
+  await seedConstructionLibrary();
 
   console.log(
     `Seeded client ${client.name}, rate card ${rateCard.name}, and a placeholder builder profile.`,

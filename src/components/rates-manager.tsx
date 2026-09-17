@@ -106,27 +106,50 @@ const usesLiftLevel = (component: string) => component === "LIFT";
 const liftLevelLabel = (component: string, level: number) =>
   usesLiftLevel(component) && level > 0 ? `${level}` : "—";
 
-export function RatesManager({ cards }: { cards: RateCardVM[] }) {
+/**
+ * The Rates screen is split into Traditional / Timber-frame / Construction tabs.
+ * Traditional and Timber-frame are two VIEWS over the same house-build rate card,
+ * filtered by which components + stage scenarios belong to each build system.
+ */
+export type RatesView = "traditional" | "timber";
+// Timber-frame-only components (the rest are traditional). TABLE_LIFT / GABLE_RAILS
+// / RENDER_ADAPTION are shared (apex + render), so they show in BOTH views.
+const TF_ONLY_COMPONENTS = new Set([
+  "TF_EXTERNAL",
+  "ADAPTION_INSIDE_BOARD",
+  "ADAPTION_HOP_UP",
+  "ADAPTION_INSIDE_BOARD_APEX",
+  "ADAPTION_HOP_UP_APEX",
+  "ADAPTION",
+]);
+const SHARED_COMPONENTS = new Set(["TABLE_LIFT", "GABLE_RAILS", "RENDER_ADAPTION", "OTHER"]);
+function componentInView(component: string, view: RatesView): boolean {
+  if (view === "timber") return TF_ONLY_COMPONENTS.has(component) || SHARED_COMPONENTS.has(component);
+  return !TF_ONLY_COMPONENTS.has(component); // traditional = everything except TF-only
+}
+function scenarioInView(scenario: string, view: RatesView): boolean {
+  return view === "timber" ? scenario === "TIMBER_FRAME" : scenario !== "TIMBER_FRAME";
+}
+
+export function RatesManager({ cards, view = "traditional" }: { cards: RateCardVM[]; view?: RatesView }) {
   const [newOpen, setNewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RateCardVM | null>(null);
 
   return (
     <div>
-      <div className="mb-2 flex items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow mb-1">Admin</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Rate cards</h1>
-        </div>
-        <Button variant="secondary" onClick={() => setNewOpen(true)} className="gap-2">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <p className="max-w-2xl text-xs text-ink-subtle">
+          ⚠ The rates and bands below are placeholders until Colin’s rate sheet arrives.
+          Cards are versioned and effective-dated — a historic quote reprices at the rates
+          it was made with, and each quote keeps its own frozen snapshot.
+          {view === "timber"
+            ? " Showing the timber-frame components + the 80/20 split."
+            : " Showing the traditional components + house-build stage splits."}
+        </p>
+        <Button variant="secondary" onClick={() => setNewOpen(true)} className="shrink-0 gap-2">
           <Plus className="h-4 w-4" strokeWidth={1.75} /> New rate card
         </Button>
       </div>
-
-      <p className="mb-6 max-w-2xl text-xs text-ink-subtle">
-        ⚠ The rates and bands below are placeholders until Laura’s rate sheet arrives.
-        Cards are versioned and effective-dated — a historic quote reprices at the rates
-        it was made with, and each quote keeps its own frozen snapshot.
-      </p>
 
       {cards.length === 0 ? (
         <Card>
@@ -137,7 +160,7 @@ export function RatesManager({ cards }: { cards: RateCardVM[] }) {
       ) : (
         <div className="space-y-6">
           {cards.map((c) => (
-            <RateCardBlock key={c.id} card={c} onDelete={() => setDeleteTarget(c)} />
+            <RateCardBlock key={c.id} card={c} view={view} onDelete={() => setDeleteTarget(c)} />
           ))}
         </div>
       )}
@@ -148,7 +171,15 @@ export function RatesManager({ cards }: { cards: RateCardVM[] }) {
   );
 }
 
-function RateCardBlock({ card, onDelete }: { card: RateCardVM; onDelete: () => void }) {
+function RateCardBlock({
+  card,
+  view,
+  onDelete,
+}: {
+  card: RateCardVM;
+  view: RatesView;
+  onDelete: () => void;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -158,14 +189,20 @@ function RateCardBlock({ card, onDelete }: { card: RateCardVM; onDelete: () => v
       router.refresh();
     });
 
+  // Only the components + scenarios that belong to this build-system view.
+  const items = useMemo(
+    () => card.items.filter((i) => componentInView(i.component, view)),
+    [card.items, view],
+  );
   const scenarios = useMemo(() => {
     const by = new Map<string, StageSplitVM[]>();
     for (const s of card.stageSplits) {
+      if (!scenarioInView(s.scenario, view)) continue;
       if (!by.has(s.scenario)) by.set(s.scenario, []);
       by.get(s.scenario)!.push(s);
     }
     return [...by.entries()];
-  }, [card.stageSplits]);
+  }, [card.stageSplits, view]);
 
   return (
     <Card>
@@ -212,20 +249,20 @@ function RateCardBlock({ card, onDelete }: { card: RateCardVM; onDelete: () => v
                 </tr>
               </thead>
               <tbody>
-                {card.items.length === 0 && (
+                {items.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-4 text-center text-sm text-ink-subtle">
                       No rates yet — add one below.
                     </td>
                   </tr>
                 )}
-                {card.items.map((it) => (
+                {items.map((it) => (
                   <RateRow key={it.id} item={it} />
                 ))}
               </tbody>
             </table>
           </div>
-          <AddRateRow rateCardId={card.id} />
+          <AddRateRow rateCardId={card.id} view={view} />
         </div>
 
         {/* Stage splits */}
@@ -332,9 +369,15 @@ function RateRow({ item }: { item: RateItemVM }) {
   );
 }
 
-function AddRateRow({ rateCardId }: { rateCardId: string }) {
+function AddRateRow({ rateCardId, view }: { rateCardId: string; view: RatesView }) {
   const router = useRouter();
-  const [component, setComponent] = useState("LIFT");
+  const componentOpts = useMemo(
+    () => COMPONENT_OPTS.filter((o) => componentInView(o.value, view)),
+    [view],
+  );
+  const [component, setComponent] = useState(
+    view === "timber" ? "TF_EXTERNAL" : "LIFT",
+  );
   const [action, setAction] = useState("ERECT");
   const [band, setBand] = useState("MEDIUM");
   const [unit, setUnit] = useState("LM");
@@ -375,7 +418,7 @@ function AddRateRow({ rateCardId }: { rateCardId: string }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline pt-3">
       <select className={sel} value={component} onChange={(e) => setComponent(e.target.value)}>
-        {COMPONENT_OPTS.map((o) => (
+        {componentOpts.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>

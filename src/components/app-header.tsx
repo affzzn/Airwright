@@ -37,7 +37,8 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
   const pathname = usePathname() ?? "/";
   const onRates = pathname.startsWith("/rates");
   const onDocs = pathname.startsWith("/docs");
-  const onQuote = !onRates && !onDocs;
+  const onConstruction = pathname.startsWith("/construction");
+  const onQuote = !onRates && !onDocs && !onConstruction;
 
   // Full-height tab: a bottom border that overlaps the header's own hairline
   // (`-mb-px`) so the active underline sits flush on the divider.
@@ -61,6 +62,17 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
               )}
             >
               Quote &amp; Take-off
+            </Link>
+            <Link
+              href="/construction"
+              className={cn(
+                tab,
+                onConstruction
+                  ? "border-ink font-medium text-ink"
+                  : "border-transparent font-medium text-ink-muted hover:text-ink",
+              )}
+            >
+              Construction
             </Link>
             <span className="cursor-default text-sm text-ink-subtle">
               Gang Pay &amp; Viability

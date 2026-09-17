@@ -13,6 +13,14 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Format a number as GBP (£1,234.50). */
+export function formatGBP(n: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(n);
+}
+
 /** Format a Date (or ISO string) as a short UK date. */
 export function formatDate(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;

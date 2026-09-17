@@ -13,6 +13,42 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-09-17
 
+### 2026-09-17 — Construction estimator BUILT end-to-end (docs/19) — a separate manual path
+
+From the 9 Sep + 16 Sep Colin/Laura/Ben construction calls + the Wren Park example
+(`data/construction/eg-01/`). Construction is the OPPOSITE of house-build: **no AI, no
+drawing reading, no Google-Earth automation** — Colin measures by hand and builds a quote
+off a configurable **picking list** with **per-lift + per-height-bracket** pricing + hire.
+Full spec + build plan in **`docs/19-construction-spec.md`** (§14a coverage matrix maps the
+9 skeleton points). Completely parallel to Traditional/Timber-Frame — nothing shared, nothing
+existing touched.
+
+- **Track A — data model.** Migration `construction_estimator` (purely additive: 6 models +
+  3 enums `ConstructionUnit`/`HeightBracket`/`SiteType`; verified no DROP/ALTER on old tables).
+  `ConstructionElement` + per-(band,bracket) `ConstructionRate` = the picking list;
+  standalone `ConstructionQuote` + `ConstructionMeasurement` (kept separate) +
+  `ConstructionQuoteLine` + `ConstructionAttachment` (stored/shown, NEVER parsed). Seeded 13
+  elements (`src/lib/construction/library.ts`) with placeholder rates (25.61 / 7.75 / 33 seen
+  on the recording).
+- **Track B — pure engine (tested first).** `price.ts` (per-lift × per-bracket resolve ladder,
+  Σ lines to the penny, extra hire = total × %) + `rules.ts` (Haki=3, height→bracket, mat for
+  school/public, foam count, inspections/week, validation). 19 tests reproduce the Wren
+  schedule structure + reconciliation.
+- **Track C — Rates tab split into 3.** `/rates` is now Traditional · Timber frame ·
+  Construction (`rates-tabs.tsx`); Traditional/Timber are filtered views over the house-build
+  cards (`RatesManager` `view` prop); Construction = the element-library editor
+  (`construction-rates-manager.tsx` + `actions/constructionRates.ts`).
+- **Track D/E/F — the `/construction` area.** Workspace list → new-quote form → the 5-panel
+  builder (`construction-builder.tsx`: Enquiry review, Measurements, Line builder with
+  per-lift duplicates + custom add + rule-suggestion chips, live totals, Attachments upload,
+  Assumptions) → print-ready quote + Excel in the Wren schedule layout (`quoteExcel.ts`).
+  New nav tab "Construction". Attachments view via a signed-URL route.
+- **Green:** typecheck + lint + **333 tests** (+19) + production build clean (all 6
+  `/construction*` routes). Verified a full create→price→delete round-trip on the real DB
+  (external 42.2 × 3 lifts × £13 @6-12m = £1645.80). ⚠ Rates placeholders until Colin's
+  construction rate sheet; open items in docs/19 §13 (extra-hire %, brackets, terminology list).
+  In-browser click-through still needs a logged-in session (auth-gated).
+
 ### 2026-09-17 — Review screen reordered around the house type — branch `feat/review-page-house-type`
 
 Corrected model (was wrong before): each drawing IS a fixed house type (a semi is a
