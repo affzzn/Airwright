@@ -38,11 +38,7 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublic =
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/auth") ||
-    // Shared client quote link (a builder opens their quote without a login).
-    // Currently a static demo mockup; wired to nothing.
-    pathname.startsWith("/q/");
+    pathname.startsWith("/login") || pathname.startsWith("/auth");
 
   if (!user && !isPublic) {
     const redirect = request.nextUrl.clone();

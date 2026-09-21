@@ -1,0 +1,13 @@
+import { config } from "dotenv"; config({ path: ".env.local" });
+import { prisma } from "../src/lib/db";
+const pid = "cmu0vax2d0002ityijk6krfdy";
+const docs = await prisma.document.findMany({ where: { pack: { projectId: pid } }, select: { needsReview: true, isRasterOnly: true, isReadable: true, category: true } });
+const byCat = docs.reduce((m:any,d)=>{const k=`${d.category}|readable=${d.isReadable}|raster=${d.isRasterOnly}|needsReview=${d.needsReview}`;m[k]=(m[k]||0)+1;return m;},{});
+console.log("Documents by (category|readable|raster|needsReview):");
+for (const [k,n] of Object.entries(byCat).sort((a:any,b:any)=>b[1]-a[1])) console.log(`  ${n}  ${k}`);
+const pages = await prisma.documentPage.groupBy({ by: ["kind","relevant"], where: { document: { pack: { projectId: pid } } }, _count: true });
+console.log("Pages by kind|relevant:");
+for (const p of pages) console.log(`  ${p._count}  ${p.kind}|relevant=${p.relevant}`);
+const withHT = await prisma.documentPage.count({ where: { document: { pack: { projectId: pid } }, houseTypeName: { not: null } } });
+console.log("Pages with a houseTypeName read from title block:", withHT);
+await prisma.$disconnect();

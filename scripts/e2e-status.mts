@@ -1,0 +1,13 @@
+import { config } from "dotenv"; config({ path: ".env.local" });
+import { prisma } from "../src/lib/db";
+const pid = process.argv[2] ?? "cmu0vax2d0002ityijk6krfdy";
+const pu = await prisma.packUpload.groupBy({ by: ["status"], where: { pack: { projectId: pid } }, _count: true });
+const docs = await prisma.document.count({ where: { pack: { projectId: pid } } });
+const pages = await prisma.documentPage.count({ where: { document: { pack: { projectId: pid } } } });
+const htypes = await prisma.houseType.findMany({ where: { projectId: pid }, select: { name: true, code: true, takeoff: { select: { status: true } } } });
+const ext = await prisma.extraction.groupBy({ by: ["status"], where: { houseType: { projectId: pid } }, _count: true });
+console.log("PackUpload:", JSON.stringify(pu.map(p=>({s:p.status,n:p._count}))));
+console.log("Documents:", docs, " Pages classified:", pages);
+console.log("HouseTypes:", htypes.length, "->", htypes.map(h=>`${h.name}${h.code?`(${h.code})`:""}[${h.takeoff?.status??"-"}]`).join(", "));
+console.log("Extractions:", JSON.stringify(ext.map(e=>({s:e.status,n:e._count}))));
+await prisma.$disconnect();

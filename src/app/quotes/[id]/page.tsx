@@ -170,7 +170,7 @@ export default async function QuotePage({
       <div className="print:hidden">
         <Breadcrumbs
           items={[
-            { label: "Tenders", href: "/" },
+            { label: "Tenders", href: "/tenders" },
             { label: quote.project.name, href: `/projects/${quote.projectId}` },
             { label: "Pricing", href: `/projects/${quote.projectId}/pricing` },
             { label: `Quote v${quote.version}` },

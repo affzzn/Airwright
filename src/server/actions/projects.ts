@@ -120,7 +120,7 @@ export async function createProject(formData: FormData) {
     },
   });
 
-  revalidatePath("/");
+  revalidatePath("/tenders");
   redirect(`/projects/${project.id}`);
 }
 
@@ -133,7 +133,7 @@ export async function setProjectArchived(
     where: { id },
     data: { archivedAt: archived ? new Date() : null },
   });
-  revalidatePath("/");
+  revalidatePath("/tenders");
   return { ok: true };
 }
 
@@ -154,6 +154,6 @@ export async function deleteProject(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Delete failed" };
   }
-  revalidatePath("/");
+  revalidatePath("/tenders");
   return { ok: true };
 }

@@ -38,11 +38,31 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
   const onRates = pathname.startsWith("/rates");
   const onDocs = pathname.startsWith("/docs");
   const onConstruction = pathname.startsWith("/construction");
-  const onQuote = !onRates && !onDocs && !onConstruction;
+  // House Building covers the tenders list + all its work pages (a project, a
+  // drawing review, a house-build quote).
+  const onHouseBuilding =
+    pathname.startsWith("/tenders") ||
+    pathname.startsWith("/projects") ||
+    pathname.startsWith("/extractions") ||
+    pathname.startsWith("/quotes");
 
   // Full-height tab: a bottom border that overlaps the header's own hairline
   // (`-mb-px`) so the active underline sits flush on the divider.
   const tab = "inline-flex h-14 items-center border-b-2 -mb-px text-sm transition-colors";
+  const primary = (active: boolean) =>
+    cn(
+      tab,
+      active
+        ? "border-ink font-medium text-ink"
+        : "border-transparent font-medium text-ink-muted hover:text-ink",
+    );
+  const secondary = (active: boolean) =>
+    cn(
+      tab,
+      active
+        ? "border-ink font-medium text-ink"
+        : "border-transparent text-ink-subtle hover:text-ink",
+    );
 
   return (
     <header className="sticky top-0 z-10 border-b border-hairline bg-page/90 backdrop-blur print:hidden">
@@ -52,64 +72,20 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
             Airwright
           </Link>
           <nav className="flex items-center gap-6">
-            <Link
-              href="/"
-              className={cn(
-                tab,
-                onQuote
-                  ? "border-ink font-medium text-ink"
-                  : "border-transparent font-medium text-ink-muted hover:text-ink",
-              )}
-            >
-              Quote &amp; Take-off
+            <Link href="/tenders" className={primary(onHouseBuilding)}>
+              House Building
             </Link>
-            <Link
-              href="/construction"
-              className={cn(
-                tab,
-                onConstruction
-                  ? "border-ink font-medium text-ink"
-                  : "border-transparent font-medium text-ink-muted hover:text-ink",
-              )}
-            >
+            <Link href="/construction" className={primary(onConstruction)}>
               Construction
             </Link>
-            <span className="cursor-default text-sm text-ink-subtle">
-              Gang Pay &amp; Viability
-            </span>
-            <span className="cursor-default text-sm text-ink-subtle">
-              House-Type Bank
-            </span>
           </nav>
         </div>
         {showSignOut && (
           <div className="flex items-center gap-4">
-            <Link
-              href="/q/AW-Q-2609-042"
-              className={cn(tab, "border-transparent text-ink-subtle hover:text-ink")}
-            >
-              Client view
-            </Link>
-            <Link
-              href="/docs"
-              className={cn(
-                tab,
-                onDocs
-                  ? "border-ink font-medium text-ink"
-                  : "border-transparent text-ink-subtle hover:text-ink",
-              )}
-            >
+            <Link href="/docs" className={secondary(onDocs)}>
               Docs
             </Link>
-            <Link
-              href="/rates"
-              className={cn(
-                tab,
-                onRates
-                  ? "border-ink font-medium text-ink"
-                  : "border-transparent text-ink-subtle hover:text-ink",
-              )}
-            >
+            <Link href="/rates" className={secondary(onRates)}>
               Rates
             </Link>
             <span className="h-4 w-px bg-hairline" aria-hidden />
