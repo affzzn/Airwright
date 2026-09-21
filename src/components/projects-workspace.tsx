@@ -22,6 +22,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { StatCard } from "@/components/ui/stat-card";
 import { formatDate, cn } from "@/lib/utils";
 import { EXTRACTION_MODELS, DEFAULT_MODEL_KEY } from "@/lib/extract/providers/catalog";
 
@@ -307,15 +308,6 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
           </div>
         </div>
       </Modal>
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg bg-surface px-4 py-3">
-      <p className="text-xs text-ink-subtle">{label}</p>
-      <p className="mt-0.5 text-2xl font-semibold tabular-nums text-ink">{value}</p>
     </div>
   );
 }
