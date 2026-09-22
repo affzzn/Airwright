@@ -564,6 +564,47 @@ Enquiry-review panel above.
 
 ---
 
+## 15. Draft from enquiry — the ONE place AI belongs in construction ✅ BUILT (2026-09-22)
+
+**The realisation.** House-build's "document" is the *drawings* (AI does the visual work). Construction's
+drawings are too varied to read — but construction has a document house-build doesn't: the client's
+**written scope-of-works** (the QS's Excel/text — *"whatever is listed is what gets priced,"* Ben). Reading
+TEXT/tables is exactly where AI is reliable. So the one high-value AI job here is **turning the written
+scope into draft picking-list lines** — the text twin of house-build's extract→review→confirm. It is
+**optional per quote** and **cost-free when unused** (a vague email + photo → ignore it, build by hand).
+
+**Still NO drawing reading, NO Google-Earth automation** (§3 stands): AI reads scope TEXT only.
+
+**Flow.** `/construction/[id]` builder → **"Draft from enquiry"** → paste OR upload (.xlsx/.csv/.pdf/.txt) →
+server extracts TEXT ONLY (ExcelJS rows → tab table; pdfjs text layer — never images) → shown in an
+editable box → **one synchronous** `runToolText` call (forced tool, Zod→JSON schema, prompt-cached) maps
+each scope line to a picking-list element by id, using `element.aliases` ("Safegate"→Lift Gate) → Zod
+validate + **reject any invented id** (kept as an unmatched line, never dropped) → **review table**
+(remap / edit qty+lifts / uncheck / map the unmatched) → **"Add N lines"** inserts them (`isAuto = true`,
+rate resolved from the quote's band + `defaultHeightBracket`, client wording kept in the line note) →
+pricing engine unchanged.
+
+**Guardrails (the trust spine):** account for every scope line; recall > precision; **never invents a
+library item** (a miss → a hand line the estimator finishes); quantities are the client's STATED numbers,
+flagged to verify against the drawing by hand; **human confirms before anything prices**.
+
+**Learns over time:** on a genuine **correction** (the estimator's final mapping ≠ the AI's guess) the
+client's wording is saved as an `alias` on that element — so it auto-matches next time. (Learn on
+corrections only, deduped — high-signal, not noisy.)
+
+**Config:** `ANTHROPIC_CONSTRUCTION_MODEL` (defaults to the grouping model → extraction model) + the
+`CONSTRUCTION_AI` flag (default on; `=false` hides the feature, fully-manual path). Model change is tiny +
+additive: `ConstructionQuote.enquiryText` + `draftRawOutput` (migration `construction_draft_from_scope`).
+
+**Files:** `src/lib/construction/{scopeSchema,scopePrompt,scopeDraft,draftFromScope,scopeText}.ts`
+(+ `.test.ts` for the pure core + text extraction; the Wren-shape xlsx is the flatten fixture) ·
+`src/server/actions/constructionDraft.ts` · `src/components/construction/draft-from-scope.tsx` (wired into
+the line builder). Green: typecheck + lint + 355 tests + production build + a real-DB column round-trip.
+**⚠ Rates stay placeholders** — drafting maps items + quantities; the £ still comes from the (placeholder)
+library rates until Colin's sheet lands.
+
+---
+
 *Sources: the 9 Sep "Construction Walkthrough" + 16 Sep "Strike Construction Walkthrough" call
 transcripts (session record) and `data/construction/eg-01/` (Wren Park — gitignored PII).
 Cross-refs: `docs/03` (glossary), `docs/15` (house-build pricing), `docs/07` (design system),

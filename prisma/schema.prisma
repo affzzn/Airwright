@@ -773,6 +773,11 @@ model ConstructionQuote {
   status                String                    @default("DRAFT") // DRAFT | CONFIRMED | QUOTED
   notes                 String?
   assumptions           Json? // the confirmed assumptions/exclusions list
+  // "Draft from enquiry" (docs/19) — the written scope-of-works is the ONLY thing
+  // AI reads in construction (text, never drawings). enquiryText = the pasted /
+  // extracted scope; draftRawOutput = the last AI draft (audit + correction-rate eval).
+  enquiryText           String?
+  draftRawOutput        Json?
   confirmedAt           DateTime?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt

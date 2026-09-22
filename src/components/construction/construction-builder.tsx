@@ -51,6 +51,7 @@ import {
   ReferencePane,
   isPreviewable,
 } from "@/components/construction/construction-reference-viewer";
+import { DraftFromScope } from "@/components/construction/draft-from-scope";
 import { cn, formatGBP } from "@/lib/utils";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
@@ -81,9 +82,11 @@ const num = (v: string): number => {
 export function ConstructionBuilder({
   quote,
   library,
+  aiEnabled = false,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
+  aiEnabled?: boolean;
 }) {
   const router = useRouter();
   const locked = quote.status !== "DRAFT";
@@ -208,6 +211,7 @@ export function ConstructionBuilder({
                 lines={lines}
                 setLines={setLines}
                 locked={locked}
+                aiEnabled={aiEnabled}
               />
             </div>
 
@@ -537,13 +541,14 @@ function AddMeasurementRow({ quoteId }: { quoteId: string }) {
 // --- Line builder (the picking list) ----------------------------------------
 
 function LineBuilder({
-  quote, library, lines, setLines, locked,
+  quote, library, lines, setLines, locked, aiEnabled,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
   lines: ConstructionLineVM[];
   setLines: React.Dispatch<React.SetStateAction<ConstructionLineVM[]>>;
   locked: boolean;
+  aiEnabled: boolean;
 }) {
   const router = useRouter();
   const total = useMemo(() => lines.reduce((a, l) => a + lineAmount({ unit: l.unit as ConstructionUnit, quantity: l.quantity, lifts: l.lifts, rate: l.rate }), 0), [lines]);
@@ -574,10 +579,17 @@ function LineBuilder({
   return (
     <Card>
       <CardHeader className="py-3">
-        <h2 className="text-sm font-semibold text-ink">Scaffold items</h2>
-        <p className="mt-0.5 text-[11px] text-ink-subtle">
-          Pick from the library, set quantity + lifts. Everything is per lift where it applies.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Scaffold items</h2>
+            <p className="mt-0.5 text-[11px] text-ink-subtle">
+              Pick from the library, set quantity + lifts. Everything is per lift where it applies.
+            </p>
+          </div>
+          {!locked && aiEnabled && library.length > 0 && (
+            <DraftFromScope quoteId={quote.id} library={library} />
+          )}
+        </div>
       </CardHeader>
       <CardBody className="py-3">
         {suggestions.length > 0 && (

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { loadConstructionQuote, loadConstructionLibrary } from "@/server/construction";
 import { ConstructionBuilder } from "@/components/construction/construction-builder";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function ConstructionQuotePage({
 
   return (
     <AppShell variant="wide">
-      <ConstructionBuilder quote={quote} library={library} />
+      <ConstructionBuilder quote={quote} library={library} aiEnabled={env.constructionAI} />
     </AppShell>
   );
 }

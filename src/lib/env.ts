@@ -59,6 +59,17 @@ export const env = {
   get groupingAI() {
     return process.env.INGEST_GROUPING_AI !== "false";
   },
+  /** Model for construction "Draft from enquiry" (docs/19) — text-only scope
+   *  reading, so a smaller/faster model is fine. Defaults to the grouping model
+   *  (which itself falls back to the extraction model). */
+  get constructionModel() {
+    return process.env.ANTHROPIC_CONSTRUCTION_MODEL ?? this.groupingModel;
+  },
+  /** "Draft from enquiry" AI (docs/19). Set CONSTRUCTION_AI=false to hide the
+   *  feature and force the fully-manual picking-list path. */
+  get constructionAI() {
+    return process.env.CONSTRUCTION_AI !== "false";
+  },
   get directUrl() {
     return required("DIRECT_URL");
   },
