@@ -6,10 +6,9 @@ import { createConstructionQuote } from "@/server/actions/construction";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { BAND_LABEL, SITE_TYPE_LABEL, type RateBand, type SiteType } from "@/lib/construction/types";
+import { BAND_LABEL, type RateBand } from "@/lib/construction/types";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
-const SITE_OPTS = (Object.keys(SITE_TYPE_LABEL) as SiteType[]).map((s) => ({ value: s, label: SITE_TYPE_LABEL[s] }));
 
 export function ConstructionNewForm() {
   const [reference, setReference] = useState("");
@@ -17,8 +16,6 @@ export function ConstructionNewForm() {
   const [siteAddress, setSiteAddress] = useState("");
   const [band, setBand] = useState("COMPETITIVE");
   const [durationWeeks, setDurationWeeks] = useState("");
-  const [enquiryType, setEnquiryType] = useState("DETAILED");
-  const [siteType, setSiteType] = useState("");
   const [notes, setNotes] = useState("");
   const [pending, start] = useTransition();
 
@@ -30,8 +27,6 @@ export function ConstructionNewForm() {
         siteAddress,
         band,
         durationWeeks: durationWeeks ? Number(durationWeeks) : null,
-        enquiryType,
-        siteType: siteType || undefined,
         notes,
       });
       // createConstructionQuote redirects to the builder on success.
@@ -70,25 +65,6 @@ export function ConstructionNewForm() {
               onChange={(e) => setDurationWeeks(e.target.value)}
               placeholder="e.g. 4"
             />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="q-enq">Enquiry type</Label>
-            <Select id="q-enq" value={enquiryType} onChange={(e) => setEnquiryType(e.target.value)}>
-              <option value="VAGUE">Vague (photos / sentence)</option>
-              <option value="SCOPE_OF_WORKS">Scope of works (Excel)</option>
-              <option value="DETAILED">Detailed (marked-up drawings)</option>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="q-sitetype">Site type</Label>
-            <Select id="q-sitetype" value={siteType} onChange={(e) => setSiteType(e.target.value)}>
-              <option value="">—</option>
-              {SITE_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
           </div>
         </div>
         <div>

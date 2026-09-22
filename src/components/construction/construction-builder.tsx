@@ -23,27 +23,21 @@ import type {
 import { lineAmount, priceConstructionQuote } from "@/lib/construction/price";
 import {
   HAKI_LIFTS,
-  foamCount,
-  heightBracketFor,
   inspectionWeeks,
-  needsScaffoldMat,
-  suggestedLiftsFor,
   validateConstructionQuote,
 } from "@/lib/construction/rules";
 import {
   BAND_LABEL,
   BRACKET_LABEL,
   PER_LIFT_UNITS,
-  SITE_TYPE_LABEL,
   UNIT_LABEL,
   type ConstructionUnit,
   type HeightBracket,
   type RateBand,
-  type SiteType,
 } from "@/lib/construction/types";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ConstructionAttachments } from "@/components/construction/construction-attachments";
@@ -55,8 +49,14 @@ import { DraftFromScope } from "@/components/construction/draft-from-scope";
 import { cn, formatGBP } from "@/lib/utils";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
-const SITE_OPTS = (Object.keys(SITE_TYPE_LABEL) as SiteType[]).map((s) => ({ value: s, label: SITE_TYPE_LABEL[s] }));
-const BRACKET_OPTS = (Object.keys(BRACKET_LABEL) as HeightBracket[]).map((b) => ({ value: b, label: BRACKET_LABEL[b] }));
+// Height brackets for the sidebar select — the estimator's measured band drives
+// the rate. "ANY" (bracket-agnostic) items resolve regardless, so it's not offered.
+const BRACKET_SELECT_OPTS = [
+  { value: "", label: "—" },
+  ...(Object.keys(BRACKET_LABEL) as HeightBracket[])
+    .filter((b) => b !== "ANY")
+    .map((b) => ({ value: b, label: BRACKET_LABEL[b] })),
+];
 const MEAS_KINDS = [
   { value: "PERIMETER_LM", label: "Perimeter (LM)" },
   { value: "HANDRAIL_LM", label: "Handrail perimeter (LM)" },
@@ -115,7 +115,6 @@ export function ConstructionBuilder({
         durationWeeks: quote.durationWeeks,
         buildingHeightM: quote.buildingHeightM,
         defaultHeightBracket: quote.defaultHeightBracket as HeightBracket | null,
-        siteType: quote.siteType as SiteType | null,
         lineCount: lines.length,
         measurementCount: quote.measurements.length,
         unpricedLineCount: lines.filter((l) => l.rate <= 0 && l.quantity > 0).length,
@@ -164,7 +163,11 @@ export function ConstructionBuilder({
                 {locked ? (quote.status === "QUOTED" ? "Quoted" : "Confirmed") : "Draft"}
               </Badge>
             </div>
-            {quote.siteAddress && <p className="mt-1 text-sm text-ink-subtle">{quote.siteAddress}</p>}
+            {(quote.customerName || quote.siteAddress) && (
+              <p className="mt-1 text-sm text-ink-subtle">
+                {[quote.customerName, quote.siteAddress].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {previewable.length > 0 && (
@@ -203,8 +206,6 @@ export function ConstructionBuilder({
           <div className={cn("grid gap-6", showPane ? "grid-cols-1" : "lg:grid-cols-3")}>
             {/* Working area */}
             <div className={cn("space-y-6", showPane ? "" : "lg:col-span-2")}>
-              <EnquiryReview quote={quote} locked={locked} />
-              <MeasurementsPanel quote={quote} locked={locked} />
               <LineBuilder
                 quote={quote}
                 library={library}
@@ -213,6 +214,7 @@ export function ConstructionBuilder({
                 locked={locked}
                 aiEnabled={aiEnabled}
               />
+              <MeasurementsPanel quote={quote} locked={locked} />
             </div>
 
             {/* Summary, attachments, checks */}
@@ -297,7 +299,7 @@ function QuoteSummary({
           <p className="text-3xl font-semibold tabular-nums tracking-tight text-ink">{formatGBP(total)}</p>
           <p className="mt-0.5 text-[11px] text-ink-subtle">Inclusive of the hire period. ⚠ Placeholder rates.</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 border-t border-hairline pt-3 text-sm">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-3 border-t border-hairline pt-3 text-sm">
           <HeaderField
             label="Band"
             control={
@@ -314,16 +316,26 @@ function QuoteSummary({
             label="Duration (weeks)"
             control={<SmallNumber value={quote.durationWeeks} disabled={locked} onSave={(v) => updateConstructionQuote(quote.id, { durationWeeks: v })} />}
           />
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
+          <HeaderField
+            label="Height bracket"
+            control={
+              <SmallSelect
+                value={quote.defaultHeightBracket ?? ""}
+                disabled={locked}
+                onChange={(v) => updateConstructionQuote(quote.id, { defaultHeightBracket: v || null })}
+                refreshOnChange
+                opts={BRACKET_SELECT_OPTS}
+              />
+            }
+          />
           <HeaderField
             label="Extra hire %/wk"
             control={<SmallNumber value={quote.extraHirePctPerWeek} step="0.01" disabled={locked} onSave={(v) => updateConstructionQuote(quote.id, { extraHirePctPerWeek: v })} />}
           />
-          <div>
-            <p className="mb-1 text-[11px] text-ink-subtle">Extra hire / week</p>
-            <p className="tabular-nums text-ink">{extraHire != null ? formatGBP(extraHire) : "—"}</p>
-          </div>
+        </div>
+        <div className="flex items-baseline justify-between border-t border-hairline pt-3">
+          <p className="text-[11px] text-ink-subtle">Extra hire / week</p>
+          <p className="text-sm tabular-nums text-ink">{extraHire != null ? formatGBP(extraHire) : "—"}</p>
         </div>
       </CardBody>
     </Card>
@@ -335,105 +347,6 @@ function HeaderField({ label, control }: { label: string; control: React.ReactNo
     <div>
       <p className="mb-1 text-[11px] text-ink-subtle">{label}</p>
       {control}
-    </div>
-  );
-}
-
-// --- Enquiry review panel ----------------------------------------------------
-
-function EnquiryReview({ quote, locked }: { quote: ConstructionQuoteVM; locked: boolean }) {
-  const router = useRouter();
-  const [height, setHeight] = useState(quote.buildingHeightM != null ? String(quote.buildingHeightM) : "");
-  const suggestedBracket = heightBracketFor(height ? num(height) : null);
-  const suggestedLifts = suggestedLiftsFor(height ? num(height) : null);
-
-  const saveHeight = () => {
-    const v = height === "" ? null : num(height);
-    // Auto-fill the default bracket from the height if not set yet.
-    const patch: Parameters<typeof updateConstructionQuote>[1] = { buildingHeightM: v };
-    if (v != null && !quote.defaultHeightBracket) patch.defaultHeightBracket = heightBracketFor(v);
-    updateConstructionQuote(quote.id, patch).then(() => router.refresh());
-  };
-
-  return (
-    <Card>
-      <CardHeader className="py-3">
-        <h2 className="text-sm font-semibold text-ink">Enquiry review</h2>
-        <p className="mt-0.5 text-[11px] text-ink-subtle">
-          The site facts you enter by hand — they drive the mat / foam / bracket suggestions.
-        </p>
-      </CardHeader>
-      <CardBody className="space-y-4 py-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="er-site">Site type</Label>
-            <Select id="er-site" value={quote.siteType ?? ""} disabled={locked}
-              onChange={(e) => updateConstructionQuote(quote.id, { siteType: e.target.value || null }).then(() => router.refresh())}>
-              <option value="">—</option>
-              {SITE_OPTS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="er-height">Building height (m)</Label>
-            <Input id="er-height" inputMode="decimal" value={height} disabled={locked}
-              onChange={(e) => setHeight(e.target.value)} onBlur={saveHeight}
-              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} placeholder="e.g. 4" />
-            {suggestedBracket && (
-              <p className="mt-1 text-[11px] text-ink-subtle">
-                → {BRACKET_LABEL[suggestedBracket]}{suggestedLifts ? `, ~${suggestedLifts} lifts` : ""}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="er-bracket">Default height bracket</Label>
-            <Select id="er-bracket" value={quote.defaultHeightBracket ?? ""} disabled={locked}
-              onChange={(e) => updateConstructionQuote(quote.id, { defaultHeightBracket: e.target.value || null }).then(() => router.refresh())}>
-              <option value="">—</option>
-              {BRACKET_OPTS.filter((b) => b.value !== "ANY").map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="er-enq">Enquiry type</Label>
-            <Select id="er-enq" value={quote.enquiryType ?? "DETAILED"} disabled={locked}
-              onChange={(e) => updateConstructionQuote(quote.id, { enquiryType: e.target.value })}>
-              <option value="VAGUE">Vague</option>
-              <option value="SCOPE_OF_WORKS">Scope of works</option>
-              <option value="DETAILED">Detailed</option>
-            </Select>
-          </div>
-        </div>
-        <div>
-          <p className="mb-1.5 text-xs font-medium text-ink">Access points needing foam</p>
-          <div className="grid grid-cols-3 gap-3">
-            <CountField label="Doorways" value={quote.doorwayCount} disabled={locked}
-              onSave={(v) => updateConstructionQuote(quote.id, { doorwayCount: v })} />
-            <CountField label="Fire exits" value={quote.fireExitCount} disabled={locked}
-              onSave={(v) => updateConstructionQuote(quote.id, { fireExitCount: v })} />
-            <CountField label="Walk-unders" value={quote.pedestrianAccessCount} disabled={locked}
-              onSave={(v) => updateConstructionQuote(quote.id, { pedestrianAccessCount: v })} />
-          </div>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function CountField({
-  label, value, onSave, disabled,
-}: {
-  label: string; value: number | null; onSave: (v: number | null) => void; disabled: boolean;
-}) {
-  const [v, setV] = useState(value != null ? String(value) : "");
-  useEffect(() => setV(value != null ? String(value) : ""), [value]);
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] text-ink-subtle">{label}</label>
-      <Input inputMode="numeric" value={v} disabled={disabled}
-        onChange={(e) => setV(e.target.value)}
-        onBlur={() => onSave(v === "" ? null : Math.trunc(num(v)))}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} className="h-9" />
     </div>
   );
 }
@@ -553,12 +466,8 @@ function LineBuilder({
   const router = useRouter();
   const total = useMemo(() => lines.reduce((a, l) => a + lineAmount({ unit: l.unit as ConstructionUnit, quantity: l.quantity, lifts: l.lifts, rate: l.rate }), 0), [lines]);
 
-  // Rule-driven suggestion chips (docs/19 §6). Each finds a library element + adds it.
-  const findEl = (pred: (e: ConstructionElementLibVM) => boolean) => library.find(pred);
-  const matEl = findEl((e) => /scaffold mat|dummy lift/i.test(e.name));
-  const inspEl = findEl((e) => e.unit === "PER_WEEK" || /inspection/i.test(e.name));
-  const foamEl = findEl((e) => /foam/i.test(e.name));
-  const foam = foamCount(quote.doorwayCount, quote.fireExitCount, quote.pedestrianAccessCount);
+  // Rule-driven suggestion chip (docs/19 §6): inspections follow the hire duration.
+  const inspEl = library.find((e) => e.unit === "PER_WEEK" || /inspection/i.test(e.name));
   const insp = inspectionWeeks(quote.durationWeeks);
 
   const [busy, startBusy] = useTransition();
@@ -569,12 +478,8 @@ function LineBuilder({
     });
 
   const suggestions: { key: string; label: string; onAdd: () => void }[] = [];
-  if (!locked && needsScaffoldMat(quote.siteType as SiteType | null) && matEl)
-    suggestions.push({ key: "mat", label: "Scaffold mat (school / public)", onAdd: () => addFromElement(matEl.id, 1, null) });
   if (!locked && insp > 0 && inspEl)
     suggestions.push({ key: "insp", label: `${insp} weekly inspections`, onAdd: () => addFromElement(inspEl.id, insp, null) });
-  if (!locked && foam > 0 && foamEl)
-    suggestions.push({ key: "foam", label: `Foam × ${foam} (doorways / exits)`, onAdd: () => addFromElement(foamEl.id, foam, null) });
 
   return (
     <Card>
@@ -734,15 +639,12 @@ function AddLineControls({ quote, library }: { quote: ConstructionQuoteVM; libra
   const [pending, start] = useTransition();
 
   const el = library.find((e) => e.id === elementId);
-  // Pre-fill lifts when the element changes: Haki = 3, else the height suggestion.
+  // Pre-fill lifts when the element changes: Haki always counts as 3 lifts;
+  // otherwise leave it for the estimator to set.
   useEffect(() => {
     if (!el || !el.usesLifts) { setLifts(""); return; }
-    if (/haki/i.test(el.name)) setLifts(String(HAKI_LIFTS));
-    else {
-      const s = suggestedLiftsFor(quote.buildingHeightM);
-      setLifts(s != null ? String(s) : "");
-    }
-  }, [elementId, el, quote.buildingHeightM]);
+    setLifts(/haki/i.test(el.name) ? String(HAKI_LIFTS) : "");
+  }, [elementId, el]);
 
   const addLib = () => {
     if (!el) return setErr("Pick an item.");

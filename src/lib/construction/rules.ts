@@ -53,7 +53,7 @@ export interface QuoteFactsForValidation {
   durationWeeks: number | null;
   buildingHeightM: number | null;
   defaultHeightBracket: HeightBracket | null;
-  siteType: SiteType | null;
+  siteType?: SiteType | null;
   lineCount: number;
   measurementCount: number;
   /** Any line whose resolved rate is 0 (no rate found) — surfaced as unpriced. */
@@ -91,8 +91,6 @@ export function validateConstructionQuote(f: QuoteFactsForValidation): Validatio
       level: "warn",
       message: `${f.unpricedLineCount} line(s) have no rate for this band/bracket — priced at £0 until a rate is set.`,
     });
-  if (f.siteType == null)
-    flags.push({ level: "info", message: "Site type not set — scaffold-mat / foam suggestions are off." });
   if (f.measurementCount === 0)
     flags.push({ level: "info", message: "No measurements recorded — add them so the quote is traceable." });
   if (f.hasInferredValues)
