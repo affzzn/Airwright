@@ -96,7 +96,7 @@ export function ConstructionAttachments({
     >
       {attachments.length === 0 ? (
         <p className="text-xs text-ink-subtle">
-          No attachments yet — add or drag in the drawings and site photos to work from.
+          No attachments yet.
         </p>
       ) : (
         <ul className="space-y-1.5">

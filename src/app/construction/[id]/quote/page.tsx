@@ -190,7 +190,7 @@ export default async function ConstructionQuoteOutputPage({
                 errors and omissions excepted.
               </Term>
               <Term term="Safety">
-                Boards may be moved after placement — the client must ensure working platforms comply with the
+                Boards may be moved after placement. The client must ensure working platforms comply with the
                 regulations at all times. Foundations/base must be adequate to support the load. Ties and braces
                 must not be removed without reference to Airwright Midland. Weekly inspections under the Work at
                 Height Regulations 2005 must be carried out by a competent person.
@@ -202,7 +202,7 @@ export default async function ConstructionQuoteOutputPage({
           <div className="mt-6 aw-keep">
             <h3 className="mb-1 text-[12px] font-semibold" style={{ color: navy }}>Assumptions &amp; exclusions</h3>
             <ul className="list-inside list-disc text-[11px] text-[#666]">
-              <li>Priced strictly to the scope above — items not listed are excluded.</li>
+              <li>Priced strictly to the scope above. Items not listed are excluded.</li>
               {quote.measurements.some((m) => m.source === "GOOGLE_EARTH") && (
                 <li>Some measurements taken from Google Earth; subject to site confirmation.</li>
               )}

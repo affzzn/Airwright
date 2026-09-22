@@ -12,11 +12,7 @@ export default function NewConstructionQuotePage() {
           items={[{ label: "Construction", href: "/construction" }, { label: "New quote" }]}
         />
         <p className="eyebrow mb-1">New construction quote</p>
-        <h1 className="mb-1 text-2xl font-semibold tracking-tight text-ink">Create a quote</h1>
-        <p className="mb-6 text-xs text-ink-subtle">
-          Start the quote here, then add measurements, pick scaffold items and attach the
-          enquiry drawings on the next screen. Everything is editable.
-        </p>
+        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-ink">Create a quote</h1>
         <ConstructionNewForm />
       </div>
     </AppShell>

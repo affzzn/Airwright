@@ -224,9 +224,6 @@ export function ConstructionBuilder({
             <Card>
               <CardHeader className="py-3"><h2 className="text-sm font-semibold text-ink">Attachments</h2></CardHeader>
               <CardBody className="py-3">
-                <p className="mb-2 text-[11px] text-ink-subtle">
-                  Reference only — drawings and the enquiry email are shown, never read by AI.
-                </p>
                 <ConstructionAttachments
                   quoteId={quote.id}
                   attachments={quote.attachments}
@@ -239,7 +236,7 @@ export function ConstructionBuilder({
               <CardHeader className="py-3"><h2 className="text-sm font-semibold text-ink">Assumptions &amp; checks</h2></CardHeader>
               <CardBody className="py-3">
                 {flags.length === 0 ? (
-                  <p className="text-xs text-ink-subtle">All set — nothing outstanding.</p>
+                  <p className="text-xs text-ink-subtle">All set.</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {flags.map((f, i) => (
@@ -297,7 +294,6 @@ function QuoteSummary({
         <div>
           <p className="eyebrow mb-1">Quote total</p>
           <p className="text-3xl font-semibold tabular-nums tracking-tight text-ink">{formatGBP(total)}</p>
-          <p className="mt-0.5 text-[11px] text-ink-subtle">Inclusive of the hire period. ⚠ Placeholder rates.</p>
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-3 border-t border-hairline pt-3 text-sm">
           <HeaderField
@@ -362,9 +358,6 @@ function MeasurementsPanel({ quote, locked }: { quote: ConstructionQuoteVM; lock
     <Card>
       <CardHeader className="py-3">
         <h2 className="text-sm font-semibold text-ink">Measurements</h2>
-        <p className="mt-0.5 text-[11px] text-ink-subtle">
-          What you measured (Google Earth / drawing / by hand). Kept separate from the priced lines.
-        </p>
       </CardHeader>
       <CardBody className="py-3">
         {quote.measurements.length > 0 && (
@@ -487,9 +480,6 @@ function LineBuilder({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-ink">Scaffold items</h2>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              Pick from the library, set quantity + lifts. Everything is per lift where it applies.
-            </p>
           </div>
           {!locked && aiEnabled && library.length > 0 && (
             <DraftFromScope quoteId={quote.id} library={library} />
@@ -539,7 +529,7 @@ function LineBuilder({
           </div>
         )}
         {lines.length === 0 && (
-          <p className="py-2 text-xs text-ink-subtle">No items yet — add one below.</p>
+          <p className="py-2 text-xs text-ink-subtle">No items yet.</p>
         )}
 
         {!locked && <AddLineControls quote={quote} library={library} />}

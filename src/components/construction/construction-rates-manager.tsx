@@ -75,9 +75,7 @@ export function ConstructionRatesManager({ elements }: { elements: ConstructionE
     <div>
       <div className="mb-2 flex items-end justify-between gap-4">
         <p className="max-w-2xl text-xs text-ink-subtle">
-          The construction picking list. Each element has a rate per commercial band and
-          height bracket. ⚠ Rates are placeholders (a few real ones from Colin’s recording)
-          until his construction rate sheet lands — everything here is editable.
+          The construction picking list. Each element has a rate per band and height bracket.
         </p>
         <Button variant="secondary" onClick={() => setNewOpen(true)} className="shrink-0 gap-2">
           <Plus className="h-4 w-4" strokeWidth={1.75} /> New element
@@ -182,7 +180,7 @@ function ElementBlock({ element }: { element: ConstructionElementVM }) {
             {element.rates.length === 0 && (
               <tr>
                 <td colSpan={4} className="py-2 text-xs text-ink-subtle">
-                  No rate yet — add one below (unpriced lines show £0 + a flag).
+                  No rate yet.
                 </td>
               </tr>
             )}

@@ -213,10 +213,6 @@ export function DraftFromScope({
                 Draft from enquiry
               </h2>
             </div>
-            <p className="mt-1 text-xs leading-relaxed text-ink-subtle">
-              Reads the client’s written scope — text only, never drawings — and proposes lines
-              you confirm. Nothing is priced or added until you say so.
-            </p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <StepDots step={step} />
@@ -282,7 +278,7 @@ export function DraftFromScope({
                   }}
                   rows={9}
                   placeholder={
-                    "Paste the client's scope of works, e.g.\n• Edge protection to LV pits — 20 LM × 2 pits\n• Haki staircase — all levels + roof access\n• Loading bay — 3.6 × 2.4 × 15m"
+                    "Paste the client's scope of works, e.g.\n• Edge protection to LV pits, 20 LM x 2 pits\n• Haki staircase, all levels + roof access\n• Loading bay, 3.6 x 2.4 x 15m"
                   }
                   className="w-full resize-y rounded-lg border border-hairline-strong bg-canvas p-3.5 text-sm leading-relaxed text-ink placeholder:text-ink-subtle focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15"
                 />
@@ -320,8 +316,7 @@ export function DraftFromScope({
               )}
 
               <p className="mb-2 text-[11px] leading-relaxed text-ink-subtle">
-                Check the mapping and quantities. Quantities are the client’s stated numbers —
-                verify them against the drawing yourself.
+                Check the mapping and quantities before adding.
               </p>
 
               <div className="overflow-x-auto rounded-lg border border-hairline">
@@ -376,7 +371,7 @@ export function DraftFromScope({
                                 value={r.elementId ?? ""}
                                 onChange={(e) => patchRow(i, { elementId: e.target.value || null })}
                               >
-                                <option value="">— needs mapping —</option>
+                                <option value="">Needs mapping</option>
                                 {library.map((e) => (
                                   <option key={e.id} value={e.id}>
                                     {e.name} · {UNIT_LABEL[e.unit as ConstructionUnit]}
@@ -389,7 +384,7 @@ export function DraftFromScope({
                             </div>
                             {r.invented && (
                               <span className="mt-1 block text-[10px] leading-snug text-ink-subtle">
-                                AI matched an item not in the list — pick one.
+                                Pick an item.
                               </span>
                             )}
                           </td>
@@ -415,7 +410,7 @@ export function DraftFromScope({
                           <td className="py-3 pr-3 text-center">
                             <span
                               className="inline-flex"
-                              title={r.reason ? `${r.confidence} — ${r.reason}` : `${r.confidence} confidence`}
+                              title={r.reason ? `${r.confidence}: ${r.reason}` : `${r.confidence} confidence`}
                             >
                               <ConfidenceDot value={CONF_VALUE[r.confidence]} />
                             </span>
@@ -439,7 +434,7 @@ export function DraftFromScope({
               ← Back to text
             </Button>
           ) : (
-            <span className="text-[11px] text-ink-subtle">One quick AI pass — a few seconds.</span>
+            <span />
           )}
           {step === "input" ? (
             <Button onClick={runDraft} disabled={drafting || !text.trim()} className="gap-1.5">
@@ -533,7 +528,7 @@ function Dropzone({
       <span className="text-sm font-medium text-ink">
         {extracting ? "Reading the file…" : "Drop a scope file, or browse"}
       </span>
-      <span className="text-[11px] text-ink-subtle">.xlsx · .csv · .pdf · .txt — text is read, never images</span>
+      <span className="text-[11px] text-ink-subtle">.xlsx · .csv · .pdf · .txt</span>
     </button>
   );
 }
