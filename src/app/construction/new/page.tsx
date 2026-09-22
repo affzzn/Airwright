@@ -9,10 +9,10 @@ export default function NewConstructionQuotePage() {
     <AppShell>
       <div className="mx-auto max-w-xl">
         <Breadcrumbs
-          items={[{ label: "Construction", href: "/construction" }, { label: "New quote" }]}
+          items={[{ label: "Construction", href: "/construction" }, { label: "New job" }]}
         />
-        <p className="eyebrow mb-1">New construction quote</p>
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-ink">Create a quote</h1>
+        <p className="eyebrow mb-1">Construction</p>
+        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-ink">New job</h1>
         <ConstructionNewForm />
       </div>
     </AppShell>

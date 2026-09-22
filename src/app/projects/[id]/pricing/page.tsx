@@ -49,7 +49,7 @@ export default async function PricingPage({
     <AppShell>
       <Breadcrumbs
         items={[
-          { label: "Tenders", href: "/tenders" },
+          { label: "Jobs", href: "/tenders" },
           { label: project.name, href: `/projects/${id}` },
           { label: "Pricing" },
         ]}

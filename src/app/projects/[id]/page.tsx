@@ -151,7 +151,7 @@ export default async function ProjectPage({
       <AutoRefresh projectId={project.id} />
       {/* `processing` still gates the stepper below; the poller self-manages. */}
 
-      <Breadcrumbs items={[{ label: "Tenders", href: "/tenders" }, { label: project.name }]} />
+      <Breadcrumbs items={[{ label: "Jobs", href: "/tenders" }, { label: project.name }]} />
 
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>

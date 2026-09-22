@@ -69,18 +69,18 @@ export function ConstructionWorkspace({ quotes }: { quotes: ConstructionQuoteLis
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <p className="eyebrow mb-1">Construction</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Construction quotes</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Jobs</h1>
         </div>
         <Link href="/construction/new">
           <Button variant="secondary" className="gap-2">
-            <Plus className="h-4 w-4" strokeWidth={1.75} /> New quote
+            <Plus className="h-4 w-4" strokeWidth={1.75} /> New job
           </Button>
         </Link>
       </div>
 
       {/* Stat strip */}
       <div className="mb-6 grid grid-cols-3 gap-3">
-        <StatCard label="Quotes" value={stats.quotes} />
+        <StatCard label="Jobs" value={stats.quotes} />
         <StatCard label="Drafts" value={stats.drafts} />
         <StatCard label="Confirmed" value={stats.confirmed} />
       </div>
@@ -95,9 +95,9 @@ export function ConstructionWorkspace({ quotes }: { quotes: ConstructionQuoteLis
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search quotes, customers or sites"
+            placeholder="Search jobs, customers or sites"
             className="pl-9"
-            aria-label="Search construction quotes"
+            aria-label="Search jobs"
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -125,14 +125,14 @@ export function ConstructionWorkspace({ quotes }: { quotes: ConstructionQuoteLis
           <CardBody className="py-14 text-center text-sm text-ink-subtle">
             {quotes.length === 0 ? (
               <>
-                No construction quotes yet.{" "}
+                No jobs yet.{" "}
                 <Link href="/construction/new" className="text-ink underline decoration-hairline-strong underline-offset-2 hover:decoration-ink">
                   Create one
                 </Link>
                 .
               </>
             ) : (
-              "No quotes match your search."
+              "No jobs match your search."
             )}
           </CardBody>
         </Card>
@@ -153,17 +153,17 @@ export function ConstructionWorkspace({ quotes }: { quotes: ConstructionQuoteLis
       <Modal
         open={deleteTarget !== null}
         onClose={() => (busyId ? null : setDeleteTarget(null))}
-        label="Delete quote"
+        label="Delete job"
         className="max-w-md"
       >
         <div className="border-b border-hairline px-5 py-4">
-          <h2 className="text-sm font-semibold text-ink">Delete quote</h2>
+          <h2 className="text-sm font-semibold text-ink">Delete job</h2>
         </div>
         <div className="px-5 py-4">
           <p className="text-sm text-ink-muted">
             Permanently delete{" "}
             <span className="font-medium text-ink">
-              {deleteTarget?.reference || deleteTarget?.customerName || "this quote"}
+              {deleteTarget?.reference || deleteTarget?.customerName || "this job"}
             </span>{" "}
             and its measurements, lines and attachment records. This can’t be undone.
           </p>
@@ -191,7 +191,7 @@ function Row({
   busy: boolean;
   onDelete: () => void;
 }) {
-  const name = q.reference || q.customerName || "Untitled quote";
+  const name = q.reference || q.customerName || "Untitled job";
   const subtitle = [
     q.reference ? q.customerName : q.siteAddress,
     BAND_LABEL[q.band as RateBand] ?? q.band,
@@ -225,7 +225,7 @@ function Row({
           type="button"
           disabled={busy}
           onClick={onDelete}
-          aria-label="Delete quote"
+          aria-label="Delete job"
           title="Delete"
           className="rounded-md p-1.5 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:pointer-events-none"
         >

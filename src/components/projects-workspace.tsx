@@ -110,7 +110,7 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
         setDeleteTarget(null);
         router.refresh();
       } else {
-        setDeleteErr(res?.error ?? "Couldn’t delete this tender.");
+        setDeleteErr(res?.error ?? "Couldn’t delete this job.");
       }
       setBusyId(null);
     });
@@ -121,17 +121,17 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
       {/* Header */}
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="eyebrow mb-1">Projects</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Tenders</h1>
+          <p className="eyebrow mb-1">House Building</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Jobs</h1>
         </div>
         <Button variant="secondary" onClick={() => setNewOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" strokeWidth={1.75} /> New tender
+          <Plus className="h-4 w-4" strokeWidth={1.75} /> New job
         </Button>
       </div>
 
       {/* Stat strip */}
       <div className="mb-6 grid grid-cols-3 gap-3">
-        <StatCard label="Tenders" value={stats.tenders} />
+        <StatCard label="Jobs" value={stats.tenders} />
         <StatCard label="In progress" value={stats.inProgress} />
         <StatCard label="Awaiting review" value={stats.awaiting} />
       </div>
@@ -146,9 +146,9 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tenders or builders"
+            placeholder="Search jobs or builders"
             className="pl-9"
-            aria-label="Search tenders"
+            aria-label="Search jobs"
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -178,10 +178,10 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
         <Card>
           <CardBody className="py-14 text-center text-sm text-ink-subtle">
             {projects.length === 0
-              ? "No tenders yet. Create one to upload a pack."
+              ? "No jobs yet. Create one to upload a pack."
               : filter === "ARCHIVED"
-                ? "No archived tenders."
-                : "No tenders match your search."}
+                ? "No archived jobs."
+                : "No jobs match your search."}
           </CardBody>
         </Card>
       ) : (
@@ -201,11 +201,11 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
         </div>
       )}
 
-      {/* New tender modal */}
+      {/* New job modal */}
       <Modal
         open={newOpen}
         onClose={() => setNewOpen(false)}
-        label="New tender"
+        label="New job"
         className="max-w-lg"
       >
         <div className="flex items-start gap-3.5 border-b border-hairline px-6 py-5">
@@ -213,7 +213,7 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
             <FilePlus2 className="h-[18px] w-[18px] text-ink" strokeWidth={1.75} />
           </div>
           <div>
-            <h2 className="text-base font-semibold tracking-tight text-ink">New tender</h2>
+            <h2 className="text-base font-semibold tracking-tight text-ink">New job</h2>
             <p className="mt-0.5 text-xs text-ink-subtle">
               Start a new estimate — you can add the drawing pack next.
             </p>
@@ -272,11 +272,11 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
       <Modal
         open={deleteTarget !== null}
         onClose={() => (busyId ? null : setDeleteTarget(null))}
-        label="Delete tender"
+        label="Delete job"
         className="max-w-md"
       >
         <div className="border-b border-hairline px-5 py-4">
-          <h2 className="text-sm font-semibold text-ink">Delete tender</h2>
+          <h2 className="text-sm font-semibold text-ink">Delete job</h2>
         </div>
         <div className="px-5 py-4">
           <p className="text-sm text-ink-muted">
@@ -360,7 +360,7 @@ function Row({
           type="button"
           disabled={busy}
           onClick={onArchive}
-          aria-label={p.archived ? "Unarchive tender" : "Archive tender"}
+          aria-label={p.archived ? "Unarchive job" : "Archive job"}
           title={p.archived ? "Unarchive" : "Archive"}
           className="rounded-md p-1.5 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:pointer-events-none"
         >
@@ -374,7 +374,7 @@ function Row({
           type="button"
           disabled={busy}
           onClick={onDelete}
-          aria-label="Delete tender"
+          aria-label="Delete job"
           title="Delete"
           className="rounded-md p-1.5 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:pointer-events-none"
         >
@@ -424,7 +424,7 @@ function CreateButton() {
   return (
     <Button type="submit" disabled={pending} className="gap-2">
       {pending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
-      Create tender
+      Create job
     </Button>
   );
 }

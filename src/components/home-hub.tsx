@@ -29,15 +29,15 @@ export function HomeHub({
             href="/tenders"
             icon={<Building2 className="h-5 w-5" strokeWidth={1.75} />}
             title="House Building"
-            desc="New-build housing tenders — Traditional & Timber-frame."
-            meta={`${tenderCount} tender${tenderCount === 1 ? "" : "s"}`}
+            desc="New-build housing, Traditional & Timber-frame."
+            meta={`${tenderCount} job${tenderCount === 1 ? "" : "s"}`}
           />
           <HubTile
             href="/construction"
             icon={<HardHat className="h-5 w-5" strokeWidth={1.75} />}
             title="Construction"
             desc="Bespoke commercial jobs, built off the picking list."
-            meta={`${constructionCount} quote${constructionCount === 1 ? "" : "s"}`}
+            meta={`${constructionCount} job${constructionCount === 1 ? "" : "s"}`}
           />
         </div>
 
