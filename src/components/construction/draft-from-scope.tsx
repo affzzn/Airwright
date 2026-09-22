@@ -2,7 +2,14 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Loader2, Sparkles, Upload, X } from "lucide-react";
+import {
+  Check,
+  FileText,
+  Loader2,
+  Sparkles,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import {
   applyConstructionDraftLines,
   draftConstructionLinesFromScope,
@@ -14,6 +21,8 @@ import type { ConstructionElementLibVM } from "@/server/construction";
 import { UNIT_LABEL, PER_LIFT_UNITS, type ConstructionUnit } from "@/lib/construction/types";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Badge, ConfidenceDot } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 /** One editable review row (the AI's proposal + the estimator's corrections). */
 interface Row {
@@ -29,11 +38,25 @@ interface Row {
   include: boolean;
 }
 
-const CONF_DOT: Record<Row["confidence"], string> = {
-  high: "bg-ink",
-  medium: "bg-ink/50",
-  low: "bg-ink/25",
-};
+// Map the draft's discrete confidence onto the shared ConfidenceDot's 0–1 scale
+// (≥0.85 high · ≥0.6 medium · else low) so we reuse the one sanctioned colour.
+const CONF_VALUE: Record<Row["confidence"], number> = { high: 0.9, medium: 0.7, low: 0.4 };
+
+const draftLineToRow = (l: DraftLineVM): Row => ({
+  clientText: l.clientText,
+  suggestedElementId: l.elementId,
+  elementId: l.elementId,
+  quantity: l.quantity != null ? String(l.quantity) : "",
+  lifts: l.lifts != null ? String(l.lifts) : "",
+  note: l.note,
+  confidence: l.confidence,
+  reason: l.reason,
+  invented: l.invented,
+  include: true,
+});
+
+const ACCEPT =
+  ".xlsx,.xls,.csv,.pdf,.txt,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -54,33 +77,39 @@ export function DraftFromScope({
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"input" | "review">("input");
   const [text, setText] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [drafting, startDraft] = useTransition();
   const [applying, startApply] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const elementById = useMemo(
+    () => new Map(library.map((e) => [e.id, e])),
+    [library],
+  );
   const usesLifts = (elementId: string | null): boolean =>
     !!elementId &&
-    PER_LIFT_UNITS.has(
-      (library.find((e) => e.id === elementId)?.unit ?? "") as ConstructionUnit,
-    );
+    PER_LIFT_UNITS.has((elementById.get(elementId)?.unit ?? "") as ConstructionUnit);
 
   const reset = () => {
     setStep("input");
     setText("");
+    setFileName(null);
     setNotes("");
     setError(null);
     setRows([]);
+    setDragOver(false);
   };
   const close = () => {
     setOpen(false);
     reset();
   };
 
-  const onPickFile = async (file: File | undefined) => {
+  const extractFile = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
     setExtracting(true);
@@ -92,7 +121,10 @@ export function DraftFromScope({
         dataBase64,
       });
       if (res.error) setError(res.error);
-      else if (res.text) setText(res.text);
+      else if (res.text) {
+        setText(res.text);
+        setFileName(file.name);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn’t read that file.");
     } finally {
@@ -110,20 +142,7 @@ export function DraftFromScope({
         return;
       }
       setNotes(res.notes ?? "");
-      setRows(
-        res.lines.map((l: DraftLineVM) => ({
-          clientText: l.clientText,
-          suggestedElementId: l.elementId,
-          elementId: l.elementId,
-          quantity: l.quantity != null ? String(l.quantity) : "",
-          lifts: l.lifts != null ? String(l.lifts) : "",
-          note: l.note,
-          confidence: l.confidence,
-          reason: l.reason,
-          invented: l.invented,
-          include: true,
-        })),
-      );
+      setRows(res.lines.map(draftLineToRow));
       setStep("review");
     });
   };
@@ -131,7 +150,16 @@ export function DraftFromScope({
   const patchRow = (i: number, patch: Partial<Row>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows]);
+  const stats = useMemo(() => {
+    const included = rows.filter((r) => r.include);
+    return {
+      total: rows.length,
+      included: included.length,
+      matched: included.filter((r) => r.elementId).length,
+      needsMap: included.filter((r) => !r.elementId).length,
+    };
+  }, [rows]);
+  const allIncluded = rows.length > 0 && rows.every((r) => r.include);
 
   const apply = () => {
     setError(null);
@@ -160,11 +188,6 @@ export function DraftFromScope({
     });
   };
 
-  const sel =
-    "h-8 rounded-md border border-hairline-strong bg-canvas px-2 text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink";
-  const inp =
-    "h-8 w-full rounded-md border border-hairline-strong bg-canvas px-2 text-xs text-ink tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink";
-
   return (
     <>
       <Button
@@ -180,87 +203,139 @@ export function DraftFromScope({
 
       <Modal open={open} onClose={close} label="Draft from enquiry" className="max-w-3xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-hairline px-5 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">Draft from enquiry</h2>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              Reads the client’s written scope (text only — never drawings) and proposes lines
+        <div className="flex items-start justify-between gap-4 border-b border-hairline px-6 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-surface-2">
+                <Sparkles className="h-3.5 w-3.5 text-ink-muted" strokeWidth={1.75} />
+              </span>
+              <h2 className="text-[15px] font-semibold tracking-tight text-ink">
+                Draft from enquiry
+              </h2>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-ink-subtle">
+              Reads the client’s written scope — text only, never drawings — and proposes lines
               you confirm. Nothing is priced or added until you say so.
             </p>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={close}
-            className="rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
-          >
-            <X className="h-4 w-4" strokeWidth={1.75} />
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            <StepDots step={step} />
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={close}
+              className="rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface hover:text-ink"
+            >
+              <X className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {step === "input" ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-ink-subtle">
-                  Paste the scope, or upload a file (.xlsx · .csv · .pdf · .txt):
-                </span>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept=".xlsx,.xls,.csv,.pdf,.txt,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                  className="hidden"
-                  onChange={(e) => onPickFile(e.target.files?.[0])}
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => fileInput.current?.click()}
-                  disabled={extracting}
-                  className="gap-1.5"
-                >
-                  {extracting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  )}
-                  Upload file
-                </Button>
-              </div>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={12}
-                placeholder="Paste the client's scope of works here — e.g. 'Edge protection to LV pits 20 LM x 2 pits; Haki stairs all levels + roof access; Loading bay 3.6 x 2.4 x 15m'…"
-                className="w-full rounded-lg border border-hairline-strong bg-canvas p-3 text-sm text-ink placeholder:text-ink-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {drafting ? (
+            <DraftingState />
+          ) : step === "input" ? (
+            <div className="space-y-4 px-6 py-5">
+              <Dropzone
+                dragOver={dragOver}
+                extracting={extracting}
+                fileName={fileName}
+                onBrowse={() => fileInput.current?.click()}
+                onClear={() => {
+                  setFileName(null);
+                  setText("");
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  void extractFile(e.dataTransfer.files?.[0]);
+                }}
               />
-              <p className="text-[11px] text-ink-subtle">
-                <FileText className="mr-1 inline h-3 w-3" strokeWidth={1.75} />
-                An uploaded file is read to text and shown above — trim any noise before drafting.
-              </p>
+              <input
+                ref={fileInput}
+                type="file"
+                accept={ACCEPT}
+                className="hidden"
+                onChange={(e) => extractFile(e.target.files?.[0])}
+              />
+
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-hairline" />
+                <span className="text-[11px] uppercase tracking-wide text-ink-subtle">
+                  or paste the scope
+                </span>
+                <span className="h-px flex-1 bg-hairline" />
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    if (fileName) setFileName(null);
+                  }}
+                  rows={9}
+                  placeholder={
+                    "Paste the client's scope of works, e.g.\n• Edge protection to LV pits — 20 LM × 2 pits\n• Haki staircase — all levels + roof access\n• Loading bay — 3.6 × 2.4 × 15m"
+                  }
+                  className="w-full resize-y rounded-lg border border-hairline-strong bg-canvas p-3.5 text-sm leading-relaxed text-ink placeholder:text-ink-subtle focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15"
+                />
+                {text.trim() && (
+                  <span className="pointer-events-none absolute bottom-2.5 right-3 text-[10px] tabular-nums text-ink-subtle">
+                    {text.trim().length.toLocaleString()} chars
+                  </span>
+                )}
+              </div>
+
+              {error && <ErrorNote message={error} />}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="px-6 py-5">
+              {/* Summary bar */}
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <Badge variant="muted">{stats.total} proposed</Badge>
+                <Badge variant="outline">{stats.matched} matched</Badge>
+                {stats.needsMap > 0 && <Badge variant="dashed">{stats.needsMap} need mapping</Badge>}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRows((prev) => prev.map((r) => ({ ...r, include: !allIncluded })))
+                  }
+                  className="ml-auto text-[11px] font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+                >
+                  {allIncluded ? "Clear all" : "Select all"}
+                </button>
+              </div>
+
               {notes && (
-                <p className="rounded-md border border-hairline bg-surface px-3 py-2 text-[11px] text-ink-muted">
+                <p className="mb-4 rounded-lg border border-hairline bg-surface px-3.5 py-2.5 text-xs leading-relaxed text-ink-muted">
                   {notes}
                 </p>
               )}
-              <p className="text-[11px] text-ink-subtle">
-                {rows.length} line{rows.length === 1 ? "" : "s"} proposed. Check the mapping and
-                quantities — quantities are the client’s stated numbers, so verify them against the
-                drawing yourself.
+
+              <p className="mb-2 text-[11px] leading-relaxed text-ink-subtle">
+                Check the mapping and quantities. Quantities are the client’s stated numbers —
+                verify them against the drawing yourself.
               </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-hairline text-left text-ink-subtle">
-                      <th className="py-1.5 pr-2 font-medium">Add</th>
-                      <th className="py-1.5 pr-2 font-medium">Scope wording</th>
-                      <th className="py-1.5 pr-2 font-medium">Item</th>
-                      <th className="py-1.5 pr-2 text-right font-medium">Qty</th>
-                      <th className="py-1.5 pr-2 font-medium">Lifts</th>
-                      <th className="py-1.5 pr-1 font-medium" title="AI confidence">⬤</th>
+
+              <div className="overflow-x-auto rounded-lg border border-hairline">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 bg-canvas">
+                    <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-ink-subtle">
+                      <th className="w-8 py-2 pl-3" />
+                      <th className="py-2 pr-3 font-medium">Scope wording</th>
+                      <th className="py-2 pr-3 font-medium">Maps to</th>
+                      <th className="py-2 pr-3 text-right font-medium">Qty</th>
+                      <th className="py-2 pr-3 font-medium">Lifts</th>
+                      <th className="w-8 py-2 pr-3 text-center font-medium" title="AI confidence">
+                        Conf.
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -268,62 +343,82 @@ export function DraftFromScope({
                       const perLift = usesLifts(r.elementId);
                       const needsMap = r.elementId == null;
                       return (
-                        <tr key={i} className="border-b border-hairline align-top last:border-0">
-                          <td className="py-1.5 pr-2">
-                            <input
-                              type="checkbox"
+                        <tr
+                          key={i}
+                          className={cn(
+                            "border-b border-hairline align-top transition-opacity last:border-0",
+                            !r.include && "opacity-45",
+                          )}
+                        >
+                          <td className="py-2.5 pl-3">
+                            <RowCheck
                               checked={r.include}
-                              onChange={(e) => patchRow(i, { include: e.target.checked })}
-                              className="mt-0.5 accent-ink"
+                              onChange={(v) => patchRow(i, { include: v })}
                             />
                           </td>
-                          <td className="max-w-[16rem] py-1.5 pr-2 text-ink">
-                            <span className="block">{r.clientText || "—"}</span>
-                            {(r.note || r.reason || r.invented) && (
-                              <span className="mt-0.5 block text-[10px] text-ink-subtle">
-                                {r.invented && "AI matched an unknown item — map it. "}
+                          <td className="max-w-[15rem] py-2.5 pr-3">
+                            <span className="block leading-snug text-ink">{r.clientText || "—"}</span>
+                            {(r.note || r.reason) && (
+                              <span className="mt-0.5 block text-[10px] leading-snug text-ink-subtle">
                                 {r.note ?? r.reason}
                               </span>
                             )}
                           </td>
-                          <td className="py-1.5 pr-2">
-                            <select
-                              className={`${sel} min-w-[11rem] ${needsMap ? "border-amber-500" : ""}`}
-                              value={r.elementId ?? ""}
-                              onChange={(e) => patchRow(i, { elementId: e.target.value || null })}
-                            >
-                              <option value="">— needs mapping —</option>
-                              {library.map((e) => (
-                                <option key={e.id} value={e.id}>
-                                  {e.name} · {UNIT_LABEL[e.unit as ConstructionUnit]}
-                                </option>
-                              ))}
-                            </select>
+                          <td className="py-2.5 pr-3">
+                            <div className="relative">
+                              <select
+                                className={cn(
+                                  "h-8 w-full min-w-[10.5rem] cursor-pointer appearance-none rounded-md border bg-canvas pl-2.5 pr-7 text-xs text-ink focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15",
+                                  needsMap
+                                    ? "border-dashed border-hairline-strong text-ink-muted"
+                                    : "border-hairline-strong",
+                                )}
+                                value={r.elementId ?? ""}
+                                onChange={(e) => patchRow(i, { elementId: e.target.value || null })}
+                              >
+                                <option value="">— needs mapping —</option>
+                                {library.map((e) => (
+                                  <option key={e.id} value={e.id}>
+                                    {e.name} · {UNIT_LABEL[e.unit as ConstructionUnit]}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-subtle">
+                                ▾
+                              </span>
+                            </div>
+                            {r.invented && (
+                              <span className="mt-1 block text-[10px] leading-snug text-ink-subtle">
+                                AI matched an item not in the list — pick one.
+                              </span>
+                            )}
                           </td>
-                          <td className="py-1.5 pr-2">
+                          <td className="py-2.5 pr-3">
                             <input
                               inputMode="decimal"
                               value={r.quantity}
                               onChange={(e) => patchRow(i, { quantity: e.target.value })}
                               placeholder="—"
-                              className={`${inp} w-20 text-right`}
+                              className="h-8 w-16 rounded-md border border-hairline-strong bg-canvas px-2 text-right text-xs tabular-nums text-ink focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15"
                             />
                           </td>
-                          <td className="py-1.5 pr-2">
+                          <td className="py-2.5 pr-3">
                             <input
                               inputMode="numeric"
                               value={r.lifts}
                               disabled={!perLift}
                               onChange={(e) => patchRow(i, { lifts: e.target.value })}
                               placeholder={perLift ? "—" : "n/a"}
-                              className={`${inp} w-14 text-right disabled:opacity-40`}
+                              className="h-8 w-12 rounded-md border border-hairline-strong bg-canvas px-2 text-right text-xs tabular-nums text-ink focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15 disabled:border-hairline disabled:opacity-40"
                             />
                           </td>
-                          <td className="py-2 pr-1">
+                          <td className="py-3 pr-3 text-center">
                             <span
-                              className={`inline-block h-2 w-2 rounded-full ${CONF_DOT[r.confidence]}`}
-                              title={`${r.confidence} confidence${r.reason ? ` — ${r.reason}` : ""}`}
-                            />
+                              className="inline-flex"
+                              title={r.reason ? `${r.confidence} — ${r.reason}` : `${r.confidence} confidence`}
+                            >
+                              <ConfidenceDot value={CONF_VALUE[r.confidence]} />
+                            </span>
                           </td>
                         </tr>
                       );
@@ -331,14 +426,14 @@ export function DraftFromScope({
                   </tbody>
                 </table>
               </div>
+
+              {error && <div className="mt-3"><ErrorNote message={error} /></div>}
             </div>
           )}
-
-          {error && <p className="mt-3 text-xs text-ink">{error}</p>}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-hairline px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-t border-hairline bg-canvas px-6 py-3.5">
           {step === "review" ? (
             <Button variant="ghost" size="sm" onClick={() => setStep("input")} disabled={applying}>
               ← Back to text
@@ -356,13 +451,131 @@ export function DraftFromScope({
               Draft lines
             </Button>
           ) : (
-            <Button onClick={apply} disabled={applying || includedCount === 0} className="gap-1.5">
-              {applying ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : null}
-              Add {includedCount} line{includedCount === 1 ? "" : "s"} to quote
+            <Button onClick={apply} disabled={applying || stats.included === 0} className="gap-1.5">
+              {applying && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
+              Add {stats.included} line{stats.included === 1 ? "" : "s"} to quote
             </Button>
           )}
         </div>
       </Modal>
     </>
+  );
+}
+
+// --- Sub-components ----------------------------------------------------------
+
+function StepDots({ step }: { step: "input" | "review" }) {
+  return (
+    <div className="hidden items-center gap-1.5 sm:flex" aria-hidden>
+      <span className={cn("h-1.5 w-1.5 rounded-full", step === "input" ? "bg-ink" : "bg-hairline-strong")} />
+      <span className={cn("h-1.5 w-1.5 rounded-full", step === "review" ? "bg-ink" : "bg-hairline-strong")} />
+    </div>
+  );
+}
+
+function Dropzone({
+  dragOver,
+  extracting,
+  fileName,
+  onBrowse,
+  onClear,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  dragOver: boolean;
+  extracting: boolean;
+  fileName: string | null;
+  onBrowse: () => void;
+  onClear: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  if (fileName && !extracting) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-surface px-3.5 py-3">
+        <span className="flex min-w-0 items-center gap-2 text-sm text-ink">
+          <FileText className="h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
+          <span className="truncate">{fileName}</span>
+          <Check className="h-3.5 w-3.5 shrink-0 text-ink-muted" strokeWidth={2} />
+        </span>
+        <button
+          type="button"
+          onClick={onClear}
+          className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-canvas hover:text-ink"
+        >
+          Replace
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onBrowse}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      disabled={extracting}
+      className={cn(
+        "flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-6 py-7 text-center transition-colors",
+        dragOver
+          ? "border-ink bg-surface"
+          : "border-hairline-strong bg-canvas hover:border-ink/40 hover:bg-surface/50",
+      )}
+    >
+      {extracting ? (
+        <Loader2 className="h-5 w-5 animate-spin text-ink-muted" strokeWidth={2} />
+      ) : (
+        <UploadCloud className="h-5 w-5 text-ink-muted" strokeWidth={1.75} />
+      )}
+      <span className="text-sm font-medium text-ink">
+        {extracting ? "Reading the file…" : "Drop a scope file, or browse"}
+      </span>
+      <span className="text-[11px] text-ink-subtle">.xlsx · .csv · .pdf · .txt — text is read, never images</span>
+    </button>
+  );
+}
+
+function DraftingState() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline bg-surface">
+        <Loader2 className="h-5 w-5 animate-spin text-ink-muted" strokeWidth={2} />
+      </span>
+      <p className="text-sm font-medium text-ink">Reading the scope…</p>
+      <p className="max-w-xs text-xs leading-relaxed text-ink-subtle">
+        Matching each line to your picking list. This takes a few seconds.
+      </p>
+    </div>
+  );
+}
+
+function RowCheck({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={checked ? "Exclude line" : "Include line"}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "flex h-4 w-4 items-center justify-center rounded border transition-colors",
+        checked
+          ? "border-ink bg-ink text-canvas"
+          : "border-hairline-strong bg-canvas hover:border-ink/50",
+      )}
+    >
+      {checked && <Check className="h-3 w-3" strokeWidth={2.5} />}
+    </button>
+  );
+}
+
+function ErrorNote({ message }: { message: string }) {
+  return (
+    <p className="rounded-lg border border-hairline-strong bg-surface px-3.5 py-2.5 text-xs text-ink">
+      {message}
+    </p>
   );
 }
