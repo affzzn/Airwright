@@ -141,9 +141,23 @@ Ranked for Colin-value: (1) editable review + Confirm-locks-takeoff (Week 4 anyw
 (3) manual take-off fallback when extraction fails, (4) plot-schedule editor with
 block grouping + auto-apportionment, (5) builder-profile screen (~20 builders:
 Keepmoat=Haki, Bloor=beam-overs/smart-roofs…), (6) flag inbox (all low-confidence /
-mismatch warnings in one queue), (7) house-type bank + duplicate-and-amend with
-LM drift check, (8) golden-set comparison view (tool vs Colin, agreement %),
+mismatch warnings in one queue), (7) ~~house-type bank~~ **✅ BUILT 2026-09-23
+(docs/20, branch `feat/house-type-bank`)** — geometry-first match, alias learning,
+skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her file,
+(8) golden-set comparison view (tool vs Colin, agreement %),
 (9) per-pack AI-cost chip, (10) revision watch (re-check known type on new rev).
+
+## House-Type Bank — follow-ups (docs/20)
+
+- [ ] **P4 — seed from Laura's Excel bank** (house-build only) — needs her real
+      spreadsheet to map columns → measurement keys. Don't guess the format.
+- [ ] **Change-detection tolerance** (wall ±?, birdcage ±?%, height) — currently the
+      provisional `BANK_TOLERANCE` in `match.ts`; confirm with Colin (same open number
+      as docs/11 §8 #11) and thread it in.
+- [ ] Optional: feed the client's confirmed bank names into grouping/segmentation
+      (`src/lib/ingest`) to improve house-type naming on ingest.
+- [ ] Optional: a `not-same-as` negative marker so a rejected AMBIGUOUS match stops
+      re-proposing (docs/20 §9 #3).
 
 ## Later phases (NOT Build 1)
 

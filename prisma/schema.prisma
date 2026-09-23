@@ -206,6 +206,17 @@ enum OperationAction {
   DISMANTLE
 }
 
+// How a project house type relates to the shared, client-owned House-Type Bank
+// (docs/20). NEW = created a bank entry; MATCHED = linked to an existing entry,
+// geometry identical; CHANGED = linked but the drawing differs from the stored
+// version (flagged for a sense-check); DETACHED = a human unlinked it from the bank.
+enum BankMatchState {
+  NEW
+  MATCHED
+  CHANGED
+  DETACHED
+}
+
 enum OperationGroup {
   MAIN
   GARAGE
@@ -231,6 +242,7 @@ model Client {
   houseTypes      HouseType[]
   builderProfiles BuilderProfile[]
   matrixTemplates ClientMatrixTemplate[]
+  bankEntries     HouseTypeBankEntry[]
 }
 
 // ---------- Housebuilder specification profile (per builder, versioned) ----------
@@ -425,22 +437,90 @@ model Extraction {
 
 // ---------- House type (first-class identity: builder + code) ----------
 model HouseType {
-  id          String       @id @default(cuid())
-  projectId   String
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  clientId    String
-  client      Client       @relation(fields: [clientId], references: [id])
-  name        String
-  code        String?
-  buildType   BuildType?
-  createdAt   DateTime     @default(now())
-  extractions Extraction[]
-  takeoff     Takeoff?
-  plots       Plot[]
+  id             String              @id @default(cuid())
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client              @relation(fields: [clientId], references: [id])
+  name           String
+  code           String?
+  buildType      BuildType?
+  // Soft link into the shared House-Type Bank (docs/20). Null = not yet matched /
+  // house-build only. Set when a take-off is confirmed (auto) or reused from the
+  // bank; SetNull if the bank entry is deleted so the instance is never orphaned.
+  bankEntryId    String?
+  bankEntry      HouseTypeBankEntry? @relation(fields: [bankEntryId], references: [id], onDelete: SetNull)
+  bankMatchState BankMatchState?
+  createdAt      DateTime            @default(now())
+  extractions    Extraction[]
+  takeoff        Takeoff?
+  plots          Plot[]
 
   @@unique([projectId, code])
   @@index([projectId])
   @@index([clientId, code])
+  @@index([bankEntryId])
+}
+
+// ---------- House-Type Bank (docs/20) ----------
+// A shared, client-owned library of confirmed take-offs so repeat house types are
+// reused, not rebuilt by hand. HOUSE-BUILD ONLY (Traditional + Timber-Frame) —
+// Construction never touches this. The bank stores OBSERVABLES (a frozen take-off
+// snapshot), never prices; pricing runs off the materialised take-off as usual.
+
+// The library card: the reusable measured identity of a house type ("Miller Denton").
+model HouseTypeBankEntry {
+  id               String                 @id @default(cuid())
+  clientId         String
+  client           Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  buildType        BuildType // TRADITIONAL | TIMBER_FRAME
+  canonicalName    String
+  canonicalCode    String?
+  // Normalised name stem used for candidate lookup (lower-cased, noise stripped).
+  matchKey         String
+  // Every alternate name/code CONFIRMED as this type ("Denton XYZ", superseded
+  // codes…), learned on confirmation so a repeat is an exact hit next time.
+  aliases          String[]               @default([])
+  status           String                 @default("ACTIVE") // ACTIVE | ARCHIVED
+  timesReused      Int                    @default(0)
+  currentVersionId String?                @unique
+  currentVersion   HouseTypeBankVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  createdById      String?                @db.Uuid
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  versions         HouseTypeBankVersion[] @relation("EntryVersions")
+  houseTypes       HouseType[]
+
+  // A code (when present) is the reliable identity — one entry per client/code/buildType.
+  @@unique([clientId, canonicalCode, buildType])
+  @@index([clientId, buildType])
+  @@index([matchKey])
+}
+
+// A frozen snapshot of one confirmed take-off (observables only). Versioned so a
+// drawing revision keeps history, with a fingerprint for cheap change-detection.
+model HouseTypeBankVersion {
+  id                  String              @id @default(cuid())
+  bankEntryId         String
+  bankEntry           HouseTypeBankEntry  @relation("EntryVersions", fields: [bankEntryId], references: [id], onDelete: Cascade)
+  version             Int
+  // The frozen take-off, in the shape takeoffInputFromStored reads (docs/20 §3.1):
+  // measurement values + wall segments + categoricals/elevations + configuration.
+  snapshot            Json
+  // Stable hash of the rounded observables — equal fingerprints = no change.
+  geometryFingerprint String
+  // Provenance: where this version came from. SetNull so the snapshot survives if
+  // the source project/take-off is deleted (that is the point of the bank).
+  sourceTakeoffId     String?
+  sourceProjectId     String?
+  note                String?
+  confirmedById       String?             @db.Uuid
+  confirmedAt         DateTime?
+  createdAt           DateTime            @default(now())
+  currentFor          HouseTypeBankEntry? @relation("CurrentVersion")
+
+  @@unique([bankEntryId, version])
+  @@index([bankEntryId])
 }
 
 // ---------- Take-off ----------

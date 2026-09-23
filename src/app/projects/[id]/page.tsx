@@ -15,6 +15,8 @@ import { PlotEditor } from "@/components/plot-editor";
 import { HouseTypeDelete } from "@/components/house-type-delete";
 import { AddAsPlot } from "@/components/add-as-plot";
 import { GroupingConfirm } from "@/components/grouping-confirm";
+import { ReuseFromBank } from "@/components/bank/reuse-from-bank";
+import { listBankEntries } from "@/server/bank";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
@@ -49,6 +51,7 @@ export default async function ProjectPage({
         orderBy: { createdAt: "asc" },
         include: {
           takeoff: { select: { status: true } },
+          bankEntry: { select: { id: true, canonicalName: true } },
           extractions: {
             orderBy: { createdAt: "asc" },
             include: { document: { select: { included: true } } },
@@ -146,6 +149,23 @@ export default async function ProjectPage({
     includePartyWall: p.includePartyWall,
   }));
 
+  // Shared House-Type Bank (docs/20) — house-build only. The client's confirmed
+  // types, offered for skip-read reuse into this tender.
+  const bankEntries =
+    project.estimatingMode === "HOUSE_BUILD"
+      ? await listBankEntries({ clientId: project.clientId, buildType: project.buildType })
+      : [];
+  const reuseEntries = bankEntries.map((e) => ({
+    id: e.id,
+    canonicalName: e.canonicalName,
+    canonicalCode: e.canonicalCode,
+    storeys: e.storeys,
+    perimeter: e.perimeter,
+    versions: e.versions,
+    timesReused: e.timesReused,
+  }));
+  const buildTypeLabel = project.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional";
+
   return (
     <AppShell>
       <AutoRefresh projectId={project.id} />
@@ -203,7 +223,16 @@ export default async function ProjectPage({
       <Card className="mb-6">
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">House types</h2>
-          <span className="text-xs text-ink-subtle">{houseTypes.length}</span>
+          <div className="flex items-center gap-3">
+            {project.estimatingMode === "HOUSE_BUILD" && (
+              <ReuseFromBank
+                projectId={project.id}
+                buildTypeLabel={buildTypeLabel}
+                entries={reuseEntries}
+              />
+            )}
+            <span className="text-xs text-ink-subtle">{houseTypes.length}</span>
+          </div>
         </CardHeader>
         <CardBody className="p-0">
           {houseTypes.length === 0 ? (
@@ -250,6 +279,21 @@ export default async function ProjectPage({
                           {ht._count.plots > 0 &&
                             ` · ${ht._count.plots} plot${ht._count.plots === 1 ? "" : "s"}`}
                         </p>
+                        {ht.bankEntryId && ht.bankMatchState !== "DETACHED" && (
+                          <Link
+                            href={`/bank/${ht.bankEntryId}`}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-muted hover:text-ink"
+                            title="This house type is linked to the shared bank"
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink/40" aria-hidden />
+                            {ht.bankMatchState === "CHANGED"
+                              ? "Bank: drawing differs — check"
+                              : ht.bankMatchState === "NEW"
+                                ? "Added to bank"
+                                : "In bank"}
+                            {ht.bankEntry?.canonicalName ? ` · ${ht.bankEntry.canonicalName}` : ""}
+                          </Link>
+                        )}
                         {ex?.status === "FAILED" && ex.errorMessage && (
                           <p className="mt-1 max-w-md text-xs text-ink-muted">
                             {ex.errorMessage}

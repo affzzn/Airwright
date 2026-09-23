@@ -11,7 +11,44 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-17
+Last updated: 2026-09-23
+
+### 2026-09-23 — House-Type Bank BUILT end-to-end (docs/20) — branch `feat/house-type-bank`
+
+The 8th feature idea, built: turn Laura's personal Excel bank into shared, company-owned
+software so repeat house types are reused, not rebuilt. **House-build only** (Traditional
++ Timber-Frame); Construction never touches it. Full spec + build notes in
+**`docs/20-house-type-bank.md`**. The load-bearing idea: **identity is GEOMETRY, the name
+is only a hint** — so slightly-different names (Denton vs "Denton XYZ") are resolved by
+the measurements + a human, and the confirmed alias makes it an exact hit next time.
+
+- **P0 — schema + pure matcher.** Migration `house_type_bank` (purely additive, verified
+  no DROP/ALTER on existing tables: enum `BankMatchState`, models `HouseTypeBankEntry` +
+  `HouseTypeBankVersion` (frozen JSON snapshot + geometry fingerprint), `HouseType.bankEntryId`
+  + `bankMatchState`). Pure lib `src/lib/bank/{snapshot,normalize,match}.ts` (IO-free):
+  snapshot mirrors `takeoffInputFromStored` so reuse plugs into the take-off seam and
+  pricing is untouched; two-signal match (name/code candidate → geometry verdict
+  IDENTICAL/CHANGED/DIFFERENT with a field diff); tolerances flagged provisional (docs/11
+  §8 #11). 18 unit tests.
+- **P1 — write path.** `saveTakeoffToBank` (src/server/bank.ts) — **automatic on confirm**
+  (hooked into `confirmTakeoff`, best-effort so it can never break a confirm),
+  **idempotent on the fingerprint** (no dup version on reuse/re-confirm), **learns the
+  name/code as an alias**, guards the unique code (code = authoritative identity → always
+  attaches).
+- **P2 — match + reuse.** Review-screen **Bank strip** (`bank-match-panel.tsx` via new
+  `ReviewWorkspace.bankPanel`): shows linked / proposal+diff / new, with link · it's-new ·
+  detach. **Skip-read reuse** (decided default): `materializeBankEntry` + `ReuseFromBank`
+  on the project page → a confirmed take-off + auto plot in seconds, flagged
+  `bankReusedUnverified` ("Verify against drawing" safeguard).
+- **P3 — browse.** `/bank` list (grouped by client, build filter, archived toggle) +
+  `/bank/[id]` detail (take-off readout, version history w/ per-version diff, where-used) +
+  admin (rename, aliases, merge duplicates, archive, make-current). New nav "Bank" tab.
+- **Green:** typecheck + lint clean, **373 tests** (+18), production build clean (both
+  `/bank` routes). **Verified on the real DB** (throwaway round-trip, asserted + cleaned
+  up): new entry → "Denton XYZ" attaches + alias learned + no dup version → moved wall →
+  v2 CHANGED → matchTakeoff surfaces it → skip-read reuse materialises take-off+plot+flag
+  → timber-frame Denton is a SEPARATE entry. ⚠ P4 (Excel seed of Laura's bank) pending her
+  file; change-detection tolerance still an open Colin number.
 
 ### 2026-09-17 — Construction estimator BUILT end-to-end (docs/19) — a separate manual path
 

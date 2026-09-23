@@ -13,6 +13,7 @@ import {
 } from "@/components/takeoff-editor";
 import type { ExtractionResult } from "@/lib/extract/schema";
 import type { PageRef } from "@/lib/provenance";
+import type { ReactNode } from "react";
 
 const STATUS: Record<string, { label: string; variant: "solid" | "muted" | "outline" }> = {
   CONFIRMED: { label: "Confirmed", variant: "solid" },
@@ -50,6 +51,7 @@ export function ReviewWorkspace({
   documentPages,
   storeyLiftTemplate,
   buildSystem,
+  bankPanel,
 }: {
   backHref: string;
   title: string;
@@ -72,6 +74,7 @@ export function ReviewWorkspace({
   documentPages: PageRef[];
   storeyLiftTemplate?: Record<string, number>;
   buildSystem?: "TRADITIONAL" | "TIMBER_FRAME";
+  bankPanel?: ReactNode;
 }) {
   const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
   const onGoToPage = (page: number) =>
@@ -106,6 +109,9 @@ export function ReviewWorkspace({
           <p className="truncate text-xs text-ink-subtle">{subtitle}</p>
         </div>
       </div>
+
+      {/* Bank strip (docs/20 §6b) — how this take-off relates to the shared bank */}
+      {bankPanel}
 
       {/* Two panes */}
       <div className="min-h-0 flex-1 lg:grid lg:grid-cols-2 lg:grid-rows-1">

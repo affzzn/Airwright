@@ -36,6 +36,7 @@ function SignOutButton() {
 export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
   const pathname = usePathname() ?? "/";
   const onRates = pathname.startsWith("/rates");
+  const onBank = pathname.startsWith("/bank");
   const onDocs = pathname.startsWith("/docs");
   const onConstruction = pathname.startsWith("/construction");
   // House Building covers the tenders list + all its work pages (a project, a
@@ -82,6 +83,9 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
         </div>
         {showSignOut && (
           <div className="flex items-center gap-4">
+            <Link href="/bank" className={secondary(onBank)}>
+              Bank
+            </Link>
             <Link href="/docs" className={secondary(onDocs)}>
               Docs
             </Link>

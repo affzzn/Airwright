@@ -9,8 +9,10 @@ import { resolveModel } from "@/lib/extract/providers/catalog";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ReviewWorkspace } from "@/components/review-workspace";
+import { BankMatchPanel, type BankPanelData } from "@/components/bank/bank-match-panel";
 import type { EditorCategoricals } from "@/components/takeoff-editor";
 import { getStoreyLiftTemplate } from "@/server/builderProfile";
+import { matchTakeoff } from "@/server/bank";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +41,7 @@ export default async function ReviewPage({
               wallSegments: { orderBy: { createdAt: "asc" } },
             },
           },
+          bankEntry: { select: { id: true, canonicalName: true, canonicalCode: true } },
         },
       },
     },
@@ -117,6 +120,55 @@ export default async function ReviewPage({
     sheetTitle: p.sheetTitle,
   }));
 
+  // Bank strip (docs/20 §6b): how this take-off relates to the shared bank.
+  let bankPanel: React.ReactNode = null;
+  const ht = extraction.houseType;
+  if (takeoff && ht) {
+    const reusedUnverified = rawWarnings.bankReusedUnverified === true;
+    const linked =
+      ht.bankEntryId && ht.bankMatchState !== "DETACHED"
+        ? {
+            entryId: ht.bankEntryId,
+            name: ht.bankEntry?.canonicalName ?? "—",
+            code: ht.bankEntry?.canonicalCode ?? null,
+            state: ht.bankMatchState ?? "MATCHED",
+          }
+        : null;
+
+    let proposal: BankPanelData["proposal"] = null;
+    if (!linked && !reusedUnverified) {
+      const matchRes = await matchTakeoff(takeoff.id);
+      if (matchRes) {
+        const best = matchRes.match.best;
+        if (best?.entryId) {
+          const nm = matchRes.candidateNames[best.entryId];
+          proposal = {
+            entryId: best.entryId,
+            name: nm ? (nm.code ? `${nm.name} · ${nm.code}` : nm.name) : null,
+            state: matchRes.match.state,
+            diffs: (best.geometry?.diffs ?? []).map(
+              (d) => `${d.label} ${d.from ?? "—"}→${d.to ?? "—"}`,
+            ),
+          };
+        } else {
+          proposal = { entryId: null, name: null, state: "NEW", diffs: [] };
+        }
+      }
+    }
+
+    if (linked || proposal || reusedUnverified) {
+      const panelData: BankPanelData = {
+        takeoffId: takeoff.id,
+        houseTypeId: ht.id,
+        status: takeoff.status,
+        reusedUnverified,
+        linked,
+        proposal,
+      };
+      bankPanel = <BankMatchPanel data={panelData} />;
+    }
+  }
+
   const backHref = `/projects/${extraction.document.pack.projectId}`;
   const modelLabel = resolveModel(
     extraction.document.pack.project?.extractionModel,
@@ -188,6 +240,7 @@ export default async function ReviewPage({
         documentPages={documentPages}
         storeyLiftTemplate={storeyLiftTemplate}
         buildSystem={extraction.document.pack.project.buildType}
+        bankPanel={bankPanel}
       />
     </AppShell>
   );
