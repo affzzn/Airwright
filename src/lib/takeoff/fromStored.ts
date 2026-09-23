@@ -10,7 +10,7 @@ import type {
 import { STRUCTURE_DWELLINGS, normalizeStructureForm } from "@/lib/structure";
 
 type Measurement = { key: string; valueNumber: unknown };
-type Wall = { position: string; lengthM: unknown };
+type Wall = { position: string; lengthM: unknown; isPartyWall?: boolean | null };
 type Warnings = {
   roofType?: unknown;
   roomInRoof?: unknown;
@@ -103,6 +103,7 @@ export function takeoffInputFromStored(
     wallSegments: walls
       .map((w) => ({
         position: String(w.position).toLowerCase() as WallPosition,
+        isPartyWall: w.isPartyWall ?? null,
         lengthM: Number(w.lengthM),
       }))
       .filter((w) => Number.isFinite(w.lengthM)),

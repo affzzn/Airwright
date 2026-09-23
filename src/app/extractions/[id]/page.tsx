@@ -73,6 +73,7 @@ export default async function ReviewPage({
   const editorWalls = (takeoff?.wallSegments ?? []).map((w) => ({
     id: w.id,
     position: w.position as string,
+    isPartyWall: w.isPartyWall,
     lengthM: Number(w.lengthM),
     confidence: w.confidence,
     sourceDimension: w.sourceDimension,

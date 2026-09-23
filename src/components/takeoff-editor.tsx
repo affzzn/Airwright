@@ -30,6 +30,8 @@ import {
   partyWallProvenance,
   birdcageTotalProvenance,
   resolvePage,
+  configurationBasisFrom,
+  configurationProvenance,
   wallProvenance,
   wallSumProvenance,
   type PageRef,
@@ -47,6 +49,8 @@ export interface EditorMeasurement {
 export interface EditorWall {
   id: string;
   position: string;
+  /** Party/separating wall as read off the drawing; null = the drawing did not say. */
+  isPartyWall?: boolean | null;
   lengthM: number;
   confidence: number | null;
   sourceDimension: string | null;
@@ -133,6 +137,15 @@ const CONFIG_OPTIONS: { value: Configuration; label: string }[] = [
 const CONFIG_LABEL: Record<string, string> = Object.fromEntries(
   CONFIG_OPTIONS.map((o) => [o.value, o.label]),
 );
+/** The extractor's confidence words → the numeric scale ConfidenceDot expects
+ *  (same mapping the extractor uses when it stores a measurement's confidence). */
+const CONF_NUM: Record<string, number | null> = {
+  high: 0.95,
+  medium: 0.7,
+  low: 0.4,
+  unknown: null,
+};
+
 const isConfig = (v: string): v is Configuration =>
   v === "DETACHED" || v === "SEMI_DETACHED" || v === "END_TERRACE" || v === "MID_TERRACE";
 
@@ -140,6 +153,7 @@ type WallRow = {
   key: string;
   id: string | null;
   position: string;
+  isPartyWall?: boolean | null;
   lengthM: string;
   sourceDimension: string | null;
 };
@@ -215,6 +229,7 @@ export function TakeoffEditor({
         key: w.id,
         id: w.id,
         position: w.position,
+        isPartyWall: w.isPartyWall ?? null,
         lengthM: String(w.lengthM),
         sourceDimension: w.sourceDimension,
       })),
@@ -258,6 +273,26 @@ export function TakeoffEditor({
     () => (raw ? buildProvenanceCards(raw, resolve, buildSystem) : {}),
     [raw, resolve, buildSystem],
   );
+
+  // --- How the CONFIGURATION was derived (the single highest-leverage field) ---
+  // Prefer the verbatim model output; fall back to the basis the extractor stored
+  // on `warnings` (legacy rows have neither → no claim is made).
+  const configBasis = useMemo(
+    () => configurationBasisFrom(raw, warnings),
+    [raw, warnings],
+  );
+
+  const configCard = useMemo(
+    () =>
+      configurationProvenance(config, configBasis.derived, configBasis.form, configBasis.confidence),
+    [config, configBasis],
+  );
+  // Flag an uncertain derivation ONLY while the shown value still equals it — once
+  // the estimator has picked a different position, the question has been answered.
+  const configFlag =
+    configBasis.derived && !configBasis.derived.certain && config === configBasis.derived.config
+      ? `House type is a default, not a read: ${configBasis.derived.reason}`
+      : null;
   const wallPageByDim = useMemo(() => {
     const m = new Map<string, number>();
     for (const w of raw?.wallSegments ?? []) {
@@ -294,7 +329,12 @@ export function TakeoffEditor({
     [mVals],
   );
   const engineWalls = useMemo(
-    () => wallRows.map((w) => ({ position: w.position, lengthM: parseNum(w.lengthM) ?? 0 })),
+    () =>
+      wallRows.map((w) => ({
+        position: w.position,
+        lengthM: parseNum(w.lengthM) ?? 0,
+        isPartyWall: w.isPartyWall ?? null,
+      })),
     [wallRows],
   );
   const engineWarnings = useMemo(
@@ -329,12 +369,25 @@ export function TakeoffEditor({
     [engineWalls],
   );
   const engineFlags = line.flags;
+  // The configuration flag is not an engine flag (the engine is given the config,
+  // it does not derive it), so it is merged in for display.
+  const reviewFlags = useMemo(
+    () => (configFlag ? [configFlag, ...engineFlags] : engineFlags),
+    [configFlag, engineFlags],
+  );
 
   // --- Which wall positions the selected type does NOT scaffold (greyed) ---
   const suppressed = useMemo<Set<string>>(() => {
     if (isDetached || isApartment) return new Set();
-    if (config === "MID_TERRACE") return new Set(["GABLE_LEFT", "GABLE_RIGHT", "OTHER"]);
-    // Semi / end: keep the larger gable, drop the smaller (the party-wall side).
+    // A mid-terrace's two gable ends are party walls; 'other' walls ARE scaffolded
+    // (engine change 2026-09-23), so they are no longer greyed out.
+    if (config === "MID_TERRACE") return new Set(["GABLE_LEFT", "GABLE_RIGHT"]);
+    // Semi / end: drop the gable the DRAWING says is the party wall. Only when it does
+    // not say do we fall back to dropping the shorter one (mirrors the engine).
+    const party = (pos: string) =>
+      wallRows.some((w) => w.position === pos && w.isPartyWall === true);
+    if (party("GABLE_LEFT") && !party("GABLE_RIGHT")) return new Set(["GABLE_LEFT"]);
+    if (party("GABLE_RIGHT") && !party("GABLE_LEFT")) return new Set(["GABLE_RIGHT"]);
     const sum = (pos: string) =>
       wallRows.filter((w) => w.position === pos).reduce((a, w) => a + (parseNum(w.lengthM) ?? 0), 0);
     return new Set([sum("GABLE_RIGHT") <= sum("GABLE_LEFT") ? "GABLE_RIGHT" : "GABLE_LEFT"]);
@@ -348,7 +401,15 @@ export function TakeoffEditor({
     cfg: string,
     ipw: boolean,
   ): string =>
-    JSON.stringify({ m, w: w.map((r) => [r.key, r.position, r.lengthM]), c, cfg, ipw });
+    JSON.stringify({
+      // isPartyWall is part of the dirty check — without it, changing a gable's party
+      // flag would leave the form "clean" and the edit would never be saved.
+      m,
+      w: w.map((r) => [r.key, r.position, r.lengthM, r.isPartyWall ?? null]),
+      c,
+      cfg,
+      ipw,
+    });
   const baseline = useRef(
     serialise(initialMVals, initialWallRows, categoricals, configuration, includePartyWall),
   );
@@ -525,6 +586,29 @@ export function TakeoffEditor({
                 disabled={locked}
                 onChange={(v) => patchWall(w.key, { lengthM: v })}
               />
+              {/* Party wall — only meaningful on a gable end, and the single most
+                  load-bearing fact on the wall: it decides which gable is scaffolded,
+                  the apex count and the configuration. Tri-state, because "the drawing
+                  did not say" must stay distinct from "no" (docs/21 §B2). */}
+              {(w.position === "GABLE_LEFT" || w.position === "GABLE_RIGHT") && (
+                <select
+                  aria-label="Party wall"
+                  title="Is this gable a party (separating) wall? It is not scaffolded."
+                  value={w.isPartyWall === true ? "y" : w.isPartyWall === false ? "n" : "?"}
+                  disabled={locked}
+                  onChange={(e) =>
+                    patchWall(w.key, {
+                      isPartyWall:
+                        e.target.value === "y" ? true : e.target.value === "n" ? false : null,
+                    })
+                  }
+                  className="h-8 shrink-0 rounded-md border border-hairline-strong bg-canvas pl-1.5 pr-1 text-[11px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink disabled:opacity-60"
+                >
+                  <option value="?">party?</option>
+                  <option value="y">party</option>
+                  <option value="n">external</option>
+                </select>
+              )}
               <Provenance
                 content={wallProvenance(
                   parseNum(w.lengthM) ?? 0,
@@ -791,7 +875,15 @@ export function TakeoffEditor({
 
         {/* 2 — House type (cascades) */}
         <div>
-          <p className="eyebrow mb-2">House type</p>
+          <div className="mb-2 flex items-center gap-1.5">
+            <Provenance content={configCard} onGoToPage={onGoToPage}>
+              <span className="eyebrow">House type</span>
+            </Provenance>
+            <ConfidenceDot value={CONF_NUM[configBasis.confidence ?? "unknown"] ?? null} />
+            {configFlag && (
+              <span className="text-[11px] leading-none text-ink-subtle">· defaulted</span>
+            )}
+          </div>
           {isApartment ? (
             <div className="rounded-md border border-hairline-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink">
               Apartment block · whole building
@@ -825,11 +917,11 @@ export function TakeoffEditor({
         </div>
 
         {/* Review flags (contextual) */}
-        {engineFlags.length > 0 && (
+        {reviewFlags.length > 0 && (
           <div className="rounded-md border border-hairline bg-surface px-3 py-3">
             <p className="eyebrow mb-1.5">Review flags</p>
             <ul className="space-y-1">
-              {engineFlags.map((f) => (
+              {reviewFlags.map((f) => (
                 <li key={f} className="text-[11px] leading-snug text-ink-muted">
                   ⚠ {f}
                 </li>
@@ -910,7 +1002,12 @@ function buildPayload(
 
   const walls = wallRows
     .filter((w) => w.id !== null || parseNum(w.lengthM) !== null)
-    .map((w) => ({ id: w.id, position: w.position, lengthM: parseNum(w.lengthM) ?? 0 }));
+    .map((w) => ({
+      id: w.id,
+      position: w.position,
+      lengthM: parseNum(w.lengthM) ?? 0,
+      isPartyWall: w.isPartyWall ?? null,
+    }));
 
   return {
     measurements,

@@ -199,3 +199,51 @@ export function reconcileRectRoles(
 
   return { rect: out, notes };
 }
+
+// --- Wall legend (party vs cavity) -----------------------------------------
+// A house-type drawing set states its wall build-ups in a WALL LEGEND text box:
+//   "328MM THICK CAVITY WALL"  /  "300MM THICK PARTY WALL"
+// A PARTY entry means the house is ATTACHED; a set with only CAVITY entries is
+// DETACHED. Crucially the legend often sits on the FOUNDATION / setting-out sheet,
+// which the classifier excludes from the take-off page set — so the model never sees
+// it (found on Miller Whitton, 2026-09-23: legend on pages 4-7, all FOUNDATION; every
+// floor plan had none). We therefore read it off the WHOLE document's text layer and
+// feed it to the model as a hint, the same way `buildDimensionHint` feeds dimensions.
+
+export interface WallLegendEntry {
+  mm: number;
+  kind: "PARTY" | "CAVITY";
+}
+
+const LEGEND_RE = /(\d{2,4})\s*MM\s+THICK\s+(PARTY|CAVITY)\s+WALL/gi;
+
+/** Parse every "<n>MM THICK PARTY|CAVITY WALL" entry out of page text. Deduped. */
+export function parseWallLegend(texts: string[]): WallLegendEntry[] {
+  const seen = new Map<string, WallLegendEntry>();
+  for (const t of texts) {
+    const up = t.toUpperCase().replace(/\s+/g, " ");
+    for (const m of up.matchAll(LEGEND_RE)) {
+      const mm = Number(m[1]);
+      const kind = m[2] as WallLegendEntry["kind"];
+      if (!Number.isFinite(mm) || mm <= 0) continue;
+      seen.set(`${mm}-${kind}`, { mm, kind });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.mm - b.mm);
+}
+
+/** True when the set declares a PARTY wall → the house type is attached. */
+export function legendHasPartyWall(entries: WallLegendEntry[]): boolean {
+  return entries.some((e) => e.kind === "PARTY");
+}
+
+/** The prompt hint. Empty string when the document has no legend at all (say nothing
+ *  rather than assert "detached" from a missing text layer — a scanned PDF has none). */
+export function buildWallLegendHint(entries: WallLegendEntry[]): string {
+  if (entries.length === 0) return "";
+  const list = entries.map((e) => `${e.mm}mm ${e.kind === "PARTY" ? "PARTY" : "cavity"}`).join(", ");
+  const verdict = legendHasPartyWall(entries)
+    ? "This set DECLARES A PARTY WALL, so this house type is ATTACHED (semi/end/mid) — at least one gable end is a party wall. Find which gable(s) and set isPartyWall true on them."
+    : "This set declares NO party wall, so this house type is DETACHED — set isPartyWall false on every wall.";
+  return `\n\nWALL LEGEND found in this drawing set's text layer (it may sit on a foundation/setting-out sheet you were not shown): ${list}. ${verdict}`;
+}

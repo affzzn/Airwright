@@ -11,6 +11,7 @@ import {
   type PageDims,
 } from "./dimensions";
 import { resolveHouseTypeIdentity } from "./houseTypeIdentity";
+import { readPartyGables, resolveConfiguration } from "@/lib/structure";
 import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
@@ -168,25 +169,23 @@ export async function persistExtraction(
       }
     }
 
-    // Initial house-type build form, read off the drawing's structure. Set on
+    // Initial house-type build form, derived from the drawing's structure. Set on
     // CREATE only — a re-run must never overwrite the estimator's confirmed choice
-    // (the empty `update` preserves it). Apartment blocks scaffold whole-building
-    // (keyed off warnings.structure), so DETACHED is the safe placeholder.
-    const STRUCTURE_TO_CONFIG: Record<string, "DETACHED" | "SEMI_DETACHED" | "END_TERRACE" | "MID_TERRACE"> = {
-      DETACHED: "DETACHED",
-      PAIR_SEMI: "SEMI_DETACHED",
-      THREE_BLOCK: "END_TERRACE",
-      TERRACE: "END_TERRACE",
-      APARTMENT_BLOCK: "DETACHED",
-    };
-    const initialConfig = result.structure.form
-      ? (STRUCTURE_TO_CONFIG[result.structure.form] ?? "DETACHED")
-      : "DETACHED";
+    // (the empty `update` preserves it). The mapping (and whether it actually
+    // DETERMINES the position) lives in `structure.ts` so the plot default can't
+    // drift from it; an uncertain derivation is flagged below, never silent.
+    // Party walls read off the plan LEAD; the structure form is the fallback and the
+    // tie-breaker between semi and end terrace (docs/21 §B2, structure.ts).
+    const derivedConfig = resolveConfiguration(
+      result.structure.form,
+      result.structure.confidence,
+      readPartyGables(result.wallSegments),
+    );
 
     // Ensure a Takeoff exists; seed it from this extraction if not already seeded.
     const takeoff = await tx.takeoff.upsert({
       where: { houseTypeId },
-      create: { houseTypeId, seedExtractionId: extractionId, configuration: initialConfig },
+      create: { houseTypeId, seedExtractionId: extractionId, configuration: derivedConfig.config },
       update: {},
     });
 
@@ -358,6 +357,9 @@ export async function persistExtraction(
             takeoffId: takeoff.id,
             position: w.position.toUpperCase() as Prisma.WallSegmentCreateManyInput["position"],
             label: w.label ?? null,
+            // Party/separating wall as READ off the drawing; undefined stays NULL so
+            // "the drawing did not say" is distinguishable from "no" (docs/21 §B2).
+            isPartyWall: w.isPartyWall ?? null,
             lengthM: w.lengthM,
             aiLengthM: w.lengthM,
             confidence: confToNumber(conf),
@@ -375,6 +377,17 @@ export async function persistExtraction(
     if (result.dwellingsWide.value !== null && result.dwellingsWide.value >= 1)
       warnings.dwellingsWide = result.dwellingsWide.value;
     if (result.structure.form) warnings.structure = result.structure.form;
+    // How the configuration was derived — the review screen shows this as the
+    // provenance behind the House type control, and flags an uncertain read.
+    warnings.configurationBasis = {
+      config: derivedConfig.config,
+      certain: derivedConfig.certain,
+      reason: derivedConfig.reason,
+      basis: derivedConfig.basis,
+      structure: result.structure.form ?? null,
+      confidence: result.structure.confidence,
+    };
+    if (!derivedConfig.certain) warnings.configurationUncertain = derivedConfig.reason;
     if (result.roof.overallType) warnings.roofType = result.roof.overallType;
     if (result.roomInRoof.value !== null) warnings.roomInRoof = result.roomInRoof.value;
 

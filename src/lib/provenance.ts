@@ -14,7 +14,16 @@
  */
 
 import { lowLevelQty, type ExtractionResult } from "@/lib/extract/schema";
-import { STRUCTURE_LABEL, isMultiHome } from "@/lib/structure";
+import {
+  STRUCTURE_DWELLINGS,
+  STRUCTURE_LABEL,
+  configFromStructure,
+  isMultiHome,
+  readPartyGables,
+  resolveConfiguration,
+  normalizeStructureForm,
+  type DerivedConfiguration,
+} from "@/lib/structure";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 import { computeHeight } from "@/lib/extract/height";
 import { computeTimberFrameLifts, type BuildSystem } from "@/lib/takeoff/engine";
@@ -869,4 +878,101 @@ export function tfApexProvenance(apexCount: number): ProvContent {
     ],
     confidenceLabel: null,
   };
+}
+
+/**
+ * Provenance for the house-type CONFIGURATION (the plot's position in its block).
+ * Configuration is the highest-leverage single field in the take-off — it decides
+ * which walls are scaffolded (~50% of the perimeter), how many apexes survive and
+ * whether there is a party wall — so it gets the same "how was this derived"
+ * treatment as every measured field, including an explicit note when the drawing
+ * only gives a DEFAULT rather than an answer.
+ */
+export function configurationProvenance(
+  current: string,
+  derived: DerivedConfiguration | null,
+  structureForm: string | null,
+  structureConfidence: string | null,
+): ProvContent {
+  const steps: ProvStep[] = [];
+  // When the party walls decided it, lead with that — it is the direct reading; the
+  // building type is then only the semi-vs-end tie-breaker.
+  if (derived && (derived as { basis?: string }).basis === "party-walls")
+    steps.push({ text: "Decided by the party walls read off the plan (not the building type)." });
+  const form = normalizeStructureForm(structureForm, null);
+  if (form) {
+    const homes = STRUCTURE_DWELLINGS[form];
+    steps.push({
+      text: `Drawing reads: ${STRUCTURE_LABEL[form]}${homes ? ` — ${homes} home${homes === 1 ? "" : "s"} joined` : " — 4+ homes joined"}`,
+    });
+  } else {
+    steps.push({ text: "The drawing's building type could not be read." });
+  }
+  if (derived) {
+    steps.push({
+      text: derived.certain
+        ? `→ ${CONFIG_LABEL[derived.config] ?? derived.config} (determined by the drawing)`
+        : `→ ${CONFIG_LABEL[derived.config] ?? derived.config} — a DEFAULT, not an answer`,
+    });
+    if (current !== derived.config)
+      steps.push({
+        text: `Changed on review to ${CONFIG_LABEL[current] ?? current}.`,
+      });
+  }
+  const footnotes = [
+    "Party walls read off the plan decide this where the drawing shows them; the building type is the fallback, and the tie-breaker between a semi and an end terrace (they take off identically).",
+    "Configuration decides which walls are scaffolded (detached 4 sides · semi/end 3 · mid-terrace front+rear only), the corner allowance, how many apexes survive, and the party-wall item.",
+    "Semi-detached and end terrace produce an identical take-off — the difference is labelling only.",
+  ];
+  if (derived && !derived.certain)
+    footnotes.push("An uncertain derivation is flagged in Review flags — confirm it before pricing.");
+  return {
+    title: "House type (position in the block)",
+    summary: derived?.certain ? "Read from the drawing's building type" : "Defaulted — needs confirming",
+    method: "computed",
+    steps,
+    footnotes,
+    confidenceLabel: structureConfidence,
+    reason: derived?.reason ?? null,
+  };
+}
+
+/** The inputs `configurationProvenance` needs, resolved from whichever source the
+ *  take-off actually has: the verbatim model output first, else the basis the
+ *  extractor stored on `warnings`, else no claim at all (legacy rows). Pure, so
+ *  the review screen stays a thin wrapper over a tested function. */
+export function configurationBasisFrom(
+  raw: {
+    structure?: { form: string | null; confidence: string };
+    wallSegments?: { position: string; isPartyWall?: boolean | null }[];
+  } | null,
+  warnings: Record<string, unknown>,
+): { derived: DerivedConfiguration | null; form: string | null; confidence: string | null } {
+  if (raw?.structure)
+    return {
+      // Must use the SAME rule the extractor used when it set the value, or the
+      // review screen would explain a different answer from the one on the record.
+      derived: resolveConfiguration(
+        normalizeStructureForm(raw.structure.form, null),
+        raw.structure.confidence,
+        readPartyGables(raw.wallSegments ?? []),
+      ),
+      form: raw.structure.form ?? null,
+      confidence: raw.structure.confidence ?? null,
+    };
+  const b = warnings.configurationBasis;
+  if (b && typeof b === "object" && !Array.isArray(b)) {
+    const o = b as Record<string, unknown>;
+    return {
+      derived: {
+        config: String(o.config ?? "DETACHED") as DerivedConfiguration["config"],
+        certain: o.certain === true,
+        reason: typeof o.reason === "string" ? o.reason : "",
+        ...(o.basis === "party-walls" || o.basis === "structure" ? { basis: o.basis } : {}),
+      } as DerivedConfiguration,
+      form: typeof o.structure === "string" ? o.structure : null,
+      confidence: typeof o.confidence === "string" ? o.confidence : null,
+    };
+  }
+  return { derived: null, form: null, confidence: null };
 }

@@ -106,7 +106,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
       `[worker] extraction ${extractionId}: ${pageNumbers.length} pages (${pageRange ?? "all"})`,
     );
 
-    const { data, meta, dimensions } = await extractDrawing(pdf, modelKey);
+    const { data, meta, dimensions } = await extractDrawing(pdf, modelKey, fullPdf);
 
     await prisma.extraction.update({
       where: { id: extractionId },

@@ -578,6 +578,10 @@ model WallSegment {
   takeoff         Takeoff      @relation(fields: [takeoffId], references: [id], onDelete: Cascade)
   position        WallPosition @default(OTHER)
   label           String?
+  // Is this wall a PARTY / separating wall (shared, therefore NOT scaffolded)?
+  // null = the drawing did not say — the engine falls back to a heuristic AND flags,
+  // so "unknown" must stay distinguishable from "no" (docs/21 §B2).
+  isPartyWall     Boolean?
   lengthM         Decimal      @db.Decimal(7, 3)
   aiLengthM       Decimal?     @db.Decimal(7, 3)
   shareable       Boolean      @default(false)

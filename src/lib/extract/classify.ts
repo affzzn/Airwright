@@ -1,3 +1,4 @@
+import { parseWallLegend, type WallLegendEntry } from "./dimensions";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PageDims } from "./dimensions";
 import {
@@ -137,4 +138,36 @@ export async function extractDimensionsByPage(buffer: Buffer): Promise<PageDims[
     await doc.destroy();
   }
   return out;
+}
+
+
+/**
+ * Read the WALL LEGEND ("328MM THICK CAVITY WALL" / "300MM THICK PARTY WALL") off the
+ * text layer of EVERY page of a document — including pages the classifier excludes from
+ * the take-off set, which is exactly where builders often put it (docs/21 §B2). Returns
+ * [] for a scanned PDF with no text layer.
+ */
+export async function extractWallLegend(buffer: Buffer): Promise<WallLegendEntry[]> {
+  const doc = await getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise;
+  const texts: string[] = [];
+  try {
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      texts.push(
+        content.items
+          .map((it: unknown) =>
+            it && typeof it === "object" && "str" in it ? String((it as { str: string }).str) : "",
+          )
+          .join(" "),
+      );
+    }
+  } finally {
+    await doc.destroy();
+  }
+  return parseWallLegend(texts);
 }

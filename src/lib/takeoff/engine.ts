@@ -10,6 +10,8 @@
  * It NEVER calls a model and touches no I/O — feed it facts, get a take-off.
  */
 
+import { readPartyGables } from "@/lib/structure";
+
 export type RoofType = "PITCHED" | "HIPPED" | "MIXED";
 export type Configuration =
   | "DETACHED"
@@ -35,6 +37,54 @@ export type WallPosition =
 export interface WallSeg {
   position: WallPosition;
   lengthM: number;
+  /** Is this a PARTY / separating wall (shared, so NOT scaffolded)? `null`/undefined =
+   *  the drawing did not say — the engine then falls back to the old size heuristic
+   *  and flags it, so "unknown" is never silently treated as "no" (docs/21 §B2). */
+  isPartyWall?: boolean | null;
+}
+
+/** Which gable end is the party wall, read off the drawing. `null` = not stated. */
+export interface PartyGables {
+  left: boolean | null;
+  right: boolean | null;
+  /** Gable ends positively KNOWN to be party walls — 0 / 1 / 2. */
+  count: number;
+  /** True when at least one gable's party status is unknown. */
+  unknown: boolean;
+}
+
+/**
+ * Read the party-wall status of the two gable ends off the wall segments. A gable is
+ * a party wall when ANY segment on that side says so; it is external when at least one
+ * says so and none says party; otherwise unknown.
+ *
+ * This replaces guessing the exposed gable by LENGTH (the old `Math.max`), which is
+ * wrong whenever the party wall happens to be the longer side — the drawing states the
+ * structure, so use the structure (docs/21 §B3).
+ */
+export function partyGables(walls: WallSeg[]): PartyGables {
+  // The reduction itself lives in structure.ts, shared with the extractor, so the
+  // engine and the extractor can never read the same drawing differently.
+  const { left, right } = readPartyGables(walls);
+  return {
+    left,
+    right,
+    count: (left === true ? 1 : 0) + (right === true ? 1 : 0),
+    unknown: left === null || right === null,
+  };
+}
+
+/**
+ * The configuration the DRAWING implies, from the number of party gable ends.
+ * 0 → detached · 1 → semi/end · 2 → mid-terrace. Returns null when either gable's
+ * status is unknown — never a guess. Semi and end-terrace are indistinguishable from
+ * the party-wall count alone (they take off identically), so 1 returns SEMI_DETACHED.
+ */
+export function configFromPartyGables(pg: PartyGables): Configuration | null {
+  if (pg.unknown) return null;
+  if (pg.count >= 2) return "MID_TERRACE";
+  if (pg.count === 1) return "SEMI_DETACHED";
+  return "DETACHED";
 }
 export interface FloorArea {
   level: "GF" | "FF" | "SF" | "TF";
@@ -294,6 +344,10 @@ export interface PerimeterResult {
   corners: number;
   wallsM: number; // before the corner allowance
   irregular: boolean; // "other" walls present on a non-detached config
+  /** How the exposed gable was chosen on a semi/end: "party" = the drawing said which
+   *  gable is the party wall; "size" = it did not, so the longer gable was kept (a
+   *  fallback, flagged); "n/a" = the config does not choose a gable. */
+  gableBasis: "party" | "size" | "n/a";
 }
 
 /** Perimeter along the building line, by config, + the corner allowance. */
@@ -323,6 +377,9 @@ export function computePerimeter(
   let walls: number;
   let corners: number;
   let irregular = false;
+  let exposedGable = 0;
+  let gableBasis: PerimeterResult["gableBasis"] = "n/a";
+  const pg = partyGables(input.wallSegments);
   if (input.isApartmentBlock) {
     // Whole block: scaffold every external wall, configuration does not apply.
     walls = front + rear + gableLeft + gableRight + other;
@@ -334,18 +391,33 @@ export function computePerimeter(
         corners = input.cornerCount ?? 4;
         break;
       case "SEMI_DETACHED":
-      case "END_TERRACE":
-        // 3 sides: front + rear + the one exposed gable end (the other is the party wall).
-        // A plain rectangle wraps 2 corners; an L-shape drops the ~2 party-side
-        // corners from the read count (derive from cornerCount, not a flat 2).
-        walls = front + rear + Math.max(gableLeft, gableRight) + other;
+      case "END_TERRACE": {
+        // 3 sides: front + rear + the one EXPOSED gable end (the other is the party
+        // wall). Which one is exposed comes from the drawing's party-wall flag; only
+        // when the drawing does not say do we fall back to "keep the longer gable"
+        // (recorded in gableBasis so the caller can flag it) — docs/21 §B3.
+        if (pg.left === true && pg.right !== true) {
+          exposedGable = gableRight;
+          gableBasis = "party";
+        } else if (pg.right === true && pg.left !== true) {
+          exposedGable = gableLeft;
+          gableBasis = "party";
+        } else {
+          exposedGable = Math.max(gableLeft, gableRight);
+          gableBasis = "size";
+        }
+        walls = front + rear + exposedGable + other;
         corners = input.cornerCount != null ? Math.max(2, input.cornerCount - 2) : 2;
         irregular = other > 0;
         break;
+      }
       case "MID_TERRACE":
-        // 2 sides: front + rear only (both gables are party walls). Rectangle wraps
-        // 0 corners; an L-shape keeps its step corners (read count minus the 4 gable-side).
-        walls = front + rear;
+        // 2 sides: front + rear (both gable ends are party walls). Any 'other' external
+        // wall is still scaffolded — it is not a party gable — so it is INCLUDED, the
+        // same as on a semi/end, and flagged as irregular for a human check.
+        // (Before 2026-09-23 'other' was silently dropped here, which under-measured an
+        // irregular mid-terrace while the semi branch counted the same wall — docs/21 §B3.)
+        walls = front + rear + other;
         corners = input.cornerCount != null ? Math.max(0, input.cornerCount - 4) : 0;
         irregular = other > 0;
         break;
@@ -353,7 +425,7 @@ export function computePerimeter(
   }
   const perLiftM = round3(walls + corners * params.cornerAllowanceM);
   const totalM = lifts !== null ? round3(perLiftM * lifts) : null;
-  return { perLiftM, totalM, corners, wallsM: round3(walls), irregular };
+  return { perLiftM, totalM, corners, wallsM: round3(walls), irregular, gableBasis };
 }
 
 export interface BirdcageResult {
@@ -429,6 +501,8 @@ export interface ApexResult {
   count: number;
   tableLifts: number;
   handrails: number;
+  /** How the exposed gable's apex was chosen on a semi/end — see PerimeterResult. */
+  gableBasis: "party" | "size" | "n/a";
 }
 
 /**
@@ -437,29 +511,48 @@ export interface ApexResult {
  * both gable apexes (front/rear apexes, e.g. a projecting gable, always count).
  */
 export function computeApex(input: TakeoffInput): ApexResult {
-  if (input.roofType === "HIPPED") return { count: 0, tableLifts: 0, handrails: 0 };
+  if (input.roofType === "HIPPED")
+    return { count: 0, tableLifts: 0, handrails: 0, gableBasis: "n/a" };
   const a = input.apexByFace;
   // A whole block keeps every apex — no party-wall reduction.
   if (input.isApartmentBlock) {
     const count = Math.max(0, Math.round(totalApex(a)));
-    return { count, tableLifts: count, handrails: count };
+    return { count, tableLifts: count, handrails: count, gableBasis: "n/a" };
   }
-  const frontRear = a.front + a.rear;
+  // 'other' faces (a projecting wing at an angle) are NOT gable ends, so their apexes
+  // count on EVERY configuration — they sit on a scaffolded wall. Before 2026-09-23
+  // they were added only for DETACHED and silently dropped everywhere else (docs/21 §B3).
+  const frontRear = a.front + a.rear + a.other;
+  const pg = partyGables(input.wallSegments);
   let gable: number;
+  let basis: ApexResult["gableBasis"] = "n/a";
   switch (input.config) {
     case "DETACHED":
-      gable = a.left + a.right + a.other;
+      gable = a.left + a.right;
       break;
     case "SEMI_DETACHED":
     case "END_TERRACE":
-      gable = Math.max(a.left, a.right); // one exposed gable end
+      // Keep the apex on the EXPOSED gable — the one the drawing says is not the party
+      // wall. Choosing by apex COUNT (the old `Math.max`) is wrong whenever the exposed
+      // end is hipped (0 apexes) and the party end is gabled (1): that scored 1 and
+      // priced a table lift + handrail for an apex we never scaffold.
+      if (pg.left === true && pg.right !== true) {
+        gable = a.right;
+        basis = "party";
+      } else if (pg.right === true && pg.left !== true) {
+        gable = a.left;
+        basis = "party";
+      } else {
+        gable = Math.max(a.left, a.right);
+        basis = "size";
+      }
       break;
     case "MID_TERRACE":
-      gable = 0; // both gables are party walls
+      gable = 0; // both gable ends are party walls
       break;
   }
   const count = Math.max(0, Math.round(frontRear + gable));
-  return { count, tableLifts: count, handrails: count };
+  return { count, tableLifts: count, handrails: count, gableBasis: basis };
 }
 
 /**
@@ -490,6 +583,10 @@ export interface TakeoffLine {
   apex: ApexResult;
   /** Timber-frame LM adaptions (inside-board + hop-up); null for traditional. */
   adaptions: AdaptionResult | null;
+  /** The party-wall status of the two gable ends, as read off the drawing. */
+  partyGables: PartyGables;
+  /** The configuration the DRAWING implies (null when it does not say). */
+  drawingConfig: Configuration | null;
   partyWalls: number;
   lowLevel: number;
   chimney: boolean;
@@ -510,6 +607,9 @@ export function buildTakeoff(
   const birdcage = isTF ? NO_BIRDCAGE : computeBirdcage(input);
   const render = computeRender(input);
   const apex = computeApex(input);
+  // What the DRAWING itself implies, from the party-wall flags on the gable ends.
+  const pgBlock = partyGables(input.wallSegments);
+  const drawingConfig = input.isApartmentBlock ? null : configFromPartyGables(pgBlock);
   // Party wall: traditional prices the inside-apex spec item on a non-detached
   // house; timber frame does NOT (Laura's semi line has none — docs/18 §7, ⚠ confirm).
   const pw =
@@ -547,6 +647,38 @@ export function buildTakeoff(
     flags.push("Hipped roof but apexes were reported — forced to 0.");
   if (perimeter.irregular)
     flags.push("Irregular ('other') walls on a non-detached config — check the perimeter.");
+  // The drawing states which gable is the party wall. Flag when we had to fall back to
+  // the length heuristic, and when what the drawing says disagrees with the chosen
+  // configuration — never silently override the estimator's choice (docs/21 §B3).
+  // Wall-role swap guard. An ATTACHED house type is narrow and deep — the party
+  // wall is a gable, so the gable (depth) normally exceeds the frontage. Colin's bank:
+  // Delmont 4.5 × 9.5, Whitton 5.766 × 9.103. When the read says otherwise on an
+  // attached type, front/rear and the gables have most likely been swapped, which
+  // DOUBLES a mid-terrace perimeter (found on Miller Delmont, 2026-09-23: read
+  // front 9.44 / gable 4.567; correcting the roles matched Colin to 0.4%).
+  if (!input.isApartmentBlock && input.config !== "DETACHED") {
+    const segSum = (ps: WallPosition[]) =>
+      input.wallSegments.filter((w) => ps.includes(w.position)).reduce((a, w) => a + w.lengthM, 0);
+    const dw = input.dwellingsWide >= 1 ? input.dwellingsWide : 1;
+    const frontage = segSum(["front"]) / dw;
+    const depth = Math.max(segSum(["gable_left"]), segSum(["gable_right"]));
+    if (frontage > 0 && depth > 0 && frontage > depth)
+      flags.push(
+        `Front/rear (${round3(frontage)} m) is WIDER than the gable (${round3(depth)} m) on an attached house — the wall roles may be swapped (an attached type is normally narrow and deep). Check the front elevation's width.`,
+      );
+  }
+  if (perimeter.gableBasis === "size" || apex.gableBasis === "size")
+    flags.push(
+      "The drawing does not say which gable is the party wall — the LONGER gable was kept. Confirm the exposed side.",
+    );
+  if (drawingConfig !== null && drawingConfig !== input.config) {
+    const same =
+      drawingConfig === "SEMI_DETACHED" && input.config === "END_TERRACE";
+    if (!same)
+      flags.push(
+        `The drawing shows ${pgBlock.count} party gable wall(s) → ${drawingConfig}, but this take-off is set to ${input.config}. Check.`,
+      );
+  }
   if (
     !input.isApartmentBlock &&
     input.config !== "DETACHED" &&
@@ -591,6 +723,8 @@ export function buildTakeoff(
     render,
     apex,
     adaptions,
+    partyGables: pgBlock,
+    drawingConfig,
     partyWalls: pw,
     lowLevel: input.lowLevelCount,
     chimney: input.chimney,

@@ -13,6 +13,47 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-09-23
 
+### 2026-09-23 — Configuration derivation made honest (the silent DETACHED fallback)
+
+`Takeoff.configuration` (the plot's POSITION — detached / semi / end / mid) is the
+highest-leverage single field in the take-off: it swings the perimeter ~50% (Dekker
+20.56 semi vs 10.66 mid), the apex count 2→1→0, and the party wall. It is derived from
+the model's `structure.form` read at extraction time — but the derivation had two holes.
+
+- **The silent guess.** `structure` carries its own confidence and defaults to
+  `{ form: null, confidence: "unknown" }`. The old code did
+  `result.structure.form ? MAP[...] : "DETACHED"` — so an unreadable building type
+  silently became DETACHED, with **no warning**, and the confidence was never consulted.
+  That broke the project's own doctrine ("unreadable → flag, never guess") on the one
+  field least able to afford it.
+- **A default presented as an answer.** THREE_BLOCK / TERRACE map to END_TERRACE, but
+  those blocks contain MID positions too — the map can't know which. It was stored
+  identically to a determined read.
+- **A duplicated mapping.** The same table was copy-pasted in `persist.ts` and
+  `server/plots.ts`, while `structure.ts` exists precisely to stop that drift.
+
+**Fixed:** one `configFromStructure(form, confidence)` in `src/lib/structure.ts` returns
+`{ config, certain, reason }`. Only DETACHED and PAIR_SEMI are `certain` (a pair's two
+homes are BOTH semis); a three-block/terrace, an unreadable form, or any form read at
+low/unknown confidence returns the same safe config but `certain: false` + a reason.
+`persist.ts` and `plots.ts` both call it. The extractor now writes
+`warnings.configurationBasis` (+ `configurationUncertain` when not certain).
+
+**Surfaced:** the review screen's House type control now has the same provenance hover +
+confidence dot as every measured field (`configurationProvenance`), stating whether the
+value was *determined* or *defaulted*, recording a human override, and flagging an
+uncertain derivation in Review flags. `configurationBasisFrom` resolves the basis (raw
+model output → stored warnings → no claim) as a pure, tested function.
+
+**Config VALUES are unchanged** — a regression test pins all five forms to the legacy
+map, so nothing reprices. Green: typecheck, lint, **431 tests** (+17), production build.
+
+⚠ **Not fixed — the structural gap.** Configuration is a property of a plot's position
+in a block but is stored on the house type, and `ensureDefaultPlot` creates exactly ONE
+plot. A terrace of 5 still yields one END_TERRACE plot; the mid plots must be added by
+hand. The site-layout/plot-schedule reader that would fill this was removed 2026-08-26.
+The flag now makes it visible; it does not make it automatic. See TODO.
+
 ### 2026-09-23 — Construction UI rebuilt as a four-step job workspace (docs/19 §8a)
 
 The construction screens were the weakest part of the product: one builder rendering six

@@ -20,7 +20,13 @@ export interface TakeoffEditsInput {
   /** Only the measurements that changed. */
   measurements: { key: string; value: number | null }[];
   /** The full intended wall set (rows missing an id are new; omitted rows are deleted). */
-  walls: { id: string | null; position: string; lengthM: number }[];
+  walls: {
+    id: string | null;
+    position: string;
+    lengthM: number;
+    /** null = the drawing did not say / estimator cleared it. */
+    isPartyWall?: boolean | null;
+  }[];
   categoricals: {
     roofType: string | null;
     structure: string | null;
@@ -109,7 +115,13 @@ export async function saveTakeoffEdits(
         if (w.id) {
           await tx.wallSegment.update({
             where: { id: w.id },
-            data: { position, lengthM: w.lengthM, source: "EDITED", ambiguous: false },
+            data: {
+              position,
+              lengthM: w.lengthM,
+              isPartyWall: w.isPartyWall ?? null,
+              source: "EDITED",
+              ambiguous: false,
+            },
           });
         } else {
           await tx.wallSegment.create({
@@ -117,6 +129,7 @@ export async function saveTakeoffEdits(
               takeoffId,
               position,
               lengthM: w.lengthM,
+              isPartyWall: w.isPartyWall ?? null,
               aiLengthM: null,
               source: "MANUAL",
               confidence: null,

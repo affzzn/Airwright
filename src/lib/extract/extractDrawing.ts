@@ -4,8 +4,8 @@ import { extractionResultSchema, type ExtractionResult } from "./schema";
 import { PROMPT_VERSION, SYSTEM_PROMPT, USER_INSTRUCTION } from "./prompt";
 import { runExtraction } from "./providers";
 import { EXTRACTION_MAX_TOKENS } from "./config";
-import { extractDimensionsByPage } from "./classify";
-import { buildDimensionHint, type PageDims } from "./dimensions";
+import { extractDimensionsByPage, extractWallLegend } from "./classify";
+import { buildDimensionHint, buildWallLegendHint, type PageDims } from "./dimensions";
 
 const TOOL_NAME = "record_takeoff";
 
@@ -38,12 +38,19 @@ export interface ExtractDrawingResult {
 export async function extractDrawing(
   pdf: Buffer,
   modelKey?: string | null,
+  /** The WHOLE document, when the caller sliced `pdf` out of it. The wall legend
+   *  (party vs cavity) frequently sits on a foundation/setting-out sheet that the
+   *  classifier excludes, so it is read from the full set — docs/21 §B2. */
+  fullPdf?: Buffer,
 ): Promise<ExtractDrawingResult> {
   // Read the exact printed dimension strings off the PDF text layer and feed them
   // to the model as a per-page candidate list, so it snaps to real digits rather
   // than re-reading them off the linework. Empty (no hint) for a scanned PDF.
   const dimensions = await extractDimensionsByPage(pdf).catch(() => [] as PageDims[]);
-  const userText = USER_INSTRUCTION + buildDimensionHint(dimensions);
+  // Party-wall legend from the WHOLE document (falls back to the slice we were given).
+  const legend = await extractWallLegend(fullPdf ?? pdf).catch(() => []);
+  const userText =
+    USER_INSTRUCTION + buildDimensionHint(dimensions) + buildWallLegendHint(legend);
 
   const res = await runExtraction(modelKey, {
     pdf,

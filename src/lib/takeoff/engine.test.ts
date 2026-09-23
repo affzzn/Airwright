@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   buildTakeoff,
   computeAdaptions,
+  partyGables,
+  configFromPartyGables,
   computeApex,
   computeLifts,
   computeLiftsTimberFrame,
@@ -543,5 +545,182 @@ describe("buildTakeoff — timber-frame Aspen semi (full line)", () => {
     expect(trad.birdcage.floorCount).toBe(2);
     expect(trad.partyWalls).toBe(1);
     expect(trad.lifts.lifts).toBe(4); // traditional 2-storey = 4
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Party walls read off the drawing (docs/21 §B2/§B3)
+// ---------------------------------------------------------------------------
+
+const W = (position: string, lengthM: number, isPartyWall: boolean | null = null) =>
+  ({ position, lengthM, isPartyWall }) as never;
+
+describe("partyGables — reading the party wall off the drawing", () => {
+  it("detached: both gables external → 0, nothing unknown", () => {
+    const pg = partyGables([W("gable_left", 8, false), W("gable_right", 8, false)]);
+    expect(pg).toMatchObject({ left: false, right: false, count: 0, unknown: false });
+    expect(configFromPartyGables(pg)).toBe("DETACHED");
+  });
+  it("semi: one gable is the party wall → 1", () => {
+    const pg = partyGables([W("gable_left", 8, true), W("gable_right", 8, false)]);
+    expect(pg).toMatchObject({ count: 1, unknown: false });
+    expect(configFromPartyGables(pg)).toBe("SEMI_DETACHED");
+  });
+  it("mid-terrace: both gables are party walls → 2", () => {
+    const pg = partyGables([W("gable_left", 8, true), W("gable_right", 8, true)]);
+    expect(pg).toMatchObject({ count: 2, unknown: false });
+    expect(configFromPartyGables(pg)).toBe("MID_TERRACE");
+  });
+  it("silent on an unknown gable — never guesses a config", () => {
+    const pg = partyGables([W("gable_left", 8, null), W("gable_right", 8, false)]);
+    expect(pg.unknown).toBe(true);
+    expect(configFromPartyGables(pg)).toBeNull();
+  });
+  it("a missing gable is unknown, not external", () => {
+    expect(partyGables([W("front", 5, false)]).unknown).toBe(true);
+  });
+});
+
+describe("perimeter keeps the EXPOSED gable, not the longer one", () => {
+  // The party wall is the LONGER gable — the old max() heuristic got this backwards.
+  const walls = [W("front", 6), W("rear", 6), W("gable_left", 9, true), W("gable_right", 7, false)];
+  const base = {
+    storeys: 2, roomInRoof: false, heightToSoffitM: 4.8, roofType: "PITCHED" as const,
+    wallSegments: walls, cornerCount: 4, dwellingsWide: 1, floors: [],
+    apexByFace: { front: 0, rear: 0, left: 0, right: 0, other: 0 },
+    renderSegmentsM: [], rendered: false, isApartmentBlock: false,
+    lowLevelCount: 0, chimney: false,
+    config: "SEMI_DETACHED" as const,
+  };
+  it("drops the party gable (9) and keeps the external one (7)", () => {
+    const p = computePerimeter(base, 1);
+    expect(p.wallsM).toBe(19); // 6 + 6 + 7
+    expect(p.gableBasis).toBe("party");
+  });
+  it("falls back to the longer gable when the drawing does not say, and says so", () => {
+    const unknown = walls.map((w) => ({ ...(w as object), isPartyWall: null })) as never[];
+    const p = computePerimeter({ ...base, wallSegments: unknown }, 1);
+    expect(p.wallsM).toBe(21); // 6 + 6 + 9 — the old behaviour, preserved
+    expect(p.gableBasis).toBe("size");
+  });
+  it("the fallback is flagged for a human", () => {
+    const unknown = walls.map((w) => ({ ...(w as object), isPartyWall: null })) as never[];
+    const line = buildTakeoff({ ...base, wallSegments: unknown });
+    expect(line.flags.some((f) => /does not say which gable is the party wall/.test(f))).toBe(true);
+  });
+});
+
+describe("apex on the exposed gable (the hipped-end bug)", () => {
+  const mk = (over: Record<string, unknown>) =>
+    computeApex({
+      storeys: 2, roomInRoof: false, heightToSoffitM: 4.8, roofType: "PITCHED",
+      wallSegments: [], cornerCount: 4, dwellingsWide: 1, floors: [],
+      apexByFace: { front: 0, rear: 0, left: 0, right: 0, other: 0 },
+      renderSegmentsM: [], rendered: false, isApartmentBlock: false,
+    lowLevelCount: 0, chimney: false,
+      config: "SEMI_DETACHED", ...over,
+    } as never);
+
+  it("exposed end HIPPED (0) + party end GABLED (1) → 0, not 1", () => {
+    const a = mk({
+      apexByFace: { front: 0, rear: 0, left: 1, right: 0, other: 0 },
+      wallSegments: [W("gable_left", 8, true), W("gable_right", 8, false)],
+    });
+    expect(a.count).toBe(0); // the apex sits on the party wall — never scaffolded
+    expect(a.gableBasis).toBe("party");
+  });
+  it("exposed end GABLED (1) + party end HIPPED (0) → 1", () => {
+    const a = mk({
+      apexByFace: { front: 0, rear: 0, left: 0, right: 1, other: 0 },
+      wallSegments: [W("gable_left", 8, true), W("gable_right", 8, false)],
+    });
+    expect(a.count).toBe(1);
+  });
+  it("unknown party status falls back to the old max() behaviour", () => {
+    const a = mk({ apexByFace: { front: 0, rear: 0, left: 1, right: 0, other: 0 } });
+    expect(a.count).toBe(1);
+    expect(a.gableBasis).toBe("size");
+  });
+});
+
+describe("'other' faces and walls are no longer silently dropped", () => {
+  const base = {
+    storeys: 2, roomInRoof: false, heightToSoffitM: 4.8, roofType: "PITCHED" as const,
+    wallSegments: [W("front", 6), W("rear", 6), W("other", 2)],
+    cornerCount: 4, dwellingsWide: 1, floors: [],
+    apexByFace: { front: 0, rear: 0, left: 0, right: 0, other: 1 },
+    renderSegmentsM: [], rendered: false, isApartmentBlock: false,
+    lowLevelCount: 0, chimney: false,
+  };
+  it("an 'other'-face apex counts on a semi AND a mid (it is not a gable end)", () => {
+    expect(computeApex({ ...base, config: "SEMI_DETACHED" } as never).count).toBe(1);
+    expect(computeApex({ ...base, config: "MID_TERRACE" } as never).count).toBe(1);
+    expect(computeApex({ ...base, config: "DETACHED" } as never).count).toBe(1);
+  });
+  it("a mid-terrace now INCLUDES its 'other' external wall (was dropped)", () => {
+    const p = computePerimeter({ ...base, config: "MID_TERRACE" } as never, 1);
+    expect(p.wallsM).toBe(14); // 6 + 6 + 2
+    expect(p.irregular).toBe(true); // still flagged for a human
+  });
+});
+
+describe("the drawing's config vs the chosen config", () => {
+  const mk = (config: string, walls: never[]) =>
+    buildTakeoff({
+      storeys: 2, roomInRoof: false, heightToSoffitM: 4.8, roofType: "PITCHED",
+      wallSegments: walls, cornerCount: 4, dwellingsWide: 1, floors: [],
+      apexByFace: { front: 0, rear: 0, left: 1, right: 1, other: 0 },
+      renderSegmentsM: [], rendered: false, isApartmentBlock: false,
+    lowLevelCount: 0, chimney: false, config,
+    } as never);
+  const semiWalls = [W("front", 6), W("rear", 6), W("gable_left", 8, true), W("gable_right", 8, false)];
+
+  it("exposes what the drawing implies", () => {
+    expect(mk("SEMI_DETACHED", semiWalls as never[]).drawingConfig).toBe("SEMI_DETACHED");
+  });
+  it("flags a disagreement instead of overriding", () => {
+    const line = mk("DETACHED", semiWalls as never[]);
+    expect(line.config).toBe("DETACHED"); // the estimator's choice is NOT overridden
+    expect(line.flags.some((f) => /party gable wall\(s\)/.test(f))).toBe(true);
+  });
+  it("does NOT flag semi vs end terrace — they take off identically", () => {
+    const line = mk("END_TERRACE", semiWalls as never[]);
+    expect(line.flags.some((f) => /party gable wall\(s\)/.test(f))).toBe(false);
+  });
+});
+
+
+describe("wall-role swap guard (Miller Delmont, real miss 2026-09-23)", () => {
+  const mk = (front: number, gable: number, config: string) =>
+    buildTakeoff({
+      storeys: 2, roomInRoof: false, heightToSoffitM: 4.65, roofType: "HIPPED",
+      wallSegments: [
+        W("front", front), W("rear", front),
+        W("gable_left", gable), W("gable_right", gable),
+      ],
+      cornerCount: 4, dwellingsWide: 1, floors: [],
+      apexByFace: { front: 0, rear: 0, left: 0, right: 0, other: 0 },
+      renderSegmentsM: [], rendered: false, isApartmentBlock: false,
+      lowLevelCount: 0, chimney: false, config,
+    } as never);
+  const swapped = (l: { flags: string[] }) =>
+    l.flags.some((f) => /wall roles may be swapped/.test(f));
+
+  it("flags the real Delmont read (front 9.44 wider than gable 4.567)", () => {
+    expect(swapped(mk(9.44, 4.567, "MID_TERRACE"))).toBe(true);
+  });
+  it("does NOT flag the corrected Delmont geometry", () => {
+    expect(swapped(mk(4.567, 9.44, "MID_TERRACE"))).toBe(false);
+  });
+  it("does NOT flag Whitton, which was read correctly (5.766 < 9.103)", () => {
+    expect(swapped(mk(5.766, 9.103, "SEMI_DETACHED"))).toBe(false);
+  });
+  it("never flags a detached house — square footprints are normal there", () => {
+    expect(swapped(mk(8.335, 8.203, "DETACHED"))).toBe(false);
+  });
+  it("corrected roles reproduce Colin's bank LM (mid 9, semi 20.5)", () => {
+    expect(mk(4.567, 9.44, "MID_TERRACE").perimeter.perLiftM).toBeCloseTo(9.134, 2);
+    expect(mk(4.567, 9.44, "SEMI_DETACHED").perimeter.perLiftM).toBeCloseTo(20.574, 2);
   });
 });

@@ -61,6 +61,25 @@ WORK IN THIS ORDER
 WALL ROLES (front/rear vs gable — important)
 - A house is a rectangle with four walls in two pairs: two GABLE / side walls and the FRONT and REAR walls.
 - gable_left and gable_right are the two GABLE-END / side walls: the walls that carry the roof apex on a pitched roof, and the walls that become PARTY WALLS in a semi or terrace. Any apex you count sits on a gable wall.
+
+PARTY WALLS (isPartyWall on every wall segment) — this decides which walls are scaffolded
+- A PARTY (separating) wall is shared with the house next door. It is NOT scaffolded, so
+  getting it right changes the whole take-off. Set isPartyWall on EVERY wall segment:
+  true = party/separating, false = external, null = the drawing does not say.
+- HOW TO TELL, in order of reliability:
+  1. The WALL LEGEND. A legend entry "…MM THICK PARTY WALL" (e.g. 300MM) exists only on an
+     ATTACHED house; "…MM THICK CAVITY WALL" (e.g. 328MM) is an external wall. A drawing
+     with NO party-wall legend entry at all is a DETACHED house — every wall is external.
+  2. The page/sheet title. Titles such as "MID TERRACE", "END TERRACE", "SEMI DETACHED" or
+     a filename variant ("Semi Detached Variant", "(L356 DT)" = detached) tell you the
+     variant this plan draws. A combined drawing often holds SEVERAL variants — use the
+     title of the plan you are reading.
+  3. The plan itself: a neighbouring dwelling drawn beyond the wall, a mirrored unit, or a
+     different hatching/thickness on that one wall.
+- WHAT THE COUNT MEANS: 0 party gable walls = detached · 1 = semi-detached or end terrace ·
+  2 = mid-terrace. Report what you SEE; do not force it to match the house type's name.
+- If you cannot tell for a wall, set isPartyWall null. NEVER guess it, and never infer it
+  from wall length — the party wall is not always the shorter side.
 - front and rear are the two eaves faces — the street and garden frontages.
 
 WHAT KIND OF BUILDING (set structure.form first) — named by HOW MANY HOUSES are joined

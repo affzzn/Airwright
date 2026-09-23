@@ -7,6 +7,8 @@ import { extractDrawing } from "../src/lib/extract/extractDrawing";
 import { lowLevelQty, type ExtractionResult } from "../src/lib/extract/schema";
 import {
   buildTakeoff,
+  partyGables,
+  configFromPartyGables,
   type ApexByFace,
   type Configuration,
   type TakeoffInput,
@@ -17,6 +19,7 @@ import {
   pairBirdcageWidthWarning,
 } from "../src/lib/extract/birdcage";
 import { computeHeight } from "../src/lib/extract/height";
+import { readPartyGables, resolveConfiguration } from "../src/lib/structure";
 import { makeDimensionVerifier } from "../src/lib/extract/dimensions";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -52,7 +55,11 @@ function toEngineInput(d: ExtractionResult, config: Configuration): TakeoffInput
     roomInRoof: d.roomInRoof.value === true,
     heightToSoffitM: d.heightToSoffitM.value,
     roofType: d.roof.overallType,
-    wallSegments: d.wallSegments.map((w) => ({ position: w.position, lengthM: w.lengthM })),
+    wallSegments: d.wallSegments.map((w) => ({
+      position: w.position,
+      lengthM: w.lengthM,
+      isPartyWall: w.isPartyWall ?? null,
+    })),
     dwellingsWide,
     isApartmentBlock: d.structure.form === "APARTMENT_BLOCK",
     cornerCount: d.cornerCount.value,
@@ -107,7 +114,10 @@ async function run(path: string, configs: Configuration[]) {
     );
   console.log("wall segments (building line):");
   for (const w of data.wallSegments)
-    console.log(`  ${w.position}: ${w.lengthM} m (dim ${w.sourceDimension ?? "-"}) [${w.confidence}]`);
+    console.log(
+      `  ${w.position}: ${w.lengthM} m (dim ${w.sourceDimension ?? "-"}) [${w.confidence}]` +
+        `  party=${w.isPartyWall === true ? "YES" : w.isPartyWall === false ? "no" : "?"}`,
+    );
   console.log("floor areas (internal → birdcage):");
   for (const f of data.floorAreas) {
     const r = birdcageM2(f);
@@ -158,6 +168,30 @@ async function run(path: string, configs: Configuration[]) {
   );
 
   if (data.notes) console.log(`notes: ${data.notes}`);
+
+  {
+    const pg = partyGables(
+      data.wallSegments.map((w) => ({
+        position: w.position,
+        lengthM: w.lengthM,
+        isPartyWall: w.isPartyWall ?? null,
+      })),
+    );
+    console.log(
+      `party gables: left=${pg.left ?? "?"} right=${pg.right ?? "?"} → count=${pg.count}` +
+        `  ⇒ drawing implies ${configFromPartyGables(pg) ?? "UNKNOWN (not stated)"}`,
+    );
+    // What the extractor would actually WRITE to Takeoff.configuration.
+    const decided = resolveConfiguration(
+      data.structure.form,
+      data.structure.confidence,
+      readPartyGables(data.wallSegments),
+    );
+    console.log(
+      `CONFIG SET TO: ${decided.config}  [basis=${decided.basis}, certain=${decided.certain}]`,
+    );
+    console.log(`   why: ${decided.reason}`);
+  }
 
   console.log("\n--- COMPUTED TAKE-OFF (engine) ---");
   const effectiveConfigs =

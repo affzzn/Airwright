@@ -65,6 +65,13 @@ const wallSegment = z.object({
       "Which external wall this length is. gable_left / gable_right are the two side/end walls.",
     ),
   label: z.string().nullable().optional(),
+  isPartyWall: z
+    .boolean()
+    .nullable()
+    .describe(
+      "TRUE if this wall is a PARTY / SEPARATING wall shared with the neighbouring house (so it is NOT scaffolded), FALSE if it is an external wall, NULL if the drawing does not make it clear. Read it off the drawing — the WALL LEGEND ('…MM THICK PARTY WALL' vs '…MM THICK CAVITY WALL'), the wall's hatching, a neighbouring dwelling drawn beyond it, or a page title such as 'MID TERRACE' / 'END TERRACE'. NEVER infer it from the house's name or from how long the wall is.",
+    )
+    .optional(),
   lengthM: z.number().describe("Wall length in metres (converted from the printed mm)."),
   sourceDimension: z
     .string()

@@ -1,6 +1,6 @@
 import type { Configuration } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { normalizeStructureForm, type StructureForm } from "@/lib/structure";
+import { configFromStructure, normalizeStructureForm } from "@/lib/structure";
 
 /**
  * Plot defaults derived from a confirmed take-off's own observables. The plot is
@@ -9,18 +9,6 @@ import { normalizeStructureForm, type StructureForm } from "@/lib/structure";
  * take-off auto-creates a single plot with config + render read straight off the
  * drawing. This module holds the pure default + the idempotent create.
  */
-
-// Default per-plot POSITION (config) for a house type of each structure form. A
-// pair/three-block/terrace defaults to an end/semi position; the estimator sets
-// mid-terrace per plot. Apartment blocks scaffold whole-building (the engine keys
-// off warnings.structure, not the config), so DETACHED is the safe placeholder.
-const STRUCTURE_CONFIG: Record<StructureForm, Configuration> = {
-  DETACHED: "DETACHED",
-  PAIR_SEMI: "SEMI_DETACHED",
-  THREE_BLOCK: "END_TERRACE",
-  TERRACE: "END_TERRACE",
-  APARTMENT_BLOCK: "DETACHED",
-};
 
 /** Config + render defaults read off the take-off's stored `warnings`. */
 export function defaultPlotFromWarnings(warnings: unknown): {
@@ -33,8 +21,10 @@ export function defaultPlotFromWarnings(warnings: unknown): {
   >;
   const dwellingsWide = typeof w.dwellingsWide === "number" ? w.dwellingsWide : null;
   const structure = normalizeStructureForm(w.structure, dwellingsWide);
+  // The structure → position mapping is shared with the extractor (structure.ts),
+  // so a legacy take-off's default can never drift from the one it was seeded with.
   return {
-    configuration: structure ? STRUCTURE_CONFIG[structure] : "DETACHED",
+    configuration: configFromStructure(structure).config,
     isRendered: w.rendered === true,
   };
 }

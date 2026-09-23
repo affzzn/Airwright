@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildDimensionHint, makeDimensionVerifier, dimRuns } from "./dimensions";
+import {
+  buildDimensionHint,
+  makeDimensionVerifier,
+  dimRuns,
+  parseWallLegend,
+  legendHasPartyWall,
+  buildWallLegendHint,
+} from "./dimensions";
 
 const PAGES = [
   { page: 1, tokens: ["302", "4877", "7904", "10660"] },
@@ -119,5 +126,43 @@ describe("reconcileRectRoles", () => {
       makeTokenMatcher(undefined),
     );
     expect(notes.length).toBe(0);
+  });
+});
+
+
+describe("wall legend — party vs cavity (docs/21 §B2)", () => {
+  // Verbatim from Miller's Bromsgrove drawings (pages 4-7, FOUNDATION sheets).
+  const WHITTON = [
+    "WALL LEGEND. DENOTES 328MM THICK CAVITY WALL : - 102.5MM FACING BRICKWORK",
+    "DENOTES 300MM THICK PARTY WALL : - 100MM THICK 3.6N/MM2 LIGHTWEIGHT",
+    "DENOTES 353MM THICK CAVITY WALL",
+  ];
+  const CHESTERWOOD = ["DENOTES 328MM THICK CAVITY WALL", "DENOTES 353MM THICK CAVITY WALL"];
+
+  it("finds every entry and dedupes", () => {
+    expect(parseWallLegend(WHITTON)).toEqual([
+      { mm: 328, kind: "CAVITY" },
+      { mm: 353, kind: "CAVITY" },
+      { mm: 300, kind: "PARTY" },
+    ]);
+  });
+  it("an attached house type declares a PARTY wall", () => {
+    expect(legendHasPartyWall(parseWallLegend(WHITTON))).toBe(true);
+  });
+  it("a detached house type declares none", () => {
+    expect(legendHasPartyWall(parseWallLegend(CHESTERWOOD))).toBe(false);
+  });
+  it("tolerates spacing and case", () => {
+    expect(parseWallLegend(["denotes 300 mm  thick   party wall"])).toEqual([
+      { mm: 300, kind: "PARTY" },
+    ]);
+  });
+  it("says NOTHING when there is no legend (a scanned PDF must not read as detached)", () => {
+    expect(parseWallLegend([])).toEqual([]);
+    expect(buildWallLegendHint([])).toBe("");
+  });
+  it("the hint tells the model which way to go", () => {
+    expect(buildWallLegendHint(parseWallLegend(WHITTON))).toMatch(/ATTACHED/);
+    expect(buildWallLegendHint(parseWallLegend(CHESTERWOOD))).toMatch(/DETACHED/);
   });
 });
