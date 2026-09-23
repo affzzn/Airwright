@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   effectiveQuantity,
   lineAmount,
+  lineExtraHirePerWeek,
   priceConstructionQuote,
   resolveConstructionRate,
+  resolveConstructionRateRow,
+  weeksBeyondBase,
   type LinePriceInput,
 } from "./price";
 
@@ -43,38 +46,111 @@ describe("lineAmount", () => {
 });
 
 describe("Wren Park schedule — the 9 lines reconcile", () => {
-  // Placeholder rates (£) just to exercise the maths.
+  // Real construction rates for the up-to-6m band, Competitive (Airwright's sheet).
   const lines: LinePriceInput[] = [
-    { unit: "NR_PER_LIFT", quantity: 1, lifts: 2, rate: 110 }, // Haki 2-lift
-    { unit: "NR_PER_LIFT", quantity: 1, lifts: 3, rate: 110 }, // Haki 3-lift
-    { unit: "NR_PER_LIFT", quantity: 1, lifts: 2, rate: 150 }, // Loading bay 2-lift
-    { unit: "NR_PER_LIFT", quantity: 1, lifts: 3, rate: 150 }, // Loading bay 3-lift
-    { unit: "M2_PER_LIFT", quantity: 203.34, lifts: 2, rate: 8.5 }, // Birdcage 2-lift
-    { unit: "M2_PER_LIFT", quantity: 123.88, lifts: 3, rate: 8.5 }, // Birdcage 3-lift
-    { unit: "LM", quantity: 77.4, lifts: null, rate: 33.36 }, // Roof edge protection (green)
-    { unit: "LM_PER_LIFT", quantity: 35.2, lifts: 2, rate: 13.0 }, // External 2-lift (red zone)
-    { unit: "LM_PER_LIFT", quantity: 42.2, lifts: 3, rate: 13.0 }, // External 3-lift (blue zone)
+    { unit: "NR_PER_LIFT", quantity: 1, lifts: 2, rate: 300, baseHireWeeks: 4, extraHirePerWeek: 10, extraHireChargePct: 50 },
+    { unit: "NR_PER_LIFT", quantity: 1, lifts: 3, rate: 300, baseHireWeeks: 4, extraHirePerWeek: 10, extraHireChargePct: 50 },
+    { unit: "NR_PER_LIFT", quantity: 1, lifts: 2, rate: 300, baseHireWeeks: 4, extraHirePerWeek: 6, extraHireChargePct: 25 },
+    { unit: "NR_PER_LIFT", quantity: 1, lifts: 3, rate: 300, baseHireWeeks: 4, extraHirePerWeek: 6, extraHireChargePct: 25 },
+    { unit: "M2_PER_LIFT", quantity: 203.34, lifts: 2, rate: 24.06, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 25 },
+    { unit: "M2_PER_LIFT", quantity: 123.88, lifts: 3, rate: 24.06, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 25 },
+    { unit: "LM", quantity: 77.4, lifts: null, rate: 25.61, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50 },
+    { unit: "LM_PER_LIFT", quantity: 35.2, lifts: 2, rate: 35.78, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50 },
+    { unit: "LM_PER_LIFT", quantity: 42.2, lifts: 3, rate: 35.78, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50 },
   ];
 
   it("has the 9 lines and a penny-exact total", () => {
-    const r = priceConstructionQuote({ lines, extraHirePctPerWeek: 0.05 });
+    const r = priceConstructionQuote({ lines, durationWeeks: 4 });
     expect(r.lineAmounts).toHaveLength(9);
-    // total = Σ line amounts, computed independently here
     const expected = Math.round(r.lineAmounts.reduce((a, b) => a + b, 0) * 100) / 100;
     expect(r.total).toBe(expected);
-    // spot-check a couple of lines
-    expect(r.lineAmounts[8]).toBe(Math.round(42.2 * 3 * 13.0 * 100) / 100); // 1645.80
-    expect(r.lineAmounts[6]).toBe(Math.round(77.4 * 33.36 * 100) / 100); // roof edge
+    expect(r.lineAmounts[8]).toBe(Math.round(42.2 * 3 * 35.78 * 100) / 100);
+    expect(r.lineAmounts[6]).toBe(Math.round(77.4 * 25.61 * 100) / 100);
   });
 
-  it("computes extra hire as 0.05% of the total per week (terms, not in total)", () => {
-    const r = priceConstructionQuote({ lines, extraHirePctPerWeek: 0.05 });
-    expect(r.extraHirePerWeek).toBe(Math.round(r.total * 0.0005 * 100) / 100);
+  it("charges nothing extra while the hire stays inside the base period", () => {
+    const r = priceConstructionQuote({ lines, durationWeeks: 4 });
+    expect(r.maxWeeksBeyondBase).toBe(0);
+    expect(r.extraHireBeyondBase).toBe(0);
   });
 
-  it("no extra-hire % → null", () => {
-    const r = priceConstructionQuote({ lines, extraHirePctPerWeek: null });
-    expect(r.extraHirePerWeek).toBeNull();
+  it("quotes extra hire per unit per week, not as a slice of the job", () => {
+    const r = priceConstructionQuote({ lines, durationWeeks: 10 });
+    // Every line runs 6 weeks past its 4-week base.
+    expect(r.maxWeeksBeyondBase).toBe(6);
+    const weekly = lines.reduce((a, l) => a + lineExtraHirePerWeek(l), 0);
+    expect(r.extraHirePerWeek).toBe(Math.round(weekly * 100) / 100);
+    expect(r.extraHireBeyondBase).toBe(Math.round(weekly * 6 * 100) / 100);
+    // The old 0.05%-of-job placeholder was an order of magnitude out.
+    expect(r.extraHirePerWeek!).toBeGreaterThan(r.total * 0.0005 * 10);
+  });
+
+  it("keeps extra hire OUT of the quoted total", () => {
+    const short = priceConstructionQuote({ lines, durationWeeks: 4 });
+    const long = priceConstructionQuote({ lines, durationWeeks: 26 });
+    expect(long.total).toBe(short.total);
+  });
+});
+
+describe("lineExtraHirePerWeek", () => {
+  it("is quantity × lifts × E/H × the band percentage", () => {
+    // 66 LM of independent scaffold, 2 lifts, £1.20/LM/week at 100%.
+    const line: LinePriceInput = {
+      unit: "LM_PER_LIFT", quantity: 66, lifts: 2, rate: 35.78,
+      baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 100,
+    };
+    expect(lineExtraHirePerWeek(line)).toBe(158.4);
+  });
+
+  it("halves it on the Competitive band", () => {
+    const line: LinePriceInput = {
+      unit: "LM_PER_LIFT", quantity: 66, lifts: 2, rate: 35.78,
+      baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50,
+    };
+    expect(lineExtraHirePerWeek(line)).toBe(79.2);
+  });
+
+  it("is zero when the item carries no extra-hire value", () => {
+    expect(lineExtraHirePerWeek({ unit: "NR", quantity: 3, rate: 10 })).toBe(0);
+  });
+});
+
+describe("weeksBeyondBase", () => {
+  const line: LinePriceInput = { unit: "LM", quantity: 10, rate: 5, baseHireWeeks: 4 };
+
+  it("counts only the weeks past the base period", () => {
+    expect(weeksBeyondBase(line, 4)).toBe(0);
+    expect(weeksBeyondBase(line, 3)).toBe(0);
+    expect(weeksBeyondBase(line, 10)).toBe(6);
+  });
+
+  it("rounds a part week up, as Airwright bill it", () => {
+    expect(weeksBeyondBase(line, 6.2)).toBe(3);
+  });
+
+  it("respects a timber-frame line's 12-week base", () => {
+    expect(weeksBeyondBase({ ...line, baseHireWeeks: 12 }, 10)).toBe(0);
+  });
+});
+
+describe("resolveConstructionRateRow — the hire terms travel with the rate", () => {
+  const rows = [
+    { band: "COMPETITIVE" as const, bracket: "UP_TO_6M" as const, rate: 35.78, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50 },
+    { band: "COMPETITIVE" as const, bracket: "ANY" as const, rate: 30, baseHireWeeks: 4, extraHirePerWeek: 0.5, extraHireChargePct: 25 },
+  ];
+
+  it("returns the rate AND its hire terms", () => {
+    expect(resolveConstructionRateRow(rows, "COMPETITIVE", "UP_TO_6M")).toEqual({
+      rate: 35.78, baseHireWeeks: 4, extraHirePerWeek: 1.2, extraHireChargePct: 50,
+    });
+  });
+
+  it("falls back to the flat ANY rate with its own terms", () => {
+    expect(resolveConstructionRateRow(rows, "COMPETITIVE", "H24_30M")?.extraHirePerWeek).toBe(0.5);
+  });
+
+  it("is null when the band has nothing", () => {
+    expect(resolveConstructionRateRow(rows, "HIGH", "UP_TO_6M")).toBeNull();
   });
 });
 

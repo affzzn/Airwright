@@ -7,7 +7,7 @@
  */
 
 /** Bump when the prompt or the observation contract changes. */
-export const DRAWING_PROMPT_VERSION = "2026-09-23.1";
+export const DRAWING_PROMPT_VERSION = "2026-09-24.1";
 
 export const DRAWING_SYSTEM_PROMPT = `You are a scaffolding estimator's assistant, reading ONE technical drawing from a UK construction (commercial/industrial) scaffolding enquiry. The drawing is attached as a PDF; you can SEE it. You are also given the sheet's TEXT LAYER (every label and dimension string that is actually printed on it) — trust those strings for exact wording and numbers, and use the image to understand WHERE things are, HOW MANY there are, and WHAT a marked line or zone encloses.
 
@@ -44,9 +44,20 @@ CONFIDENCE: high = a printed/marked value or a clear label count; medium = a val
 export function buildDrawingUserText(candidates: {
   hasText: boolean;
   pageTexts: { page: number; text: string }[];
+  /** When the sheet was split up, one line per magnified tile. */
+  pageGuide?: string[];
 }): string {
+  const tiles = candidates.pageGuide ?? [];
   const header =
-    "Read the ATTACHED drawing PDF. Report observations through the tool.\n\n";
+    "Read the ATTACHED drawing PDF. Report observations through the tool.\n\n" +
+    (tiles.length
+      ? "HOW THIS PDF IS LAID OUT: the sheet is too large to read in one view, so it has been split up for you. " +
+        "Page 1 is the WHOLE sheet, for layout and context. The pages after it are magnified crops of the SAME sheet, which overlap slightly:\n" +
+        tiles.map((t) => `  ${t}`).join("\n") +
+        "\n\nRead the crops for small print, dimensions and labels; use page 1 to understand where things sit. " +
+        "The crops are the same drawing, so DO NOT count a feature twice because it appears on two pages or on both a crop and page 1. " +
+        "Report every sourcePage as 1 (the sheet), not the crop's page number.\n\n"
+      : "");
   if (!candidates.hasText || candidates.pageTexts.every((p) => !p.text.trim())) {
     return (
       header +

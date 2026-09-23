@@ -794,7 +794,18 @@ enum HeightBracket {
   H6_12M
   H12_18M
   H18_24M
+  H24_30M
   ANY // bracket-agnostic items (a flat rate)
+}
+
+/// Which side of the business an item belongs to. Airwright keep ONE master item
+/// list for everything; the business line is encoded in the item name ("(A) Con …",
+/// "(A) TRAD …", "(A) TF …"). Construction quotes use CONSTRUCTION + GENERAL.
+enum BusinessLine {
+  CONSTRUCTION
+  TRADITIONAL
+  TIMBER_FRAME
+  GENERAL
 }
 
 enum SiteType {
@@ -808,6 +819,8 @@ enum SiteType {
 /// The picking-list item: one configurable scaffold element with per-bracket rates.
 model ConstructionElement {
   id                String                  @id @default(cuid())
+  /// Which business line the item belongs to (from the "(A) Con/TRAD/TF" prefix).
+  line              BusinessLine            @default(CONSTRUCTION)
   name              String // canonical Airwright name, e.g. "Independent Scaffold"
   aliases           String[]                @default([]) // client/Strike synonyms ("working platform"…)
   category          String? // Access / Protection / Internal / Extras — groups the picker
@@ -817,21 +830,34 @@ model ConstructionElement {
   defaultRuleNote   String? // the pre-fill hint shown in the builder
   sortOrder         Int                     @default(0)
   isActive          Boolean                 @default(true)
+  /// The item title exactly as it appears in Airwright's sheet, for traceability.
+  sourceTitle       String?
   createdAt         DateTime                @default(now())
   rates             ConstructionRate[]
   lines             ConstructionQuoteLine[]
 
   @@index([category])
+  @@index([line])
 }
 
 /// A rate for one element, per commercial band and per height bracket.
+/// A rate for one element, per commercial band and per height bracket. The hire
+/// terms live HERE, not on the quote: every rate is quoted "based on" a hire period
+/// (construction = 4 weeks), and beyond it extra hire is charged per unit per week
+/// at a percentage set by the band (Airwright's "E/H Value" x "%age to charge").
 model ConstructionRate {
-  id        String              @id @default(cuid())
-  elementId String
-  element   ConstructionElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-  band      RateBand
-  bracket   HeightBracket // ANY for a flat-rate (bracket-agnostic) item
-  rate      Decimal             @db.Decimal(10, 2) // £ per the element's unit
+  id                 String              @id @default(cuid())
+  elementId          String
+  element            ConstructionElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  band               RateBand
+  bracket            HeightBracket // ANY for a flat-rate (bracket-agnostic) item
+  rate               Decimal             @db.Decimal(10, 2) // £ per the element's unit
+  /// Weeks of hire the rate already includes.
+  baseHireWeeks      Int                 @default(4)
+  /// £ per unit per week beyond `baseHireWeeks`, before `extraHireChargePct`.
+  extraHirePerWeek   Decimal             @default(0) @db.Decimal(10, 2)
+  /// Percentage of `extraHirePerWeek` actually charged (25 / 50 / 75 / 100).
+  extraHireChargePct Decimal             @default(100) @db.Decimal(5, 2)
 
   @@unique([elementId, band, bracket])
   @@index([elementId])
@@ -845,8 +871,7 @@ model ConstructionQuote {
   siteAddress           String?
   enquiryType           String? // VAGUE | SCOPE_OF_WORKS | DETAILED
   band                  RateBand                  @default(COMPETITIVE)
-  durationWeeks         Int? // inclusive hire period (weeks)
-  extraHirePctPerWeek   Decimal?                  @default(0.05) @db.Decimal(5, 3) // ⚠ Laura to confirm
+  durationWeeks         Int? // the hire period being quoted (weeks)
   // Enquiry-review capture (docs/19 §2) — site facts the rules key off, entered by hand.
   siteType              SiteType?
   buildingHeightM       Decimal?                  @db.Decimal(6, 2)
@@ -890,23 +915,27 @@ model ConstructionMeasurement {
 
 /// One priced line in the picking-list quote builder.
 model ConstructionQuoteLine {
-  id            String               @id @default(cuid())
-  quoteId       String
-  quote         ConstructionQuote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  elementId     String? // the library item (null = a one-off manual add)
-  element       ConstructionElement? @relation(fields: [elementId], references: [id], onDelete: SetNull)
-  description   String // the item name as it prints (editable)
-  lifts         Int? // "Nr of Lifts"
-  unit          ConstructionUnit
-  quantity      Decimal              @db.Decimal(10, 3)
-  heightBracket HeightBracket?
-  rate          Decimal              @db.Decimal(10, 2)
-  durationWeeks Int?
-  amount        Decimal              @db.Decimal(12, 2) // computed, frozen on confirm
-  isAuto        Boolean              @default(false) // rule-suggested vs hand-added (all editable)
-  sortOrder     Int                  @default(0)
-  note          String?
-  createdAt     DateTime             @default(now())
+  id                 String               @id @default(cuid())
+  quoteId            String
+  quote              ConstructionQuote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  elementId          String? // the library item (null = a one-off manual add)
+  element            ConstructionElement? @relation(fields: [elementId], references: [id], onDelete: SetNull)
+  description        String // the item name as it prints (editable)
+  lifts              Int? // "Nr of Lifts"
+  unit               ConstructionUnit
+  quantity           Decimal              @db.Decimal(10, 3)
+  heightBracket      HeightBracket?
+  rate               Decimal              @db.Decimal(10, 2)
+  durationWeeks      Int?
+  /// Hire terms snapshotted from the rate when the line was added (docs/19 §7).
+  baseHireWeeks      Int?
+  extraHirePerWeek   Decimal?             @db.Decimal(10, 2)
+  extraHireChargePct Decimal?             @db.Decimal(5, 2)
+  amount             Decimal              @db.Decimal(12, 2) // computed, frozen on confirm
+  isAuto             Boolean              @default(false) // rule-suggested vs hand-added (all editable)
+  sortOrder          Int                  @default(0)
+  note               String?
+  createdAt          DateTime             @default(now())
 
   @@index([quoteId])
   @@index([elementId])
@@ -914,24 +943,24 @@ model ConstructionQuoteLine {
 
 /// A reference file (email, drawing, site plan, photo) — stored + displayed, NEVER parsed.
 model ConstructionAttachment {
-  id            String            @id @default(cuid())
-  quoteId       String
-  quote         ConstructionQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  fileName      String
-  storageBucket String            @default("tender-packs")
-  storagePath   String
-  mimeType      String
-  sizeBytes     Int?
-  kind          String? // EMAIL | DRAWING | SITE_PLAN | ROOF_PLAN | LOGISTICS_PLAN | PHOTO | SCOPE | OTHER
+  id             String            @id @default(cuid())
+  quoteId        String
+  quote          ConstructionQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  fileName       String
+  storageBucket  String            @default("tender-packs")
+  storagePath    String
+  mimeType       String
+  sizeBytes      Int?
+  kind           String? // EMAIL | DRAWING | SITE_PLAN | ROOF_PLAN | LOGISTICS_PLAN | PHOTO | SCOPE | OTHER
   // Enquiry reading (docs/20): the estimator ticks which files the AI reads; the
   // drawing reader's output is stored per file for audit + re-assembly. The internal
   // answer files (schedule/quote) are never eligible (guarded in the server action).
-  useForDrafting Boolean          @default(false)
+  useForDrafting Boolean           @default(false)
   drawingKind    String? // ELEVATION | FLOOR_PLAN | ROOF_PLAN | SITE_PLAN | SECTION | MARKED_UP | OTHER
-  readStatus     String?          @default("NONE") // NONE | PENDING | READ | FAILED
+  readStatus     String?           @default("NONE") // NONE | PENDING | READ | FAILED
   readRawOutput  Json? // the DrawingObservations (docs/20 §5) for audit + re-assembly
   readMeta       Json? // model, promptVersion, tokens, costUsd
-  createdAt     DateTime          @default(now())
+  createdAt      DateTime          @default(now())
 
   @@index([quoteId])
 }

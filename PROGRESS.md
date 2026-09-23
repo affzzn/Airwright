@@ -54,6 +54,44 @@ plot. A terrace of 5 still yields one END_TERRACE plot; the mid plots must be ad
 hand. The site-layout/plot-schedule reader that would fill this was removed 2026-08-26.
 The flag now makes it visible; it does not make it automatic. See TODO.
 
+### 2026-09-24 — Airwright's REAL rate sheet imported; hire maths corrected (P1–P5)
+
+They sent the picking list, a real client scope of works and an example drawing (`cons-data/`,
+gitignored PII). All five planned tracks done in one pass.
+
+- **P1 · The rate sheet is in.** `picking list.xlsm` sheet "Excel Import" is Airwright's whole
+  master list, 493 rows, one list for the whole business, with the model encoded in the item
+  TITLE: `(A) Con Ind Scaff (6-12m max) M` = current · Construction · family · bracket · band.
+  New pure parser `rateSheet.ts` (23 tests) + `scripts/import-rate-sheet.mts` (re-runnable,
+  retires rather than deletes). Imported **165 elements / 653 rates**: 32 Construction, 60
+  Traditional, 16 Timber frame, 58 General. The 13 placeholder seeds are retired.
+  Schema: `BusinessLine` enum, `HeightBracket += H24_30M`, `ConstructionElement.line/sourceTitle`,
+  and the hire terms on `ConstructionRate` (migration `construction_real_rate_sheet`).
+- **P2 · Extra hire was wrong by ~33x.** The 0.05%-of-job placeholder came from a verbal note;
+  the sheet says extra hire is **per unit per week × a band percentage, beyond the hire period
+  the RATE already includes** (4 weeks for construction, 12 for TF). `price.ts` rewritten:
+  `lineExtraHirePerWeek`, `weeksBeyondBase`, and a result that separates the quoted total from
+  what the duration implies. Verified live: 66 m at Competitive = £39.60 a week, where the old
+  rule said £1.18. Extra hire stays OUT of the headline total, as Airwright quote it.
+- **P3 · Rates → Construction is a matrix.** Items down, brackets across, band switcher,
+  business-line switcher, hire terms per row. 33 items x 20 cells was never a flat list.
+- **P4 · Scope reader tuned to a real scope of works** (`50172_Scaffold Scope_Rev.1.xlsx`,
+  Project Stanmore, 37 rows). New `scopeDimension.ts` (20 tests) parses "20lin.m", "2.4x5.4m",
+  "25x20m", "12m (top working platform level)", "20wks". The model now copies those cells
+  VERBATIM and the arithmetic happens in tested code. **Hire duration is per line** and is
+  carried onto the quote line.
+- **P5 · Tiled drawing reading.** Airwright's example drawing is an A3 with no text layer
+  (150 dpi raster + 300 dpi stencils), so whole-sheet vision cannot read its dimensions.
+  `drawingTiles.ts` (10 tests) crops via pdf-lib MediaBox, sharing one embedded page: every
+  tiled sheet reaches ~1.86 px/pt (A1 2.8x better), and the Wren A1 packs into 2.4 MB not
+  16.7 MB. Verified a tile carries 98% of the text strings its region should hold.
+- **Green:** typecheck, lint, **546 tests** (+76), production build. Driven in the browser
+  against the real DB: the matrix shows Airwright's real ladders (Ind Scaff 35.78/42.02/45.13/
+  51.38), the picking list resolves per band + bracket, and adding 66 m priced to £2,361.48
+  with £39.60/week extra hire and £79.20 for the 2 weeks past base. Test data removed.
+- ⚠️ For Colin/Laura: is the `%age to charge` difference between bands deliberate (Competitive
+  loading bay 25% vs High 75%)? And which inspection item applies, per week or as a lump?
+
 ### 2026-09-24 — The client's scope spreadsheet is READ (a docs correction, not just code)
 
 **User correction: `Wren - Scaffolding Schedule.xlsx` came FROM Stepnell.** Both docs/19 §2

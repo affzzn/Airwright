@@ -24,7 +24,6 @@ export async function GET(
     siteAddress: quote.siteAddress,
     band: quote.band,
     durationWeeks: quote.durationWeeks,
-    extraHirePctPerWeek: quote.extraHirePctPerWeek,
     lines: quote.lines.map((l) => ({
       description: l.description,
       lifts: l.lifts,
@@ -36,6 +35,8 @@ export async function GET(
     })),
     total: pricing.total,
     extraHirePerWeek: pricing.extraHirePerWeek,
+    extraHireBeyondBase: pricing.extraHireBeyondBase,
+    maxWeeksBeyondBase: pricing.maxWeeksBeyondBase,
     assumptions: pricing.flags.filter((f) => f.level === "warn").map((f) => f.message),
   });
 

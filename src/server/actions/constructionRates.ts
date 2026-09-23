@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ConstructionUnit, HeightBracket, RateBand } from "@prisma/client";
+import type { BusinessLine, ConstructionUnit, HeightBracket, RateBand } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 /**
@@ -14,10 +14,14 @@ import { prisma } from "@/lib/db";
 const UNITS = new Set<ConstructionUnit>([
   "LM_PER_LIFT", "M2_PER_LIFT", "NR_PER_LIFT", "NR", "LM", "M2", "PER_WEEK", "FIXED",
 ]);
-const BRACKETS = new Set<HeightBracket>(["UP_TO_6M", "H6_12M", "H12_18M", "H18_24M", "ANY"]);
+const BRACKETS = new Set<HeightBracket>([
+  "UP_TO_6M", "H6_12M", "H12_18M", "H18_24M", "H24_30M", "ANY",
+]);
+const LINES = new Set<BusinessLine>(["CONSTRUCTION", "TRADITIONAL", "TIMBER_FRAME", "GENERAL"]);
 const BANDS = new Set<RateBand>(["SUPER_COMPETITIVE", "COMPETITIVE", "MEDIUM", "HIGH", "CUSTOM"]);
 
 export async function createConstructionElement(input: {
+  line?: string;
   name: string;
   category?: string;
   unit: string;
@@ -32,6 +36,7 @@ export async function createConstructionElement(input: {
   const max = await prisma.constructionElement.aggregate({ _max: { sortOrder: true } });
   await prisma.constructionElement.create({
     data: {
+      line: LINES.has(input.line as BusinessLine) ? (input.line as BusinessLine) : "CONSTRUCTION",
       name,
       category: input.category?.trim() || null,
       unit: input.unit as ConstructionUnit,
@@ -104,6 +109,9 @@ export async function saveConstructionRate(input: {
   band: string;
   bracket: string;
   rate: number;
+  baseHireWeeks?: number;
+  extraHirePerWeek?: number;
+  extraHireChargePct?: number;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!BANDS.has(input.band as RateBand)) return { ok: false, error: "Invalid band." };
   if (!BRACKETS.has(input.bracket as HeightBracket)) return { ok: false, error: "Invalid bracket." };
@@ -114,10 +122,50 @@ export async function saveConstructionRate(input: {
     band: input.band as RateBand,
     bracket: input.bracket as HeightBracket,
   };
+  const terms = {
+    ...(input.baseHireWeeks != null && Number.isFinite(input.baseHireWeeks)
+      ? { baseHireWeeks: Math.max(0, Math.trunc(input.baseHireWeeks)) }
+      : {}),
+    ...(input.extraHirePerWeek != null && Number.isFinite(input.extraHirePerWeek)
+      ? { extraHirePerWeek: Math.max(0, input.extraHirePerWeek) }
+      : {}),
+    ...(input.extraHireChargePct != null && Number.isFinite(input.extraHireChargePct)
+      ? { extraHireChargePct: Math.min(100, Math.max(0, input.extraHireChargePct)) }
+      : {}),
+  };
   await prisma.constructionRate.upsert({
     where: { elementId_band_bracket: key },
-    create: { ...key, rate: input.rate },
-    update: { rate: input.rate },
+    create: { ...key, rate: input.rate, ...terms },
+    update: { rate: input.rate, ...terms },
+  });
+  revalidatePath("/rates");
+  return { ok: true };
+}
+
+/**
+ * The hire terms are a property of the item and the band, not of one height
+ * bracket, so this writes them across every bracket in that band at once
+ * (Airwright's sheet carries the same E/H value on every bracket of an item).
+ */
+export async function saveConstructionHireTerms(input: {
+  elementId: string;
+  band: string;
+  baseHireWeeks?: number | null;
+  extraHirePerWeek?: number | null;
+  extraHireChargePct?: number | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!BANDS.has(input.band as RateBand)) return { ok: false, error: "Invalid band." };
+  const data: Record<string, number> = {};
+  if (input.baseHireWeeks != null && Number.isFinite(input.baseHireWeeks))
+    data.baseHireWeeks = Math.max(0, Math.trunc(input.baseHireWeeks));
+  if (input.extraHirePerWeek != null && Number.isFinite(input.extraHirePerWeek))
+    data.extraHirePerWeek = Math.max(0, input.extraHirePerWeek);
+  if (input.extraHireChargePct != null && Number.isFinite(input.extraHireChargePct))
+    data.extraHireChargePct = Math.min(100, Math.max(0, input.extraHireChargePct));
+  if (Object.keys(data).length === 0) return { ok: true };
+  await prisma.constructionRate.updateMany({
+    where: { elementId: input.elementId, band: input.band as RateBand },
+    data,
   });
   revalidatePath("/rates");
   return { ok: true };

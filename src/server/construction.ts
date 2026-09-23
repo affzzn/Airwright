@@ -1,3 +1,4 @@
+import type { BusinessLine } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { priceConstructionQuote, type LinePriceInput } from "@/lib/construction/price";
 import {
@@ -27,6 +28,10 @@ export interface ConstructionLineVM {
   isAuto: boolean;
   note: string | null;
   sortOrder: number;
+  /** Hire terms snapshotted from the rate (docs/19 §7). */
+  baseHireWeeks: number | null;
+  extraHirePerWeek: number | null;
+  extraHireChargePct: number | null;
 }
 export interface ConstructionMeasurementVM {
   id: string;
@@ -56,7 +61,6 @@ export interface ConstructionQuoteVM {
   enquiryType: string | null;
   band: string;
   durationWeeks: number | null;
-  extraHirePctPerWeek: number | null;
   siteType: string | null;
   buildingHeightM: number | null;
   defaultHeightBracket: string | null;
@@ -76,7 +80,11 @@ export interface ConstructionQuoteVM {
 
 export interface ConstructionPricing {
   total: number;
+  /** £ a week once the hire runs past what the rates include (terms). */
   extraHirePerWeek: number | null;
+  /** What the quoted duration implies in extra hire. Not in `total`. */
+  extraHireBeyondBase: number;
+  maxWeeksBeyondBase: number;
   flags: ValidationFlag[];
 }
 
@@ -87,10 +95,13 @@ export function priceLoadedQuote(q: ConstructionQuoteVM): ConstructionPricing {
     quantity: l.quantity,
     lifts: l.lifts,
     rate: l.rate,
+    baseHireWeeks: l.baseHireWeeks,
+    extraHirePerWeek: l.extraHirePerWeek,
+    extraHireChargePct: l.extraHireChargePct,
   }));
   const priced = priceConstructionQuote({
     lines: priceLines,
-    extraHirePctPerWeek: q.extraHirePctPerWeek,
+    durationWeeks: q.durationWeeks,
   });
   const perLiftMissingLifts = q.lines.filter(
     (l) => PER_LIFT_UNITS.has(l.unit as ConstructionUnit) && (l.lifts == null || l.lifts <= 0),
@@ -109,7 +120,13 @@ export function priceLoadedQuote(q: ConstructionQuoteVM): ConstructionPricing {
       (m) => m.source === "GOOGLE_EARTH" || m.source === "DRAWING",
     ),
   });
-  return { total: priced.total, extraHirePerWeek: priced.extraHirePerWeek, flags };
+  return {
+    total: priced.total,
+    extraHirePerWeek: priced.extraHirePerWeek,
+    extraHireBeyondBase: priced.extraHireBeyondBase,
+    maxWeeksBeyondBase: priced.maxWeeksBeyondBase,
+    flags,
+  };
 }
 
 function toQuoteVM(q: {
@@ -120,7 +137,6 @@ function toQuoteVM(q: {
   enquiryType: string | null;
   band: string;
   durationWeeks: number | null;
-  extraHirePctPerWeek: unknown;
   siteType: string | null;
   buildingHeightM: unknown;
   defaultHeightBracket: string | null;
@@ -140,6 +156,7 @@ function toQuoteVM(q: {
     id: string; elementId: string | null; description: string; lifts: number | null; unit: string;
     quantity: unknown; heightBracket: string | null; rate: unknown; amount: unknown;
     isAuto: boolean; note: string | null; sortOrder: number;
+    baseHireWeeks: number | null; extraHirePerWeek: unknown; extraHireChargePct: unknown;
   }[];
   attachments: {
     id: string; fileName: string; mimeType: string; sizeBytes: number | null; kind: string | null;
@@ -154,7 +171,6 @@ function toQuoteVM(q: {
     enquiryType: q.enquiryType,
     band: q.band,
     durationWeeks: q.durationWeeks,
-    extraHirePctPerWeek: q.extraHirePctPerWeek != null ? Number(q.extraHirePctPerWeek) : null,
     siteType: q.siteType,
     buildingHeightM: q.buildingHeightM != null ? Number(q.buildingHeightM) : null,
     defaultHeightBracket: q.defaultHeightBracket,
@@ -190,6 +206,9 @@ function toQuoteVM(q: {
       isAuto: l.isAuto,
       note: l.note,
       sortOrder: l.sortOrder,
+      baseHireWeeks: l.baseHireWeeks,
+      extraHirePerWeek: l.extraHirePerWeek != null ? Number(l.extraHirePerWeek) : null,
+      extraHireChargePct: l.extraHireChargePct != null ? Number(l.extraHireChargePct) : null,
     })),
     attachments: q.attachments.map((a) => ({
       id: a.id,
@@ -219,6 +238,7 @@ export async function loadConstructionQuote(id: string): Promise<ConstructionQuo
 
 export interface ConstructionElementLibVM {
   id: string;
+  line: string;
   name: string;
   aliases: string[];
   category: string | null;
@@ -226,19 +246,34 @@ export interface ConstructionElementLibVM {
   usesLifts: boolean;
   usesHeightBracket: boolean;
   defaultRuleNote: string | null;
-  rates: { band: string; bracket: string; rate: number }[];
+  sourceTitle: string | null;
+  rates: {
+    band: string;
+    bracket: string;
+    rate: number;
+    baseHireWeeks: number;
+    extraHirePerWeek: number;
+    extraHireChargePct: number;
+  }[];
 }
 
-/** The active picking-list library the quote builder chooses from. */
-export async function loadConstructionLibrary(): Promise<ConstructionElementLibVM[]> {
+/**
+ * The active picking list. Airwright keep one master list for the whole business,
+ * so a construction quote picks from the CONSTRUCTION items plus the GENERAL ones
+ * (daywork, netting, design) that apply to any job.
+ */
+export async function loadConstructionLibrary(
+  lines: BusinessLine[] = ["CONSTRUCTION", "GENERAL"],
+): Promise<ConstructionElementLibVM[]> {
   const els = await prisma.constructionElement.findMany({
-    where: { isActive: true },
+    where: { isActive: true, line: { in: lines } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     relationLoadStrategy: "join",
     include: { rates: true },
   });
   return els.map((e) => ({
     id: e.id,
+    line: e.line,
     name: e.name,
     aliases: e.aliases,
     category: e.category,
@@ -246,7 +281,15 @@ export async function loadConstructionLibrary(): Promise<ConstructionElementLibV
     usesLifts: e.usesLifts,
     usesHeightBracket: e.usesHeightBracket,
     defaultRuleNote: e.defaultRuleNote,
-    rates: e.rates.map((r) => ({ band: r.band, bracket: r.bracket, rate: Number(r.rate) })),
+    sourceTitle: e.sourceTitle,
+    rates: e.rates.map((r) => ({
+      band: r.band,
+      bracket: r.bracket,
+      rate: Number(r.rate),
+      baseHireWeeks: r.baseHireWeeks,
+      extraHirePerWeek: Number(r.extraHirePerWeek),
+      extraHireChargePct: Number(r.extraHireChargePct),
+    })),
   }));
 }
 

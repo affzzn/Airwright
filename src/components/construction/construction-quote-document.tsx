@@ -166,9 +166,8 @@ export function ConstructionQuoteDocument({
         {pricing.extraHirePerWeek != null && (
           <p>
             <span className="font-semibold text-[#222]">Extra hire:</span>{" "}
-            {formatGBP(pricing.extraHirePerWeek)} per week beyond the inclusive period (
-            {quote.extraHirePctPerWeek}% of the job cost per week; a part-week is charged as a full
-            week).
+            {formatGBP(pricing.extraHirePerWeek)} per week beyond the hire period included in the
+            rates. A part-week is charged as a full week.
           </p>
         )}
       </div>

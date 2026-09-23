@@ -161,6 +161,7 @@ export function EnquiryStep({
         lifts: l.lifts,
         heightBracket: l.heightBracket,
         note: l.note,
+        hireWeeks: l.hireWeeks ?? null,
       }));
     const measurements = review.measurements
       .filter((m) => m.include)

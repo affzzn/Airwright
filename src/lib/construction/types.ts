@@ -15,7 +15,13 @@ export type ConstructionUnit =
   | "PER_WEEK"
   | "FIXED";
 
-export type HeightBracket = "UP_TO_6M" | "H6_12M" | "H12_18M" | "H18_24M" | "ANY";
+export type HeightBracket =
+  | "UP_TO_6M"
+  | "H6_12M"
+  | "H12_18M"
+  | "H18_24M"
+  | "H24_30M"
+  | "ANY";
 
 export type RateBand =
   | "SUPER_COMPETITIVE"
@@ -54,6 +60,7 @@ export const BRACKET_LABEL: Record<HeightBracket, string> = {
   H6_12M: "6–12 m",
   H12_18M: "12–18 m",
   H18_24M: "18–24 m",
+  H24_30M: "24–30 m",
   ANY: "any height",
 };
 

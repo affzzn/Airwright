@@ -7,7 +7,7 @@ import { env } from "@/lib/env";
 import { extractScopeText } from "@/lib/construction/scopeText";
 import { draftFromScope } from "@/lib/construction/draftFromScope";
 import { aliasToLearn, type ReconciledDraftLine } from "@/lib/construction/scopeDraft";
-import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
+import { lineAmount, resolveConstructionRateRow, type RateRow } from "@/lib/construction/price";
 import { loadConstructionLibrary } from "@/server/construction";
 import type { ConstructionUnit, HeightBracket, RateBand } from "@/lib/construction/types";
 
@@ -173,16 +173,21 @@ export async function applyConstructionDraftLines(
     if (el) {
       // A matched library line — resolve the rate from the quote's band + bracket.
       const bracket = el.usesHeightBracket ? defaultBracket : null;
-      const rate =
-        resolveConstructionRate(
-          el.rates.map((r) => ({
+      const resolved = resolveConstructionRateRow(
+        el.rates.map(
+          (r): RateRow => ({
             band: r.band as RateBand,
             bracket: r.bracket as HeightBracket,
             rate: r.rate,
-          })),
-          band,
-          bracket,
-        ) ?? 0;
+            baseHireWeeks: r.baseHireWeeks,
+            extraHirePerWeek: r.extraHirePerWeek,
+            extraHireChargePct: r.extraHireChargePct,
+          }),
+        ),
+        band,
+        bracket,
+      );
+      const rate = resolved?.rate ?? 0;
       const lifts = el.usesLifts ? cleanLifts(a.lifts) : null;
       const quantity = cleanQty(a.quantity);
       const unit = el.unit as ConstructionUnit;
@@ -195,6 +200,9 @@ export async function applyConstructionDraftLines(
         quantity,
         heightBracket: bracket,
         rate,
+        baseHireWeeks: resolved?.baseHireWeeks ?? null,
+        extraHirePerWeek: resolved?.extraHirePerWeek ?? null,
+        extraHireChargePct: resolved?.extraHireChargePct ?? null,
         amount: lineAmount({ unit, quantity, lifts, rate }),
         isAuto: true,
         note: buildLineNote(a.clientText, a.note),

@@ -85,20 +85,28 @@ lifts`), never as one lump. This also **corrected a house-build rule** (16 Sep c
 bays, Haki staircases and rubbish chutes should be priced **per lift** there too (mirrors gang
 pay) — noted here, tracked as a small house-build follow-up, **not part of this build**.
 
-### 1.5 Height brackets (rate depends on height) ✅ per-bracket confirmed
-Rates are banded by building height: **≤6 m · 6–12 m · 12–18 m …**. A 4 m school prices in the
-"≤6 m" bracket. Colin picks the bracket from the height he measured. **Each item can carry a
-different rate per bracket** (user-confirmed 2026-09-17 — the library is per-bracket, not one
-flat rate).
+### 1.5 Height brackets (rate depends on height) ✅ CONFIRMED from the real rate sheet
+Rates are banded by building height. The sheet (`cons-data/picking list.xlsm`, 2026-09-24) gives
+**five** bands: **≤6 m · 6–12 m · 12–18 m · 18–24 m · 24–30 m**. A 4 m school prices in "≤6 m".
+Each item carries a different rate per bracket, and separately per commercial band — see §5.
 
-### 1.6 Hire — the genuinely new money concept (two parts)
-- **Inclusive hire** — a **flat price for a set period** (usually **4 weeks**; Wren = 10). Up
-  for 1 week or 4, same price; the weeks are *built into* the quoted figure.
-- **Extra hire** — a **weekly charge for every week beyond** the inclusive period. Applied
-  **automatically**; a part-week rounds **up** to a full week. **⚠️ Initial rule: 0.05% of the
-  total job cost per extra week** (Laura to confirm the exact calculation in writing).
-- **Inspections** — charged **per hire week** (4 weeks hire → 4 inspections; extra weeks add
-  inspections too).
+### 1.6 Hire — ✅ RESOLVED 2026-09-24 from Airwright's own rate sheet
+The 0.05%-of-job rule recorded here from the call was **wrong**. The real model, from the
+`E/H Value` / `Weeks to charge` / `%age to charge` columns of `picking list.xlsm`:
+
+- **Inclusive hire lives on the RATE, not the quote.** Every rate is "Based on (Hire Period)":
+  **4 weeks for every construction item**, 12 for timber frame, varying for traditional. Those
+  weeks are already inside the quoted figure.
+- **Extra hire is charged PER UNIT PER WEEK**, at a percentage set by the commercial band:
+  `quantity × E/H Value × %age to charge`, for each week past the rate's base period. A
+  part-week rounds **up**. E/H values in the sheet run 0.50, 1.20, 2.40, 4.80, 6, 7.20, 9.60,
+  10, 12, 24; the percentage is 25 / 50 / 75 / 100.
+- Worked example, checked against the real Murray Park quote: 66 m of Independent Scaffold at
+  Competitive, £1.20/m/week at 50% = **£39.60 a week**. The old placeholder would have quoted
+  £1.18 — out by a factor of 33.
+- **Inspections** — charged **per hire week**.
+- ⚠️ Still open: the `%age to charge` mostly tracks the band but not always (a Competitive
+  loading bay at ≤6 m is 25% while its High twin is 75%). Deliberate, or a sheet slip?
 
 ### 1.7 Terminology is messy — map it, don't expect uniformity
 The client's words ≠ the picking-list words ≠ Strike's words. Same physical thing, three names
@@ -329,7 +337,42 @@ createdAt     DateTime @default(now())
 
 ---
 
-## 5. The scaffold element library (seed — placeholders)
+## 5. The scaffold element library ✅ REAL, imported 2026-09-24
+
+**Airwright keep ONE master item list for the whole business**, exported from their estimating
+system (`cons-data/picking list.xlsm`, sheet "Excel Import", 493 rows). The item TITLE carries
+the entire data model:
+
+```
+(A) Con Ind Scaff (6-12m max) M
+ │   │   │         │           └── band: H | M | C | SC
+ │   │   │         └────────────── height bracket
+ │   │   └──────────────────────── item family
+ │   └──────────────────────────── business line: Con | TRAD | TF
+ └──────────────────────────────── (A) current · (Z) legacy
+```
+
+Every rate is a **built-up cost**, not a typed-in number: material + transport + labour erect +
+labour dismantle + 30% labour overhead + 50% overhead + 10% profit. That is the "one rate" spine
+of `docs/00`, made concrete.
+
+**What was imported** (`scripts/import-rate-sheet.mts`, parser in `src/lib/construction/rateSheet.ts`):
+
+| Line | Elements | Notes |
+|---|---|---|
+| `(A) Con` | **32** | The construction picking list, 132 rate rows |
+| `(A) TRAD` | 60 | Traditional house-build |
+| `(A) TF` | 16 | Timber frame |
+| `(A)` other | 58 | Shared: daywork, design, netting, racks |
+
+165 elements, 653 rates. `(Z)` legacy rows are skipped. An item with no band in its title has
+its price copied across all four bands and is flagged `bandAssumed`; an explicitly banded row
+always wins. Items that disappear from a future sheet are **retired, never deleted**, because
+quote lines point at them. Re-running the importer is safe: elements are keyed on line + family.
+
+A construction quote picks from **CONSTRUCTION + GENERAL**.
+
+### 5a. The original placeholder seed (superseded)
 
 Seed the **global** library (`clientId = null`). Units + rules are ✅ from the calls; **£ rates
 are ⚠️ placeholders** (a few real ones were seen on the recording — flagged; swap in Colin's
@@ -480,10 +523,12 @@ existing design system (`docs/07`).
 `/rates` becomes three tabs/sections (the house-build cards are unchanged; construction is new):
 1. **Traditional** — the existing per-lift / per-floor / apex / render house-build rate card.
 2. **Timber frame** — the TF components (external, adaptions, apex) — the existing TF rates.
-3. **Construction** — **the element library editor**: add/edit/delete `ConstructionElement`
-   rows; per element set unit, `usesLifts`, `usesHeightBracket`, and **a rate per (band, bracket)**
-   grid (`ConstructionRate`); add a custom item + rate. This is where Colin swaps placeholders for
-   his real sheet.
+3. **Construction** — **the item library as a MATRIX** (rebuilt 2026-09-24): items down,
+   height brackets across, a band switcher above, and a business-line switcher (Construction /
+   General / Traditional / Timber frame) since the table now holds the whole master list. The
+   hire terms that travel with each rate (base weeks, E/H per week, the percentage charged) sit
+   at the end of each row, because they vary by item and band but not by bracket. Every cell is
+   editable; a blank cell means no rate on that band, so a line using it prices at zero.
 
 (Implementation note: Traditional vs Timber-Frame today share a house-build `RateCard` but use
 different components; the split here is a **UI grouping** of the rates screen, plus a genuinely
@@ -544,12 +589,13 @@ against a real priced job.
 ---
 
 ## 13. ⚠️ Still needs Colin / Laura (build the hook, flag, don't guess)
-1. **The real rate sheet** — £ per element per bracket per band (Google-Drive export from the
-   recording). Placeholders until then.
-2. **Extra-hire calculation** — verbally 0.05% of job cost per week; confirm the exact % + basis,
-   and whether it's a quoted line or terms-only.
-3. **Inspection rate** + whether it's per week flat or scaled.
-4. **Height brackets** — confirm the exact bands (≤6 / 6–12 / 12–18 / 18–24?).
+1. ~~The real rate sheet.~~ ✅ **RECEIVED + IMPORTED 2026-09-24** (`cons-data/picking list.xlsm`).
+2. ~~Extra-hire calculation.~~ ✅ **RESOLVED** — per unit per week × the band percentage, beyond
+   the rate's own base period (§1.6). ⚠️ One question left: is the `%age to charge` variation
+   between bands deliberate?
+3. **Inspection rate** — the sheet has "Inspection Basic" and "Inspection Advanced"; confirm
+   which applies and whether it is per week or a job lump (Murray Park quoted £1,500 for 6 weeks).
+4. ~~Height brackets.~~ ✅ **RESOLVED** — ≤6 / 6–12 / 12–18 / 18–24 / 24–30 m.
 5. **Terminology list** (Laura) — the client/Strike → Airwright name map to seed `aliases`.
 6. **Handrail** — confirm triple = double + single pricing, and the roof-default rule.
 7. **Per-lift house-build correction** (loading bay/Haki/chute) — a separate house-build follow-up

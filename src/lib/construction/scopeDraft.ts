@@ -9,10 +9,24 @@
  */
 
 import type { DraftConfidence, DraftLine } from "./scopeSchema";
+import {
+  parseScopeDimension,
+  parseScopeDurationWeeks,
+  parseScopeHeight,
+  quantityForUnit,
+} from "./scopeDimension";
 
 /** A draft line after reconciliation — safe to hand to the review UI. */
 export interface ReconciledDraftLine {
   clientText: string;
+  itemRef: string | null;
+  location: string | null;
+  /** Weeks of hire this line asks for; a scope states it PER LINE. */
+  hireWeeks: number | null;
+  heightM: number | null;
+  loadingRequirement: string | null;
+  /** How the quantity was arrived at, when it came from a dimension cell. */
+  quantityBasis: string | null;
   /** A VALID picking-list element id, or null (unmatched → needs mapping). */
   elementId: string | null;
   quantity: number | null;
@@ -45,16 +59,40 @@ const cleanLifts = (n: number | null | undefined): number | null => {
 export function reconcileDraftLines(
   lines: DraftLine[],
   validIds: Iterable<string>,
+  /** Unit per element id, so a dimension cell can be turned into a quantity. */
+  unitById: Map<string, string> = new Map(),
 ): ReconciledDraftLine[] {
   const valid = validIds instanceof Set ? validIds : new Set(validIds);
   return lines.map((l) => {
     const proposed = l.elementId?.trim() || null;
     const isValid = proposed != null && valid.has(proposed);
     const invented = proposed != null && !isValid;
+    const elementId = isValid ? proposed : null;
+
+    // The model copies the dimension cell verbatim; the arithmetic happens here.
+    let quantity = cleanNum(l.quantity);
+    let quantityBasis: string | null = null;
+    if (quantity == null && l.dimensionText && elementId) {
+      const unit = unitById.get(elementId);
+      if (unit) {
+        const derived = quantityForUnit(parseScopeDimension(l.dimensionText), unit);
+        if (derived) {
+          quantity = derived.quantity;
+          quantityBasis = derived.basis;
+        }
+      }
+    }
+
     return {
       clientText: l.clientText?.trim() ?? "",
-      elementId: isValid ? proposed : null,
-      quantity: cleanNum(l.quantity),
+      itemRef: l.itemRef?.trim() || null,
+      location: l.location?.trim() || null,
+      hireWeeks: parseScopeDurationWeeks(l.hireDurationText ?? ""),
+      heightM: parseScopeHeight(l.heightText ?? ""),
+      loadingRequirement: l.loadingRequirement?.trim() || null,
+      quantityBasis,
+      elementId,
+      quantity,
       lifts: cleanLifts(l.lifts),
       note: l.note?.trim() || null,
       confidence: l.confidence,

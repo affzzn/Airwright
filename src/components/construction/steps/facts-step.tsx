@@ -51,6 +51,8 @@ export function FactsStep({
   locked,
   compact,
   extraHirePerWeek,
+  extraHireBeyondBase,
+  weeksBeyondBase,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
@@ -58,6 +60,8 @@ export function FactsStep({
   /** True when the drawing pane is open: stack instead of squeezing. */
   compact: boolean;
   extraHirePerWeek: number | null;
+  extraHireBeyondBase: number;
+  weeksBeyondBase: number;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -221,28 +225,22 @@ export function FactsStep({
           </Panel>
 
           <Panel title="Hire">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Inclusive weeks" htmlFor="f-weeks">
-                <NumberField
-                  id="f-weeks"
-                  value={quote.durationWeeks}
-                  disabled={locked}
-                  onSave={(v) => save({ durationWeeks: v })}
-                />
-              </Field>
-              <Field label="Extra hire (% a week)" htmlFor="f-extra">
-                <NumberField
-                  id="f-extra"
-                  step="0.01"
-                  value={quote.extraHirePctPerWeek}
-                  disabled={locked}
-                  onSave={(v) => save({ extraHirePctPerWeek: v })}
-                />
-              </Field>
-            </div>
+            <Field label="Hire period (weeks)" htmlFor="f-weeks">
+              <NumberField
+                id="f-weeks"
+                value={quote.durationWeeks}
+                disabled={locked}
+                onSave={(v) => save({ durationWeeks: v })}
+              />
+            </Field>
             <Readout>
-              {weeks > 0 ? `${weeks} weekly inspection${weeks === 1 ? "" : "s"}` : "No duration set"}
-              {extraHirePerWeek != null ? `, then ${formatGBP(extraHirePerWeek)} a week` : ""}
+              {weeks > 0 ? `${weeks} weekly inspection${weeks === 1 ? "" : "s"}` : "No hire period set"}
+              {extraHirePerWeek != null
+                ? `. Extra hire runs at ${formatGBP(extraHirePerWeek)} a week, set by each item's rate.`
+                : ". Extra hire is set by each item's rate."}
+              {weeksBeyondBase > 0
+                ? ` This hire runs ${weeksBeyondBase} week${weeksBeyondBase === 1 ? "" : "s"} past what the rates include, which is ${formatGBP(extraHireBeyondBase)}.`
+                : ""}
             </Readout>
           </Panel>
         </div>

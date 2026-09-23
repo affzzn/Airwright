@@ -149,6 +149,17 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 
 ## Construction — follow-ups
 
+- [ ] **Ask Colin: is `%age to charge` band variation deliberate?** Most items track the band
+      (H 100 / M 75 / C 50), but e.g. `Con Loading bay (per lift)` is H 75 / M 50 / C 25 at
+      <=6 m. It changes every extra-hire figure we quote.
+- [ ] **Which inspection item, and on what basis?** The sheet has "Inspection Basic" (£49.46)
+      and "Inspection Advanced" (£87.29); Murray Park quoted £1,500 for a 6-week hire.
+- [ ] **TRAD/TF rates are imported but NOT wired to house-build pricing.** 60 Traditional and
+      16 Timber-frame items now sit in the library with real rates; house-build still prices
+      off `RateCard`/`RateItem`. Mapping item -> `ScaffoldComponent` needs Colin, so it is
+      deliberately not guessed. This is the remaining half of "the rate sheet unblocks pricing".
+- [ ] **Scope fields we do not model yet**: `Loading Req.` (TG20 class) and `Approx. Date
+      Required` (phasing) from a real scope of works.
 - [ ] **Wren hire duration: 7 or 10 weeks?** The client's schedule
       (`data/construction/eg-01`) says 7 weeks; docs/19 §2 records 10. Confirm before
       the example is relied on as a pricing fixture.

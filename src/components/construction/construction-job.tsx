@@ -98,10 +98,13 @@ export function ConstructionJob({
           quantity: l.quantity,
           lifts: l.lifts,
           rate: l.rate,
+          baseHireWeeks: l.baseHireWeeks,
+          extraHirePerWeek: l.extraHirePerWeek,
+          extraHireChargePct: l.extraHireChargePct,
         })),
-        extraHirePctPerWeek: quote.extraHirePctPerWeek,
+        durationWeeks: quote.durationWeeks,
       }),
-    [lines, quote.extraHirePctPerWeek],
+    [lines, quote.durationWeeks],
   );
 
   const facts = useMemo(
@@ -291,6 +294,8 @@ export function ConstructionJob({
               locked={locked}
               compact={showRef}
               extraHirePerWeek={priced.extraHirePerWeek}
+              extraHireBeyondBase={priced.extraHireBeyondBase}
+              weeksBeyondBase={priced.maxWeeksBeyondBase}
             />
           )}
           {step === "items" && (

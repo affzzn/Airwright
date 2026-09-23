@@ -13,6 +13,7 @@ import { INPUT_COST_PER_MTOK, OUTPUT_COST_PER_MTOK } from "@/lib/extract/config"
 import { drawingObservationsSchema, DRAWING_TOOL_NAME, type DrawingObservations } from "./drawingSchema";
 import { DRAWING_PROMPT_VERSION, DRAWING_SYSTEM_PROMPT, buildDrawingUserText } from "./drawingPrompt";
 import { extractDrawingText } from "./drawingText";
+import { buildTiledPdf } from "./drawingTiles";
 
 const DRAWING_MAX_TOKENS = 16384;
 
@@ -25,6 +26,8 @@ const toolInputSchema = zodToJsonSchema(drawingObservationsSchema, {
 export interface ReadDrawingResult {
   observations: DrawingObservations;
   hasText: boolean;
+  /** How the sheet was sent: whole, or magnified into N tiles. */
+  tiles: number;
   meta: {
     model: string;
     promptVersion: string;
@@ -47,7 +50,16 @@ export async function readDrawing(pdf: Buffer): Promise<ReadDrawingResult> {
     pageCount: 0,
     pageTexts: [] as { page: number; text: string }[],
   }));
-  const userText = buildDrawingUserText({ hasText: text.hasText, pageTexts: text.pageTexts });
+  // A sheet bigger than A4 is magnified into tiles, otherwise its printed
+  // dimensions are illegible once Claude downsamples the page (docs/20 §3.2).
+  const tiled = await buildTiledPdf(pdf).catch(() => null);
+  const document = tiled?.bytes ?? pdf;
+
+  const userText = buildDrawingUserText({
+    hasText: text.hasText,
+    pageTexts: text.pageTexts,
+    pageGuide: tiled?.pageGuide ?? [],
+  });
 
   const client = new Anthropic({ apiKey: env.anthropicApiKey });
   const model = env.constructionDrawingModel;
@@ -72,7 +84,7 @@ export async function readDrawing(pdf: Buffer): Promise<ReadDrawingResult> {
         content: [
           {
             type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: pdf.toString("base64") },
+            source: { type: "base64", media_type: "application/pdf", data: document.toString("base64") },
           },
           { type: "text", text: userText },
         ],
@@ -104,6 +116,7 @@ export async function readDrawing(pdf: Buffer): Promise<ReadDrawingResult> {
   return {
     observations,
     hasText: text.hasText,
+    tiles: tiled?.plan.tiles.length ?? 0,
     meta: {
       model,
       promptVersion: DRAWING_PROMPT_VERSION,

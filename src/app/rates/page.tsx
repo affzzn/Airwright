@@ -24,7 +24,7 @@ export default async function RatesPage() {
       },
     }),
     prisma.constructionElement.findMany({
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      orderBy: [{ line: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
       relationLoadStrategy: "join",
       include: { rates: { orderBy: [{ band: "asc" }, { bracket: "asc" }] } },
     }),
@@ -55,6 +55,8 @@ export default async function RatesPage() {
   }));
 
   const elementData: ConstructionElementVM[] = elements.map((e) => ({
+    line: e.line,
+    sourceTitle: e.sourceTitle,
     id: e.id,
     name: e.name,
     aliases: e.aliases,
@@ -69,6 +71,9 @@ export default async function RatesPage() {
       band: r.band,
       bracket: r.bracket,
       rate: Number(r.rate),
+      baseHireWeeks: r.baseHireWeeks,
+      extraHirePerWeek: Number(r.extraHirePerWeek),
+      extraHireChargePct: Number(r.extraHireChargePct),
     })),
   }));
 

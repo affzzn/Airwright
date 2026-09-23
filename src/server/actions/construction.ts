@@ -9,7 +9,7 @@ import type {
   SiteType,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
+import { lineAmount, resolveConstructionRateRow, type RateRow } from "@/lib/construction/price";
 import { createSignedUploadUrl, createSignedUrl } from "@/lib/supabase/storage";
 import { isDraftableFile, looksLikeOurOwnQuote } from "@/lib/construction/fileKinds";
 
@@ -93,7 +93,6 @@ export async function updateConstructionQuote(
     siteAddress?: string | null;
     band?: string;
     durationWeeks?: number | null;
-    extraHirePctPerWeek?: number | null;
     enquiryType?: string | null;
     siteType?: string | null;
     buildingHeightM?: number | null;
@@ -110,9 +109,6 @@ export async function updateConstructionQuote(
   if (patch.siteAddress !== undefined) data.siteAddress = patch.siteAddress?.trim() || null;
   if (patch.band !== undefined && BANDS.has(patch.band as RateBand)) data.band = patch.band;
   if (patch.durationWeeks !== undefined) data.durationWeeks = intOrNull(patch.durationWeeks);
-  if (patch.extraHirePctPerWeek !== undefined)
-    data.extraHirePctPerWeek =
-      patch.extraHirePctPerWeek == null ? null : numOrNull(patch.extraHirePctPerWeek);
   if (patch.enquiryType !== undefined) data.enquiryType = patch.enquiryType?.trim() || null;
   if (patch.siteType !== undefined)
     data.siteType = SITE_TYPES.has(patch.siteType as SiteType) ? patch.siteType : null;
@@ -214,6 +210,7 @@ export async function deleteConstructionMeasurement(
 // --- Lines -------------------------------------------------------------------
 
 /** Resolve an element's rate for the quote's band + a bracket, and compute a line. */
+/** The full line payload for an element: its rate AND the hire terms with it. */
 async function resolveLineFromElement(
   quoteId: string,
   elementId: string,
@@ -225,6 +222,9 @@ async function resolveLineFromElement(
   rate: number;
   heightBracket: HeightBracket | null;
   lifts: number | null;
+  baseHireWeeks: number | null;
+  extraHirePerWeek: number | null;
+  extraHireChargePct: number | null;
 } | null> {
   const [quote, element] = await Promise.all([
     prisma.constructionQuote.findUnique({ where: { id: quoteId } }),
@@ -234,18 +234,24 @@ async function resolveLineFromElement(
   const bracket = element.usesHeightBracket
     ? (bracketOverride ?? (quote.defaultHeightBracket as HeightBracket | null))
     : null;
-  const rate =
-    resolveConstructionRate(
-      element.rates.map((r) => ({ band: r.band, bracket: r.bracket, rate: Number(r.rate) })),
-      quote.band,
-      bracket,
-    ) ?? 0;
+  const rows: RateRow[] = element.rates.map((r) => ({
+    band: r.band,
+    bracket: r.bracket,
+    rate: Number(r.rate),
+    baseHireWeeks: r.baseHireWeeks,
+    extraHirePerWeek: Number(r.extraHirePerWeek),
+    extraHireChargePct: Number(r.extraHireChargePct),
+  }));
+  const resolved = resolveConstructionRateRow(rows, quote.band, bracket);
   return {
     description: element.name,
     unit: element.unit,
-    rate,
+    rate: resolved?.rate ?? 0,
     heightBracket: bracket,
     lifts: element.usesLifts ? lifts : null,
+    baseHireWeeks: resolved?.baseHireWeeks ?? null,
+    extraHirePerWeek: resolved?.extraHirePerWeek ?? null,
+    extraHireChargePct: resolved?.extraHireChargePct ?? null,
   };
 }
 
@@ -276,6 +282,9 @@ export async function addConstructionLineFromElement(
       quantity,
       heightBracket: resolved.heightBracket,
       rate: resolved.rate,
+      baseHireWeeks: resolved.baseHireWeeks,
+      extraHirePerWeek: resolved.extraHirePerWeek,
+      extraHireChargePct: resolved.extraHireChargePct,
       amount,
       isAuto: false,
       sortOrder: (max._max.sortOrder ?? 0) + 10,
@@ -384,6 +393,9 @@ export async function duplicateConstructionLine(
       quantity: line.quantity,
       heightBracket: line.heightBracket,
       rate: line.rate,
+      baseHireWeeks: line.baseHireWeeks,
+      extraHirePerWeek: line.extraHirePerWeek,
+      extraHireChargePct: line.extraHireChargePct,
       amount: line.amount,
       isAuto: false,
       note: line.note,
@@ -423,6 +435,9 @@ async function repriceQuoteLines(quoteId: string): Promise<void> {
       data: {
         rate: resolved.rate,
         heightBracket: resolved.heightBracket,
+        baseHireWeeks: resolved.baseHireWeeks,
+        extraHirePerWeek: resolved.extraHirePerWeek,
+        extraHireChargePct: resolved.extraHireChargePct,
         amount: lineAmount({ unit: l.unit, quantity, lifts: l.lifts, rate: resolved.rate }),
       },
     });

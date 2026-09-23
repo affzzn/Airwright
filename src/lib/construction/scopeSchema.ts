@@ -20,6 +20,19 @@ export type DraftConfidence = z.infer<typeof draftConfidence>;
 export const draftLineSchema = z.object({
   /** The scope's original wording for this item — kept verbatim for traceability. */
   clientText: z.string(),
+  /** The scope's own reference for the row, e.g. "1.2", when it numbers them. */
+  itemRef: z.string().nullable(),
+  /** Where on the job it is, e.g. "Stair 01", "North courtyard", "Block F roof". */
+  location: z.string().nullable(),
+  /** The dimension cell VERBATIM, e.g. "2.4x5.4m", "560lin.m", "N/A". Never do
+   *  the arithmetic: a deterministic parser turns this into a quantity. */
+  dimensionText: z.string().nullable(),
+  /** The height cell VERBATIM, e.g. "12m (top working platform level)". */
+  heightText: z.string().nullable(),
+  /** The hire-duration cell VERBATIM, e.g. "20wks". Scopes give this PER LINE. */
+  hireDurationText: z.string().nullable(),
+  /** The loading requirement, e.g. "General Purpose", when the scope states one. */
+  loadingRequirement: z.string().nullable(),
   /** A REAL picking-list element id from the provided list, or null = no match. */
   elementId: z.string().nullable(),
   /** The quantity the scope states, if any (m / m² / count). null = not stated. */

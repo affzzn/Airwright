@@ -177,9 +177,16 @@ small dimension text blurs at that scale. Mitigations, in order:
    numbers as text* and uses the *image* only for spatial reasoning (which feature is where,
    how many per floor, what encloses a perimeter). This makes counting and reading printed
    dimensions reliable even on a blurry A1.
-2. **Per-feature region crops (v2).** For a fine measurement the model can't resolve, crop the
-   sheet to the feature's bounding region (from its label's text-layer coordinates) and re-read
-   that tile at full resolution. Deferred; §16.
+2. **Tiling at native resolution.** ✅ **BUILT 2026-09-24** (`drawingTiles.ts`), promoted from
+   "v2" once Airwright's own example drawing was measured: it is an A3 sheet with **no text
+   layer**, carrying a 150 dpi raster plus 300 dpi bitonal stencils. Whole-sheet rendering puts
+   an A1 at 0.66 px/pt, where 2-3 pt dimension text is illegible. `pdf-lib` copies the page and
+   moves its MediaBox over a sub-rectangle, so Claude renders each crop at its own full budget:
+   every tiled sheet lands at ~1.86 px/pt, the same an A4 already gets. The document sent is
+   page 1 = the whole sheet for context, then the numbered tiles (8% overlap so nothing is cut
+   on a seam). The source page is embedded ONCE as a shared form XObject, so the Wren A1 sheet
+   is 2.4 MB for seven pages rather than 16.7 MB. Measured: A4 untouched, A3 2x1 (1.4x), A1
+   3x2 (2.8x); a tile carries 98% of the text strings its region should hold.
 3. **Raster-only sheets (eg-02):** no text layer → no candidates → the model reads only the
    image and returns **low-confidence labels + "no measurable dimensions"**. Correct behaviour:
    surface the items, flag every quantity for manual entry.
@@ -483,8 +490,15 @@ side in the action, lazily importing pdfjs — same discipline as `scopeText.ts`
    drawing-feature matching is reliable.
 2. **The real rate sheet** + the exact **extra-hire %** (0.05 %/wk verbal) + inspection basis +
    the **height bands** (≤6 / 6-12 / 12-18…).
-3. ~~A real Excel scope-of-works to tune the row→item + cross-check.~~ ✅ `eg-01`'s Wren
-   schedule is one. A National-Grid-type one carrying a call-off metreage would still help.
+3. ~~A real Excel scope-of-works.~~ ✅ **RECEIVED 2026-09-24**: `cons-data/50172_Scaffold
+   Scope_Rev.1.xlsx` (Project Stanmore, 37 rows, by the client's own planner). Columns: Item
+   Ref · Location · Floor Level(s) · Description · Approx. Plan Dimensions · Approx. Height (m)
+   · Loading Req. · Hire Duration · Approx. Date Required · Comments. The scope reader and its
+   dimension parser are tuned against it (`scopeDimension.ts`). Two things it settled: **hire
+   duration is stated PER LINE** (2 to 40 weeks in one scope), and dimensions arrive in mixed
+   formats ("20lin.m", "2.4x5.4m", "25x20m", "N/A") that must be parsed, never guessed by the
+   model. Still missing from our model: `Loading Req.` (TG20 class) and `Approx. Date Required`
+   (phasing).
 4. **Per-lift confirmation** for loading bay / Haki / chute (Ben confirmed; keep as the rule).
 5. **Strike walkthrough** — how inclusive vs extra hire is built up, to mirror it exactly.
 

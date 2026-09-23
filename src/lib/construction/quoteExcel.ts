@@ -32,10 +32,11 @@ export interface ConstructionQuoteForExcel {
   siteAddress: string | null;
   band: string;
   durationWeeks: number | null;
-  extraHirePctPerWeek: number | null;
   lines: ConstructionLineForExcel[];
   total: number;
   extraHirePerWeek: number | null;
+  extraHireBeyondBase: number;
+  maxWeeksBeyondBase: number;
   assumptions: string[] | null;
 }
 
@@ -96,7 +97,11 @@ export async function buildConstructionWorkbook(
       "",
       "Extra hire / week",
       round2(q.extraHirePerWeek),
-      safe(`${q.extraHirePctPerWeek ?? 0}% of job cost per week beyond the ${q.durationWeeks ?? "?"}-week inclusive period`),
+      safe(
+        q.maxWeeksBeyondBase > 0
+          ? `Per week beyond the hire period the rates include. The quoted ${q.durationWeeks ?? "?"} weeks run ${q.maxWeeksBeyondBase} week(s) past it.`
+          : "Per week beyond the hire period the rates include.",
+      ),
     ]);
   }
 

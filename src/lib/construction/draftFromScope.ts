@@ -78,7 +78,8 @@ export async function draftFromScope(
 
   const parsed = constructionDraftSchema.parse(res.input);
   const validIds = new Set(elements.map((e) => e.id));
-  const lines = reconcileDraftLines(parsed.lines, validIds);
+  const unitById = new Map(elements.map((e) => [e.id, String(e.unit)]));
+  const lines = reconcileDraftLines(parsed.lines, validIds, unitById);
 
   return {
     lines,

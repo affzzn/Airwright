@@ -4,6 +4,12 @@ import type { DraftLine } from "./scopeSchema";
 
 const line = (over: Partial<DraftLine>): DraftLine => ({
   clientText: "x",
+  itemRef: null,
+  location: null,
+  dimensionText: null,
+  heightText: null,
+  hireDurationText: null,
+  loadingRequirement: null,
   elementId: null,
   quantity: null,
   lifts: null,

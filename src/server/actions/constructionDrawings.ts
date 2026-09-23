@@ -18,7 +18,7 @@ import {
   type ScopeItem,
 } from "@/lib/construction/assemble";
 import type { DrawingObservations } from "@/lib/construction/drawingSchema";
-import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
+import { lineAmount, resolveConstructionRateRow, type RateRow } from "@/lib/construction/price";
 import { isDrawingFile, isScopeTextFile } from "@/lib/construction/fileKinds";
 import { loadConstructionLibrary } from "@/server/construction";
 import type { ConstructionUnit, HeightBracket, RateBand } from "@/lib/construction/types";
@@ -158,7 +158,15 @@ export async function readConstructionEnquiry(
         scopeTexts.join("\n\n---\n\n"),
         library.map((e) => ({ id: e.id, name: e.name, aliases: e.aliases, unit: e.unit, usesLifts: e.usesLifts, category: e.category })),
       );
-      scopeItems = scopeDraft.lines.map((l) => ({ elementId: l.elementId, quantity: l.quantity, lifts: l.lifts, clientText: l.clientText }));
+      scopeItems = scopeDraft.lines.map((l) => ({
+        elementId: l.elementId,
+        quantity: l.quantity,
+        lifts: l.lifts,
+        clientText: l.clientText,
+        hireWeeks: l.hireWeeks,
+        location: l.location,
+        quantityBasis: l.quantityBasis,
+      }));
     } catch {
       /* scope reader failed — proceed with the drawings alone */
     }
@@ -196,6 +204,8 @@ export interface ApplyDrawingLine {
   lifts: number | null;
   heightBracket: HeightBracket | null;
   note: string | null;
+  /** Weeks of hire this line asks for, when the scope stated one. */
+  hireWeeks?: number | null;
 }
 
 const cleanQty = (n: number | null): number => (n != null && Number.isFinite(n) && n >= 0 ? n : 0);
@@ -240,12 +250,21 @@ export async function applyDrawingDraft(
     const quantity = cleanQty(l.quantity);
     if (el) {
       const bracket = el.usesHeightBracket ? (l.heightBracket ?? defaultBracket) : null;
-      const rate =
-        resolveConstructionRate(
-          el.rates.map((r) => ({ band: r.band as RateBand, bracket: r.bracket as HeightBracket, rate: r.rate })),
-          band,
-          bracket,
-        ) ?? 0;
+      const resolved = resolveConstructionRateRow(
+        el.rates.map(
+          (r): RateRow => ({
+            band: r.band as RateBand,
+            bracket: r.bracket as HeightBracket,
+            rate: r.rate,
+            baseHireWeeks: r.baseHireWeeks,
+            extraHirePerWeek: r.extraHirePerWeek,
+            extraHireChargePct: r.extraHireChargePct,
+          }),
+        ),
+        band,
+        bracket,
+      );
+      const rate = resolved?.rate ?? 0;
       const lifts = el.usesLifts ? cleanLifts(l.lifts) : null;
       const unit = el.unit as ConstructionUnit;
       lineData.push({
@@ -256,7 +275,11 @@ export async function applyDrawingDraft(
         unit,
         quantity,
         heightBracket: bracket,
+        durationWeeks: l.hireWeeks ?? null,
         rate,
+        baseHireWeeks: resolved?.baseHireWeeks ?? null,
+        extraHirePerWeek: resolved?.extraHirePerWeek ?? null,
+        extraHireChargePct: resolved?.extraHireChargePct ?? null,
         amount: lineAmount({ unit, quantity, lifts, rate }),
         isAuto: true,
         note: l.note,
@@ -271,6 +294,7 @@ export async function applyDrawingDraft(
         lifts: cleanLifts(l.lifts),
         unit: l.unit,
         quantity,
+        durationWeeks: l.hireWeeks ?? null,
         rate: 0,
         amount: 0,
         isAuto: true,

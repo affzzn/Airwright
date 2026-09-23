@@ -32,6 +32,8 @@ export interface DrawingDraftLine {
   confidence: DrawingConfidence;
   note: string | null; // provenance + any cross-check flag
   needsItem: boolean; // true when nothing in the library matched
+  /** Weeks of hire this line asks for, when the scope stated one per line. */
+  hireWeeks?: number | null;
 }
 
 /** A traceable measurement (kept separate from the priced lines, docs/19 §3). */
@@ -401,6 +403,11 @@ export interface ScopeItem {
   quantity: number | null;
   lifts: number | null;
   clientText: string;
+  /** A real scope states hire PER LINE (docs/19 §1.6); carry it to the line. */
+  hireWeeks?: number | null;
+  location?: string | null;
+  /** How the quantity was derived from the scope's dimension cell. */
+  quantityBasis?: string | null;
 }
 
 /** Turn scope items into call-offs the drawing pass cross-checks against. */
@@ -442,7 +449,16 @@ export function scopeOnlyLines(
       lifts: el.usesLifts ? s.lifts : null,
       heightBracket: null,
       confidence: "low",
-      note: `From scope · "${s.clientText.trim()}" · not on a drawing, verify quantity`,
+      hireWeeks: s.hireWeeks ?? null,
+      note: [
+        `From scope · "${s.clientText.trim()}"`,
+        s.location ? `at ${s.location}` : null,
+        s.quantityBasis,
+        s.hireWeeks ? `${s.hireWeeks} week hire` : null,
+        "not on a drawing, verify quantity",
+      ]
+        .filter(Boolean)
+        .join(" · "),
       needsItem: false,
     });
   }
