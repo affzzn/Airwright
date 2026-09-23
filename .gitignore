@@ -41,3 +41,4 @@ yarn-error.log*
 # commercially sensitive). Never commit.
 /data/
 /colin-data/
+.env.readonly
