@@ -17,6 +17,7 @@ export function QuoteStep({
   quote,
   facts,
   locked,
+  compact,
   total,
   extraHirePerWeek,
   quoteDocument,
@@ -27,6 +28,8 @@ export function QuoteStep({
   quote: ConstructionQuoteVM;
   facts: JobFacts;
   locked: boolean;
+  /** True when the drawing pane is open: stack instead of squeezing. */
+  compact: boolean;
   total: number;
   extraHirePerWeek: number | null;
   quoteDocument: React.ReactNode;
@@ -50,7 +53,7 @@ export function QuoteStep({
   ];
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className={cn("grid gap-4", !compact && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
       <div className="flex min-w-0 flex-col gap-4">
         <Panel
           title="Before you issue"
@@ -120,7 +123,7 @@ export function QuoteStep({
         </Panel>
       </div>
 
-      <div className="flex flex-col gap-4 xl:sticky xl:top-20 xl:self-start">
+      <div className={cn("flex flex-col gap-4", !compact && "xl:sticky xl:top-20 xl:self-start")}>
         <Panel>
           <p className="eyebrow mb-1.5">Total excluding VAT</p>
           <p className="text-[28px] font-semibold tabular-nums tracking-tight text-ink">

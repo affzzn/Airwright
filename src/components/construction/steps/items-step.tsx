@@ -38,7 +38,6 @@ import {
   RowNotice,
   SuggestionChip,
 } from "@/components/construction/parts";
-import { ReferenceViewerBody, isPreviewable } from "@/components/construction/construction-reference-viewer";
 import { cn, formatGBP } from "@/lib/utils";
 
 /**
@@ -99,16 +98,15 @@ export function ItemsStep({
   lines,
   setLines,
   locked,
-  selectedFileId,
-  onSelectFile,
+  compact,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
   lines: ConstructionLineVM[];
   setLines: React.Dispatch<React.SetStateAction<ConstructionLineVM[]>>;
   locked: boolean;
-  selectedFileId: string | null;
-  onSelectFile: (id: string) => void;
+  /** True when the drawing pane is open: stack instead of squeezing. */
+  compact: boolean;
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -167,7 +165,7 @@ export function ItemsStep({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_336px]">
+    <div className={cn("grid gap-4", !compact && "xl:grid-cols-[minmax(0,1fr)_336px]")}>
       <div className="flex min-w-0 flex-col gap-3">
         {suggestions.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
@@ -189,17 +187,28 @@ export function ItemsStep({
             </div>
           ) : (
             <>
-              {/* Desktop table */}
-              <table className="hidden w-full lg:table">
+              {/* Desktop table. The wrapper keeps it inside its column when the
+                  drawing pane is open; the unit column goes first, since the
+                  formula under each item already names the unit. */}
+              <div
+                className={cn(
+                  "hidden overflow-x-auto lg:block",
+                  // Tighten the fixed columns so the table always fits beside
+                  // the drawing instead of scrolling sideways.
+                  compact &&
+                    "[&_.act-col]:w-[44px] [&_.amt-col]:w-[104px] [&_.lifts-col]:w-[56px] [&_.qty-col]:w-[84px] [&_.rate-col]:w-[80px] [&_.unit-col]:hidden [&_table]:table-fixed [&_td]:pr-2 [&_th]:px-2",
+                )}
+              >
+              <table className="w-full">
                 <thead>
                   <tr className="text-left">
                     <Th className="pl-5">Item</Th>
-                    <Th className="w-[62px] text-right">Lifts</Th>
-                    <Th className="w-[92px] text-right">Quantity</Th>
-                    <Th className="w-[74px]">Unit</Th>
-                    <Th className="w-[86px] text-right">Rate</Th>
-                    <Th className="w-[108px] text-right">Amount</Th>
-                    <Th className="w-[56px] pr-5" />
+                    <Th className="lifts-col w-[62px] text-right">Lifts</Th>
+                    <Th className="qty-col w-[92px] text-right">Quantity</Th>
+                    <Th className="unit-col w-[74px]">Unit</Th>
+                    <Th className="rate-col w-[86px] text-right">Rate</Th>
+                    <Th className="amt-col w-[108px] text-right">Amount</Th>
+                    <Th className="act-col w-[56px] pr-5" />
                   </tr>
                 </thead>
                 <tbody>
@@ -215,6 +224,7 @@ export function ItemsStep({
                   ))}
                 </tbody>
               </table>
+              </div>
 
               {/* Mobile cards */}
               <ul className="lg:hidden">
@@ -266,9 +276,8 @@ export function ItemsStep({
         bracket={bracket}
         band={quote.band as RateBand}
         busy={busy}
+        compact={compact}
         onAddElement={addElement}
-        selectedFileId={selectedFileId}
-        onSelectFile={onSelectFile}
       />
     </div>
   );
@@ -343,12 +352,13 @@ function LineRow({
 
   return (
     <>
-      <tr className="group border-t border-hairline align-middle">
+      <tr className="group border-t border-hairline align-middle transition-colors hover:bg-surface/40">
         <td className="min-w-0 py-2.5 pl-5 pr-3">
           <input
             value={line.description}
             disabled={locked}
             aria-label="Item"
+            title={line.description}
             onChange={(e) => patch({ description: e.target.value })}
             onBlur={(e) => save({ description: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
@@ -358,6 +368,11 @@ function LineRow({
             {formulaFor(line)}
             {line.isAuto && <span className="ml-2 text-ink-subtle">from enquiry</span>}
           </p>
+          {line.note && (
+            <p className="truncate px-1.5 text-[11px] text-ink-subtle" title={line.note}>
+              {line.note}
+            </p>
+          )}
         </td>
         <td className="py-2.5 pr-3">
           {perLift ? (
@@ -386,7 +401,9 @@ function LineRow({
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         </td>
-        <td className="py-2.5 pr-3 text-xs text-ink-muted">{UNIT_LABEL[line.unit as ConstructionUnit]}</td>
+        <td className="unit-col py-2.5 pr-3 text-xs text-ink-muted">
+          {UNIT_LABEL[line.unit as ConstructionUnit]}
+        </td>
         <td className="py-2.5 pr-3">
           <CellInput
             inputMode="decimal"
@@ -433,22 +450,18 @@ function LineRow({
           )}
         </td>
       </tr>
-      {(unpriced || line.note) && (
+      {unpriced && (
         <tr>
           <td colSpan={7} className="px-5 pb-2.5">
-            {unpriced ? (
-              <RowNotice
-                action={
-                  <a href="/rates" className="text-xs font-semibold text-ink">
-                    Set a rate
-                  </a>
-                }
-              >
-                No rate for this item in the chosen band, so it prices at zero.
-              </RowNotice>
-            ) : (
-              <p className="px-1 text-[11px] leading-relaxed text-ink-muted">{line.note}</p>
-            )}
+            <RowNotice
+              action={
+                <a href="/rates" className="text-xs font-semibold text-ink">
+                  Set a rate
+                </a>
+              }
+            >
+              No rate for this item in the chosen band, so it prices at zero.
+            </RowNotice>
           </td>
         </tr>
       )}
@@ -571,7 +584,7 @@ function MobileLine({
 
 // --- The side pane: picking list / measurements / drawing -------------------
 
-type Tab = "picking" | "measurements" | "drawing";
+type Tab = "picking" | "measurements";
 
 function SidePane({
   quote,
@@ -581,9 +594,8 @@ function SidePane({
   bracket,
   band,
   busy,
+  compact,
   onAddElement,
-  selectedFileId,
-  onSelectFile,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
@@ -592,23 +604,23 @@ function SidePane({
   bracket: HeightBracket | null;
   band: RateBand;
   busy: boolean;
+  compact: boolean;
   onAddElement: (elementId: string, quantity: number, lifts: number | null) => void;
-  selectedFileId: string | null;
-  onSelectFile: (id: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("picking");
-  const previewable = quote.attachments.filter(isPreviewable);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "picking", label: "Picking list" },
     { key: "measurements", label: `Measurements${quote.measurements.length ? ` (${quote.measurements.length})` : ""}` },
-    { key: "drawing", label: "Drawing" },
   ];
 
   return (
     <aside
       id="picking-list"
-      className="flex scroll-mt-20 flex-col rounded-xl border border-hairline bg-canvas xl:sticky xl:top-20 xl:max-h-[calc(100vh-7rem)] xl:self-start"
+      className={cn(
+        "flex scroll-mt-20 flex-col rounded-xl border border-hairline bg-canvas",
+        !compact && "xl:sticky xl:top-20 xl:max-h-[calc(100vh-7rem)] xl:self-start",
+      )}
     >
       <div className="flex shrink-0 items-center gap-1 border-b border-hairline px-3 pt-2">
         {tabs.map((t) => (
@@ -642,20 +654,6 @@ function SidePane({
           />
         )}
         {tab === "measurements" && <Measurements quote={quote} locked={locked} />}
-        {tab === "drawing" &&
-          (previewable.length === 0 ? (
-            <div className="p-4">
-              <EmptyHint title="No drawings">Add files on the enquiry step to view them here.</EmptyHint>
-            </div>
-          ) : (
-            <div className="h-[520px]">
-              <ReferenceViewerBody
-                attachments={previewable}
-                selectedId={selectedFileId}
-                onSelect={onSelectFile}
-              />
-            </div>
-          ))}
       </div>
     </aside>
   );

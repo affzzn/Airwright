@@ -33,10 +33,6 @@ import {
   Panel,
   ToggleButton,
 } from "@/components/construction/parts";
-import {
-  ReferenceViewerBody,
-  isPreviewable,
-} from "@/components/construction/construction-reference-viewer";
 import { fileKindLabel, filesFromDataTransfer, uploadConstructionFiles } from "@/components/construction/upload";
 import { cn, formatBytes } from "@/lib/utils";
 
@@ -71,16 +67,17 @@ export function EnquiryStep({
   library,
   locked,
   aiEnabled,
-  selectedFileId,
-  onSelectFile,
+  compact,
+  onShowFile,
   goToStep,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
   locked: boolean;
   aiEnabled: boolean;
-  selectedFileId: string | null;
-  onSelectFile: (id: string) => void;
+  /** True when the drawing pane is open, so this column stays narrow. */
+  compact: boolean;
+  onShowFile: (id: string) => void;
   goToStep: (s: JobStep) => void;
 }) {
   const router = useRouter();
@@ -233,8 +230,7 @@ export function EnquiryStep({
       );
 
     return (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-ink">What the enquiry says</h2>
           <div className="flex items-center gap-2">
@@ -426,14 +422,6 @@ export function EnquiryStep({
             </Button>
           </div>
         </div>
-        </div>
-
-        <PreviewAside
-          quote={quote}
-          selectedFileId={selectedFileId}
-          onSelectFile={onSelectFile}
-          title="Source"
-        />
       </div>
     );
   }
@@ -453,11 +441,11 @@ export function EnquiryStep({
         await upload(await filesFromDataTransfer(e.dataTransfer));
       }}
       className={cn(
-        "grid gap-4 rounded-xl xl:grid-cols-[minmax(0,1fr)_380px]",
+        "flex min-w-0 flex-col gap-4 rounded-xl",
+        !compact && "max-w-4xl",
         dragOver && "outline-dashed outline-2 outline-offset-4 outline-ink/40",
       )}
     >
-      <div className="flex min-w-0 flex-col gap-4">
       <Panel
         title="Files"
         action={
@@ -513,7 +501,7 @@ export function EnquiryStep({
                   </span>
                   <button
                     type="button"
-                    onClick={() => onSelectFile(a.id)}
+                    onClick={() => onShowFile(a.id)}
                     className="min-w-0 flex-1 basis-full text-left sm:basis-auto"
                   >
                     <span className="block truncate text-sm font-medium text-ink">{a.fileName}</span>
@@ -636,54 +624,10 @@ export function EnquiryStep({
       )}
 
       {error && <p className="text-sm text-ink">{error}</p>}
-      </div>
-
-      <PreviewAside
-        quote={quote}
-        selectedFileId={selectedFileId}
-        onSelectFile={onSelectFile}
-        title="Preview"
-      />
     </div>
   );
 }
 
-/** The drawing beside the files, so a file can be read while it is being ticked. */
-function PreviewAside({
-  quote,
-  selectedFileId,
-  onSelectFile,
-  title,
-}: {
-  quote: ConstructionQuoteVM;
-  selectedFileId: string | null;
-  onSelectFile: (id: string) => void;
-  title: string;
-}) {
-  const previewable = quote.attachments.filter(isPreviewable);
-  return (
-    <aside className="flex flex-col overflow-hidden rounded-xl border border-hairline bg-canvas xl:sticky xl:top-20 xl:max-h-[calc(100vh-7rem)] xl:self-start">
-      <div className="shrink-0 border-b border-hairline px-5 py-3">
-        <p className="eyebrow">{title}</p>
-      </div>
-      {previewable.length === 0 ? (
-        <div className="p-4">
-          <EmptyHint title="Nothing to preview">
-            Add a drawing or a photo and it shows here.
-          </EmptyHint>
-        </div>
-      ) : (
-        <div className="h-[520px] min-h-0">
-          <ReferenceViewerBody
-            attachments={previewable}
-            selectedId={selectedFileId}
-            onSelect={onSelectFile}
-          />
-        </div>
-      )}
-    </aside>
-  );
-}
 
 function Check({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (

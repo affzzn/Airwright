@@ -424,12 +424,16 @@ rail as a *status display* (every step stays reachable — it is not a wizard):
 
 | Step | Holds | Rail hint |
 |---|---|---|
-| **1 Enquiry** | the files, each with an explicit **Reading / Not read** control (the old cryptic "AI" badge is gone), an optional pasted scope, the drawing preview beside them, and the **read panel**: full width, directly under the files it acts on | "4 files, not read" |
+| **1 Enquiry** | the files, each with an explicit **Reading / Not read** control (the old cryptic "AI" badge is gone), an optional pasted scope, and the **read panel**: full width, directly under the files it acts on. Clicking a file opens it in the reference pane | "4 files, not read" |
 | **2 Site facts** | job details + site type tiles, height → band readout, hire + extra hire, access points, and a plain-English list of **the rules that will apply** | "1 to confirm" |
-| **3 Scaffold items** | the priced lines grouped by category, each showing **the sum behind it** (`42.199 m × 3 lifts × £11.50`), with the picking list, measurements and drawing in one tabbed side pane | "11 items, 1 unpriced" |
+| **3 Scaffold items** | the priced lines grouped by category, each showing **the sum behind it** (`42.199 m × 3 lifts × £11.50`), with the picking list and measurements in one tabbed side pane | "11 items, 1 unpriced" |
 | **4 Quote** | the pre-issue checks as a **gate** (each links to its fix), a live preview of the real client document, and confirm/export | "2 to clear" |
 
 - **No modals.** The enquiry review (the key human checkpoint) happens in the page.
+- **The drawing is one collapsible reference pane for the whole job** (`ReferencePane`),
+  toggled from the job header and open by default on step 1: file strip, pop-out to a
+  second monitor, and a column of its own so nothing underneath it squishes. The step
+  content collapses to a single column while it is open.
 - **No blank panels.** Every empty state states the next move (`EmptyHint`).
 - **Responsive.** The rail becomes a chip scroller and the item table becomes cards below `lg`.
 - Step logic is pure + unit-tested: `src/lib/construction/jobState.ts` (`jobSteps`,

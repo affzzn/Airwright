@@ -63,11 +63,13 @@ export function ReferenceViewerBody({
 
   return (
     <div className="flex h-full flex-col">
-      {/* File strip */}
-      <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-hairline bg-surface px-3 py-2">
-        {previewable.length === 0 && (
-          <span className="py-1 text-xs text-ink-subtle">No previewable drawings or photos.</span>
+      {/* File strip — only when there is more than one file to choose from. */}
+      <div
+        className={cn(
+          "shrink-0 gap-1.5 overflow-x-auto border-b border-hairline bg-surface px-3 py-2",
+          previewable.length > 1 ? "flex" : "hidden",
         )}
+      >
         {previewable.map((a) => {
           const k = kindOf(a);
           const active = selected?.id === a.id;
@@ -96,7 +98,7 @@ export function ReferenceViewerBody({
       </div>
 
       {/* Viewer area */}
-      <div className="min-h-0 flex-1 overflow-auto bg-surface-2 p-3">
+      <div className="min-h-0 flex-1 overflow-auto bg-surface p-4">
         {!selected ? (
           <div className="flex h-full items-center justify-center text-sm text-ink-subtle">
             Upload a drawing or photo to view it here.
@@ -117,8 +119,8 @@ export function ReferenceViewerBody({
             />
           )
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-ink-subtle">
-            Couldn’t load this file.
+          <div className="flex h-full items-center justify-center text-sm text-ink-muted">
+            This file could not be loaded.
           </div>
         )}
       </div>
@@ -158,10 +160,17 @@ export function ReferencePane({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-hairline bg-canvas">
-      <div className="flex shrink-0 items-center justify-between border-b border-hairline px-3 py-2">
-        <span className="text-sm font-semibold text-ink">Reference</span>
-        <div className="flex items-center gap-1">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-hairline bg-canvas">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-2.5">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-ink">Reference</span>
+          <span className="block truncate text-[11px] text-ink-muted">
+            {attachments.find((a) => a.id === selectedId)?.fileName ??
+              attachments[0]?.fileName ??
+              "No drawings"}
+          </span>
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={popOut}

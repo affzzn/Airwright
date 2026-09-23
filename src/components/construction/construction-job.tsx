@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronLeft, Loader2, Lock, Unlock } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Lock, PanelRight, Unlock } from "lucide-react";
 import { setConstructionQuoteStatus } from "@/server/actions/construction";
 import type {
   ConstructionElementLibVM,
@@ -23,7 +23,10 @@ import { EnquiryStep } from "@/components/construction/steps/enquiry-step";
 import { FactsStep } from "@/components/construction/steps/facts-step";
 import { ItemsStep } from "@/components/construction/steps/items-step";
 import { QuoteStep } from "@/components/construction/steps/quote-step";
-import { isPreviewable } from "@/components/construction/construction-reference-viewer";
+import {
+  ReferencePane,
+  isPreviewable,
+} from "@/components/construction/construction-reference-viewer";
 import { cn, formatGBP } from "@/lib/utils";
 
 /**
@@ -57,6 +60,12 @@ export function ConstructionJob({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineSig]);
 
+  // The reference pane: the drawing beside the work, exactly as the old builder
+  // had it — collapsible, pop-out-able, and shared by every step.
+  const previewable = quote.attachments.filter(isPreviewable);
+  const [refOpen, setRefOpen] = useState(
+    previewable.length > 0 && initialStep === "enquiry",
+  );
   const [selectedFileId, setSelectedFileId] = useState<string | null>(
     quote.attachments.find(isPreviewable)?.id ?? null,
   );
@@ -101,6 +110,12 @@ export function ConstructionJob({
   );
   const steps = jobSteps(facts);
 
+  /** A step asked to show a file: select it and open the pane. */
+  const showFile = (id: string) => {
+    setSelectedFileId(id);
+    setRefOpen(true);
+  };
+
   const goToStep = (s: JobStep) => {
     setStep(s);
     if (typeof window !== "undefined") {
@@ -117,6 +132,9 @@ export function ConstructionJob({
       await setConstructionQuoteStatus(quote.id, locked ? "DRAFT" : "CONFIRMED");
       router.refresh();
     });
+
+  // Only meaningful when there is something to look at.
+  const showRef = refOpen && previewable.length > 0;
 
   const meta = [
     quote.customerName,
@@ -155,7 +173,18 @@ export function ConstructionJob({
             {meta && <p className="mt-1 truncate text-sm text-ink-muted">{meta}</p>}
           </div>
 
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4">
+            {previewable.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setRefOpen((v) => !v)}
+                className="hidden gap-2 lg:inline-flex"
+                title="Show the drawing beside the work"
+              >
+                <PanelRight className="h-4 w-4" strokeWidth={1.75} />
+                {refOpen ? "Hide reference" : "Reference"}
+              </Button>
+            )}
             <div className="text-right">
               <p className="eyebrow mb-0.5">Total</p>
               <p
@@ -250,8 +279,8 @@ export function ConstructionJob({
               library={library}
               locked={locked}
               aiEnabled={aiEnabled}
-              selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              compact={showRef}
+              onShowFile={showFile}
               goToStep={goToStep}
             />
           )}
@@ -260,6 +289,7 @@ export function ConstructionJob({
               quote={quote}
               library={library}
               locked={locked}
+              compact={showRef}
               extraHirePerWeek={priced.extraHirePerWeek}
             />
           )}
@@ -270,8 +300,7 @@ export function ConstructionJob({
               lines={lines}
               setLines={setLines}
               locked={locked}
-              selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              compact={showRef}
             />
           )}
           {step === "quote" && (
@@ -279,6 +308,7 @@ export function ConstructionJob({
               quote={quote}
               facts={facts}
               locked={locked}
+              compact={showRef}
               total={priced.total}
               extraHirePerWeek={priced.extraHirePerWeek}
               quoteDocument={quoteDocument}
@@ -288,6 +318,23 @@ export function ConstructionJob({
             />
           )}
         </div>
+
+        {/* The drawing, as its own column (never an overlay), so nothing
+            underneath it squishes. Large screens only — below lg a file opens
+            in its own tab instead. */}
+        {showRef && (
+          <aside className="hidden w-[36vw] min-w-[420px] max-w-[720px] shrink-0 lg:block">
+            <div className="sticky top-20 h-[calc(100vh-7.5rem)]">
+              <ReferencePane
+                onClose={() => setRefOpen(false)}
+                quoteId={quote.id}
+                attachments={previewable}
+                selectedId={selectedFileId}
+                onSelect={setSelectedFileId}
+              />
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );

@@ -49,11 +49,14 @@ export function FactsStep({
   quote,
   library,
   locked,
+  compact,
   extraHirePerWeek,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
   locked: boolean;
+  /** True when the drawing pane is open: stack instead of squeezing. */
+  compact: boolean;
   extraHirePerWeek: number | null;
 }) {
   const router = useRouter();
@@ -96,8 +99,8 @@ export function FactsStep({
   if (foam > 0 && !hasFoamLine) rules.push("Foam is never priced for you");
 
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
-      <div className="flex flex-col gap-4 xl:col-span-2">
+    <div className={cn("grid gap-4", !compact && "xl:grid-cols-3")}>
+      <div className={cn("flex flex-col gap-4", !compact && "xl:col-span-2")}>
         <Panel title="Job">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Reference" htmlFor="f-ref">
@@ -286,7 +289,10 @@ export function FactsStep({
         </Panel>
       </div>
 
-      <Panel title="Rules that apply" className="xl:sticky xl:top-20 xl:self-start">
+      <Panel
+        title="Rules that apply"
+        className={cn(!compact && "xl:sticky xl:top-20 xl:self-start")}
+      >
         <ul className="flex flex-col gap-3">
           {rules.map((r, i) => (
             <li key={i} className="flex gap-2.5">
