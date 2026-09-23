@@ -394,7 +394,7 @@ Two prompts, both versioned like `PROMPT_VERSION`, both prompt-cached:
 
 ## 12. Review UX (extend the existing builder — no new screen) 🔧
 
-- **Measurements panel** (already in `construction-builder.tsx`) is **pre-filled** by the
+- **Measurements panel** (the side pane on the items step) is **pre-filled** by the
   reader: each row shows value, `source=DRAWING`, **confidence dot** (the sanctioned
   `ConfidenceDot`), and **provenance** on hover ("counted from Floor Plans GF/FF/SF"). A
   **cross-check flag** row appears where the call-off and the drawing disagree.
@@ -430,7 +430,7 @@ Two prompts, both versioned like `PROMPT_VERSION`, both prompt-cached:
 | `src/lib/construction/assemble.ts` | Layer 2: fuse scope × drawings → measurements + lines + cross-check (pure, tested) |
 | `src/lib/construction/drawingText.ts` | extract text-layer labels + dimension candidates off a drawing PDF (server; reuse `classify.extractDimensionsByPage`) |
 | `src/server/actions/constructionDraft.ts` | + `readConstructionDrawings(quoteId)` + merge into the draft |
-| `src/components/construction/construction-builder.tsx` | + "Read the drawings" action; provenance + cross-check in the measurements panel |
+| `src/components/construction/steps/enquiry-step.tsx` | the read panel + the in-page review of what was read (docs/19 §8a; was a modal until 2026-09-23) |
 | `prisma/schema.prisma` | + the §10 fields; migration `construction_enquiry_reading` |
 | `src/lib/env.ts` | + `ANTHROPIC_CONSTRUCTION_DRAWING_MODEL` (default → extraction model) |
 

@@ -147,6 +147,17 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 (8) golden-set comparison view (tool vs Colin, agreement %),
 (9) per-pack AI-cost chip, (10) revision watch (re-check known type on new rev).
 
+## Construction — follow-ups
+
+- [ ] **Alias learning is dormant.** The scope-draft apply path
+      (`applyConstructionDraftLines`) learned a client's wording as an alias on a
+      genuine correction (docs/19 §15). The UI now goes through `applyDrawingDraft`
+      instead, which does not. Port it over when Laura's terminology list lands.
+- [ ] **Rate sheet** — swap the placeholder construction rates on Rates → Construction,
+      then re-check a real priced job end to end.
+- [ ] Confirm the extra-hire rule (0.05% of job cost per week) with Laura; the UI states
+      it as terms and shows the derived weekly figure.
+
 ## House-Type Bank — follow-ups (docs/20)
 
 - [ ] **P4 — seed from Laura's Excel bank** (house-build only) — needs her real

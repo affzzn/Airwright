@@ -5,6 +5,7 @@ import {
   type ValidationFlag,
 } from "@/lib/construction/rules";
 import { PER_LIFT_UNITS, type ConstructionUnit } from "@/lib/construction/types";
+import { factsFromQuote, nextAction, type JobStep } from "@/lib/construction/jobState";
 
 /**
  * Server-side loaders for the construction estimator (docs/19). Load a quote with
@@ -65,6 +66,8 @@ export interface ConstructionQuoteVM {
   status: string;
   notes: string | null;
   assumptions: string[] | null;
+  /** True when a scope of works has been pasted or extracted for this quote. */
+  hasEnquiryText: boolean;
   createdAt: string;
   measurements: ConstructionMeasurementVM[];
   lines: ConstructionLineVM[];
@@ -127,6 +130,7 @@ function toQuoteVM(q: {
   status: string;
   notes: string | null;
   assumptions: unknown;
+  enquiryText: string | null;
   createdAt: Date;
   measurements: {
     id: string; label: string; kind: string; valueNumber: unknown; lifts: number | null;
@@ -160,6 +164,7 @@ function toQuoteVM(q: {
     status: q.status,
     notes: q.notes,
     assumptions: Array.isArray(q.assumptions) ? (q.assumptions as string[]) : null,
+    hasEnquiryText: Boolean(q.enquiryText && q.enquiryText.trim()),
     createdAt: q.createdAt.toISOString(),
     measurements: q.measurements.map((m) => ({
       id: m.id,
@@ -255,24 +260,62 @@ export interface ConstructionQuoteListItem {
   total: number;
   lineCount: number;
   createdAt: string;
+  updatedAt: string;
+  /** The single action the list offers for this job, and where it goes. */
+  next: { step: JobStep; label: string };
 }
 
-/** The workspace list (newest first). */
+/**
+ * The workspace list (newest first). Each row carries its own "next step", so
+ * the list tells the estimator what the job is waiting on without opening it.
+ */
 export async function loadConstructionQuotes(): Promise<ConstructionQuoteListItem[]> {
   const quotes = await prisma.constructionQuote.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: { updatedAt: "desc" },
     relationLoadStrategy: "join",
-    include: { lines: { select: { amount: true } } },
+    include: {
+      lines: {
+        select: { amount: true, rate: true, quantity: true, lifts: true, unit: true, description: true },
+      },
+      measurements: { select: { id: true } },
+      attachments: { select: { fileName: true, mimeType: true, readStatus: true } },
+    },
   });
-  return quotes.map((q) => ({
-    id: q.id,
-    reference: q.reference,
-    customerName: q.customerName,
-    siteAddress: q.siteAddress,
-    status: q.status,
-    band: q.band,
-    total: q.lines.reduce((a, l) => a + Number(l.amount), 0),
-    lineCount: q.lines.length,
-    createdAt: q.createdAt.toISOString(),
-  }));
+  return quotes.map((q) => {
+    const lines = q.lines.map((l) => ({
+      unit: l.unit as string,
+      quantity: Number(l.quantity),
+      lifts: l.lifts,
+      rate: Number(l.rate),
+      amount: Number(l.amount),
+      description: l.description,
+    }));
+    const facts = factsFromQuote({
+      status: q.status,
+      siteType: q.siteType,
+      buildingHeightM: q.buildingHeightM != null ? Number(q.buildingHeightM) : null,
+      defaultHeightBracket: q.defaultHeightBracket,
+      durationWeeks: q.durationWeeks,
+      doorwayCount: q.doorwayCount,
+      fireExitCount: q.fireExitCount,
+      pedestrianAccessCount: q.pedestrianAccessCount,
+      hasEnquiryText: Boolean(q.enquiryText && q.enquiryText.trim()),
+      lines,
+      measurements: q.measurements,
+      attachments: q.attachments,
+    });
+    return {
+      id: q.id,
+      reference: q.reference,
+      customerName: q.customerName,
+      siteAddress: q.siteAddress,
+      status: q.status,
+      band: q.band,
+      total: facts.total,
+      lineCount: lines.length,
+      createdAt: q.createdAt.toISOString(),
+      updatedAt: q.updatedAt.toISOString(),
+      next: nextAction(facts),
+    };
+  });
 }

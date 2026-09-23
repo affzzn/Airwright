@@ -13,6 +13,50 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-09-23
 
+### 2026-09-23 — Construction UI rebuilt as a four-step job workspace (docs/19 §8a)
+
+The construction screens were the weakest part of the product: one builder rendering six
+panels at once, the highest-value action ("Read enquiry") hidden as a small secondary
+button inside a card header, a cryptic "AI" badge you had to tick first, the enquiry
+review (the key human checkpoint) crammed into a modal, site facts with no UI at all, and
+a 7-column input table that was unusable on a phone. Rebuilt from mockups the client
+approved. **No pricing, rules or engine logic changed.**
+
+- **One job, four steps** (`?step=enquiry|facts|items|quote`), held by a persistent rail
+  that is a STATUS display, not a wizard — every step stays reachable, each shows a short
+  hint ("4 files, not read", "11 items, 1 unpriced", "2 to clear").
+- **Step logic is pure + tested:** `src/lib/construction/jobState.ts` — `factsFromQuote`,
+  `jobSteps`, `issueChecks`, `nextAction`, `defaultStep` (22 tests). The jobs list uses
+  `nextAction` so every row states what the job is waiting on.
+- **Step 1 Enquiry:** files with an explicit **Reading / Not read** control (the AI badge is
+  gone), the answer file shown as "Never read", an optional pasted scope, a drawing preview
+  beside the list, and the **read panel** — full width, directly under the files it acts on.
+  The review of what was read now renders **in the page** (the modal is deleted).
+- **Step 2 Site facts:** the panel docs/19 §8 specified and the code never had — job details,
+  site-type tiles, height → band readout, hire + extra hire, access points, and a plain list
+  of the rules that will apply.
+- **Step 3 Items:** lines grouped by category, each showing **the sum behind it**
+  (`42.199 m × 3 lifts × £11.50`), unpriced lines flagged inline with a link to the rates,
+  and the picking list / measurements / drawing in one tabbed side pane (no modals).
+- **Step 4 Quote:** the pre-issue checks as a gate (each links to its fix) plus a live
+  preview of the REAL client document — extracted to `construction-quote-document.tsx` and
+  shared with the print page, so the preview can never drift from what the client gets.
+- **Never blank:** every empty state states the next move. **Responsive:** rail → chip
+  scroller, item table → cards, sticky total, and the app header now scrolls instead of
+  wrapping on a phone.
+- **Removed:** `construction-builder.tsx`, `read-drawings.tsx` (modal),
+  `construction-attachments.tsx`. **Added:** `construction-job.tsx`, `steps/*`, `parts.tsx`,
+  `upload.ts`, `construction-quote-document.tsx`, `jobState.ts`.
+- **Green:** typecheck + lint + **414 tests** (+22) + production build. **Verified in the
+  browser against the real DB**: picking-list add (rate resolved £45), inline edit (1 nr ×
+  2 lifts × £45 = £90, persisted), site-type change (extra hire recomputed to £6.49/wk),
+  confirm → locked + Reopen, create-a-job from the form landing on a guided empty step 1,
+  and the phone layout. Test data created for the run was deleted afterwards.
+- ⚠ Known loose end (pre-existing, unchanged): `draftConstructionLinesFromScope` /
+  `applyConstructionDraftLines` in `actions/constructionDraft.ts` are now unreachable from
+  the UI, so the **alias learning on correction** (docs/19 §15) is dormant. Decide whether
+  to port it into `applyDrawingDraft` when Laura's terminology list lands.
+
 ### 2026-09-23 — House-Type Bank BUILT end-to-end (docs/20) — branch `feat/house-type-bank`
 
 The 8th feature idea, built: turn Laura's personal Excel bank into shared, company-owned

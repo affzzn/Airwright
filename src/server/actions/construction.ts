@@ -2,7 +2,6 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import type {
   ConstructionUnit,
   HeightBracket,
@@ -48,6 +47,11 @@ const numOrNull = (v: unknown): number | null => {
 
 // --- Quote CRUD --------------------------------------------------------------
 
+/**
+ * Create a job and return its id. It deliberately does NOT redirect: the new-job
+ * form uploads the enquiry files to the new quote first (they need its id for
+ * the storage path), then navigates.
+ */
 export async function createConstructionQuote(input: {
   reference?: string;
   customerName?: string;
@@ -57,7 +61,7 @@ export async function createConstructionQuote(input: {
   enquiryType?: string;
   siteType?: string;
   notes?: string;
-}): Promise<void> {
+}): Promise<{ id: string }> {
   const band = BANDS.has(input.band as RateBand) ? (input.band as RateBand) : "COMPETITIVE";
   const siteType = SITE_TYPES.has(input.siteType as SiteType)
     ? (input.siteType as SiteType)
@@ -75,7 +79,7 @@ export async function createConstructionQuote(input: {
     },
   });
   revalidatePath("/construction");
-  redirect(`/construction/${quote.id}`);
+  return { id: quote.id };
 }
 
 /** Patch the quote's header + enquiry-review fields. Re-prices lines when the

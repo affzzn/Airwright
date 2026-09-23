@@ -6,13 +6,12 @@ export const dynamic = "force-dynamic";
 
 export default function NewConstructionQuotePage() {
   return (
-    <AppShell>
-      <div className="mx-auto max-w-xl">
+    <AppShell variant="wide">
+      <div className="mx-auto max-w-5xl">
         <Breadcrumbs
           items={[{ label: "Construction", href: "/construction" }, { label: "New job" }]}
         />
-        <p className="eyebrow mb-1">Construction</p>
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-ink">New job</h1>
+        <h1 className="mb-5 text-2xl font-semibold tracking-tight text-ink">Start a job</h1>
         <ConstructionNewForm />
       </div>
     </AppShell>

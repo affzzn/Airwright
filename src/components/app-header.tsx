@@ -49,7 +49,7 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
 
   // Full-height tab: a bottom border that overlaps the header's own hairline
   // (`-mb-px`) so the active underline sits flush on the divider.
-  const tab = "inline-flex h-14 items-center border-b-2 -mb-px text-sm transition-colors";
+  const tab = "inline-flex h-14 shrink-0 items-center whitespace-nowrap border-b-2 -mb-px text-sm transition-colors";
   const primary = (active: boolean) =>
     cn(
       tab,
@@ -67,12 +67,14 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
 
   return (
     <header className="sticky top-0 z-10 border-b border-hairline bg-page/90 backdrop-blur print:hidden">
-      <div className="mx-auto flex h-14 max-w-content items-center justify-between px-6">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="text-sm font-semibold tracking-tight text-ink">
+      {/* Scrolls sideways rather than wrapping on a phone; the tabs keep their
+          full-height underline either way. */}
+      <div className="mx-auto flex h-14 max-w-content items-center justify-between gap-4 overflow-x-auto px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex shrink-0 items-center gap-6 sm:gap-8">
+          <Link href="/" className="shrink-0 text-sm font-semibold tracking-tight text-ink">
             Airwright
           </Link>
-          <nav className="flex items-center gap-6">
+          <nav className="flex shrink-0 items-center gap-5 sm:gap-6">
             <Link href="/tenders" className={primary(onHouseBuilding)}>
               House Building
             </Link>
@@ -82,7 +84,7 @@ export function AppHeader({ showSignOut = true }: { showSignOut?: boolean }) {
           </nav>
         </div>
         {showSignOut && (
-          <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center gap-4">
             <Link href="/bank" className={secondary(onBank)}>
               Bank
             </Link>

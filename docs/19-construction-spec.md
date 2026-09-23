@@ -15,11 +15,19 @@ construction is a parallel route with its own models, its own screens and its ow
 > additive); the seeded element library (13 items); the pure pricing + rules core
 > (`src/lib/construction/{price,rules}.ts`, 19 tests, reproduces the Wren schedule); the
 > Rates → Construction tab (library editor); the `/construction` area (workspace, new-quote
-> form, the 5-panel builder with per-lift + per-bracket pricing, live totals, suggestion
+> form, the builder with per-lift + per-bracket pricing, live totals, suggestion
 > chips, attachments upload, assumptions); and the output (print view + Excel in the Wren
 > schedule layout). Green: typecheck + lint + **333 tests** + production build; verified with a
 > real-DB backend round-trip. Rates are **placeholders** until Colin's real construction rate
 > sheet lands (a few real rates seen on screen are the §5 seed placeholders). Files: §14.
+>
+> **UPDATE (2026-09-23): the screens were rebuilt as a four-step job workspace (§8a).** The
+> 5-panel builder, the enquiry-read modal and the separate draft-from-scope modal are gone;
+> the read and its review now live in the page, every empty state guides, and the whole area
+> is responsive down to a phone. Nothing in the pricing/rules core changed. Green: typecheck,
+> lint, **414 tests** (+22 for `jobState.ts`), production build, and a click-through against
+> the real database (add from the picking list, inline edit, site-fact change, confirm and
+> reopen, create a job from the form).
 
 > Legend: **✅ CONFIRMED** (from the calls/example — build it) · **⚠️ CONFIRM** (needs a
 > Colin/Laura answer — flag, don't guess) · **🔧** (a code/schema change) · **🚫 OUT OF
@@ -403,10 +411,29 @@ A top-level section, its own nav entry, never mixed with the tender/house-build 
 
 | Route | Screen | Does |
 |---|---|---|
-| `/construction` | **Construction workspace** | list of construction quotes (search/status), **"New construction quote"** button |
-| `/construction/new` | **New quote** | customer, site address, band, duration (weeks), enquiry type, notes; **attachment upload** (reuse the signed-URL uploader — store only) |
-| `/construction/[id]` | **Quote builder** (the main screen) | 5 panels: **Attachments** (view drawings/email) · **Enquiry review** (site facts) · **Measurements** (manual entry) · **Line builder** (picking list) · **Assumptions/validation**. Live total. |
+| `/construction` | **Jobs** | the job list: pipeline strip, search, stage filter, and a **next step** per row (`nextAction`, docs/19 §8a) |
+| `/construction/new` | **Start a job** | job details AND the enquiry-file drop zone together, so a new job is never empty. Creates the quote, uploads the files to it, opens step 1 |
+| `/construction/[id]?step=…` | **The job, in four steps** | a persistent step rail over one workspace: **1 Enquiry** · **2 Site facts** · **3 Scaffold items** · **4 Quote** (§8a) |
 | `/construction/[id]/quote` | **Quote output** | print-ready client quote + Excel export (Wren schedule layout) |
+
+### 8a. The four-step job workspace ✅ BUILT (2026-09-23)
+
+The original 5-panel builder showed everything at once and buried the highest-value
+action (the enquiry read) in a card header. It is now **one job, four steps**, with the
+rail as a *status display* (every step stays reachable — it is not a wizard):
+
+| Step | Holds | Rail hint |
+|---|---|---|
+| **1 Enquiry** | the files, each with an explicit **Reading / Not read** control (the old cryptic "AI" badge is gone), an optional pasted scope, the drawing preview beside them, and the **read panel**: full width, directly under the files it acts on | "4 files, not read" |
+| **2 Site facts** | job details + site type tiles, height → band readout, hire + extra hire, access points, and a plain-English list of **the rules that will apply** | "1 to confirm" |
+| **3 Scaffold items** | the priced lines grouped by category, each showing **the sum behind it** (`42.199 m × 3 lifts × £11.50`), with the picking list, measurements and drawing in one tabbed side pane | "11 items, 1 unpriced" |
+| **4 Quote** | the pre-issue checks as a **gate** (each links to its fix), a live preview of the real client document, and confirm/export | "2 to clear" |
+
+- **No modals.** The enquiry review (the key human checkpoint) happens in the page.
+- **No blank panels.** Every empty state states the next move (`EmptyHint`).
+- **Responsive.** The rail becomes a chip scroller and the item table becomes cards below `lg`.
+- Step logic is pure + unit-tested: `src/lib/construction/jobState.ts` (`jobSteps`,
+  `issueChecks`, `nextAction`, `defaultStep`, `factsFromQuote`), 22 tests.
 
 **Enquiry-review panel (spec §2 — the manual "input" step, no AI):** a structured form where
 the estimator enters or confirms the **site facts the rules key off**, all by hand:
@@ -557,9 +584,14 @@ Enquiry-review panel above.
 | `src/server/construction.ts` | load + price a construction quote (shared by page/export) |
 | `src/app/construction/page.tsx` | workspace list + New button |
 | `src/app/construction/new/page.tsx` | new-quote form + upload |
-| `src/app/construction/[id]/page.tsx` | the quote builder |
+| `src/app/construction/[id]/page.tsx` | the job workspace (reads `?step=`) |
+| `src/lib/construction/jobState.ts` | step status, pre-issue checks, next action (pure, tested) |
+| `src/components/construction/construction-job.tsx` | the job shell: header, step rail, step switch |
+| `src/components/construction/steps/*.tsx` | one file per step (enquiry, facts, items, quote) |
+| `src/components/construction/parts.tsx` | shared panel/field/toggle/empty-state pieces |
+| `src/components/construction/construction-quote-document.tsx` | the client document, shared by the print page and the step-4 preview |
 | `src/app/construction/[id]/quote/{page.tsx,export/route.ts}` | output + Excel |
-| `src/components/construction/*` | quote-builder, measurement-sheet, line-builder, element-library-editor, attachment-panel |
+| `src/components/construction/*` | job shell + steps, element-library-editor, reference viewer |
 | `src/app/rates/*` | split into Traditional / Timber / **Construction** tabs |
 
 ---
