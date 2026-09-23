@@ -46,7 +46,6 @@ import {
   ReferencePane,
   isPreviewable,
 } from "@/components/construction/construction-reference-viewer";
-import { DraftFromScope } from "@/components/construction/draft-from-scope";
 import { ReadDrawings } from "@/components/construction/read-drawings";
 import { isDraftableFile, looksLikeAnswerFile } from "@/lib/construction/fileKinds";
 import { cn, formatGBP } from "@/lib/utils";
@@ -490,14 +489,11 @@ function LineBuilder({
             <h2 className="text-sm font-semibold text-ink">Scaffold items</h2>
           </div>
           {!locked && aiEnabled && library.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <ReadDrawings
-                quoteId={quote.id}
-                library={library}
-                readableCount={quote.attachments.filter((a) => a.useForDrafting && isDraftableFile(a.mimeType, a.fileName) && !looksLikeAnswerFile(a.fileName)).length}
-              />
-              <DraftFromScope quoteId={quote.id} library={library} />
-            </div>
+            <ReadDrawings
+              quoteId={quote.id}
+              library={library}
+              readableCount={quote.attachments.filter((a) => a.useForDrafting && isDraftableFile(a.mimeType, a.fileName) && !looksLikeAnswerFile(a.fileName)).length}
+            />
           )}
         </div>
       </CardHeader>

@@ -64,19 +64,23 @@ export interface DrawingDraftResult {
   read?: { fileName: string; ok: boolean; costUsd?: number; error?: string }[];
 }
 
-export async function readConstructionEnquiry(quoteId: string): Promise<DrawingDraftResult> {
+export async function readConstructionEnquiry(
+  quoteId: string,
+  extraScopeText?: string,
+): Promise<DrawingDraftResult> {
   if (!env.constructionAI) return { ok: false, error: "AI reading is turned off." };
   const quote = await prisma.constructionQuote.findUnique({ where: { id: quoteId } });
   if (!quote) return { ok: false, error: "Quote not found." };
 
+  const pasted = extraScopeText?.trim() || "";
   const atts = await prisma.constructionAttachment.findMany({ where: { quoteId, useForDrafting: true } });
   const eligible = atts.filter((a) => !looksLikeAnswerFile(a.fileName));
   const drawings = eligible.filter((a) => isDrawingFile(a.mimeType, a.fileName));
   const scopeFiles = eligible.filter(
     (a) => !isDrawingFile(a.mimeType, a.fileName) && isScopeTextFile(a.mimeType, a.fileName),
   );
-  if (drawings.length === 0 && scopeFiles.length === 0)
-    return { ok: false, error: "Tick at least one drawing or scope file (the AI badge) first." };
+  if (drawings.length === 0 && scopeFiles.length === 0 && !pasted)
+    return { ok: false, error: "Tick a drawing / scope file, or paste the scope, first." };
 
   const library = await loadConstructionLibrary();
   if (library.length === 0)
@@ -136,6 +140,8 @@ export async function readConstructionEnquiry(quoteId: string): Promise<DrawingD
       await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
     }
   }
+  if (pasted) scopeTexts.push(pasted); // pasted / uploaded scope from the modal
+
   let scopeItems: ScopeItem[] = [];
   if (scopeTexts.length > 0) {
     try {
