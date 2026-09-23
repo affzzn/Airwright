@@ -280,9 +280,12 @@ Both entry points exist: skip-read (default, fast) and the auto-extract-then-dif
   grouping/segmentation (`src/lib/ingest`).
 
 ### Notes / decisions made during the build
-- **Fingerprint idempotency** doubles as the guard against duplicate versions on reuse
-  or a re-confirm with no change — a new version is written only when the geometry
-  actually moves.
+- **Version/flag decision is TOLERANCE-aware** (fixed 2026-09-24 after a real-DB test):
+  a repeat drawing is never pixel-identical, so `saveTakeoffToBank` decides "new version
+  + CHANGED" vs "MATCHED, no version" from `compareGeometry` against the current version
+  (verdict IDENTICAL ⇒ MATCHED, no version), NOT the byte-rounded fingerprint. The
+  fingerprint is only a stored fast-path value. Without this, every plot's slightly
+  different read spawned a spurious version and a false "drawing differs" flag.
 - **Code is authoritative identity:** an exact-code match always attaches (never spawns
   a second entry with the same code), respecting `@@unique(clientId, canonicalCode, buildType)`.
 - The matcher is a **pure lib** (no Prisma); all IO lives in `src/server/bank.ts`.

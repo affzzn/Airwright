@@ -10,6 +10,7 @@ import {
 } from "@/lib/bank/snapshot";
 import {
   matchAgainstBank,
+  compareGeometry,
   type BankCandidateInput,
   type MatchResult,
 } from "@/lib/bank/match";
@@ -193,11 +194,22 @@ export async function saveTakeoffToBank(
         const entry = await tx.houseTypeBankEntry.findUnique({
           where: { id: target.entryId },
           relationLoadStrategy: "join",
-          include: { currentVersion: { select: { geometryFingerprint: true } }, versions: { select: { version: true } } },
+          include: {
+            currentVersion: { select: { geometryFingerprint: true, snapshot: true } },
+            versions: { select: { version: true } },
+          },
         });
         if (!entry) return { bankEntryId: null, created: false, identical: false };
 
-        const identical = entry.currentVersion?.geometryFingerprint === fingerprint;
+        // "Identical" is TOLERANCE-aware, not byte-exact: a repeat drawing is never
+        // pixel-identical, so we compare the geometry (compareGeometry) against the
+        // current version. Only a change BEYOND tolerance writes a new version / flags
+        // CHANGED — a within-tolerance re-read is MATCHED and adds no version (docs/20 §4).
+        const currentSnapshot = entry.currentVersion ? parseSnapshot(entry.currentVersion.snapshot) : null;
+        const cmp = currentSnapshot ? compareGeometry(currentSnapshot, s.snapshot) : null;
+        const identical = cmp
+          ? cmp.verdict === "IDENTICAL"
+          : entry.currentVersion?.geometryFingerprint === fingerprint;
         if (!identical) {
           const nextVersion = entry.versions.reduce((m, v) => Math.max(m, v.version), 0) + 1;
           const version = await tx.houseTypeBankVersion.create({
@@ -238,7 +250,7 @@ export async function saveTakeoffToBank(
 
         await tx.houseType.update({
           where: { id: s.houseType.id },
-          data: { bankEntryId: entry.id, bankMatchState: target.changed || !identical ? "CHANGED" : "MATCHED" },
+          data: { bankEntryId: entry.id, bankMatchState: identical ? "MATCHED" : "CHANGED" },
         });
         return { bankEntryId: entry.id, created: false, identical };
       }
