@@ -919,6 +919,14 @@ model ConstructionAttachment {
   mimeType      String
   sizeBytes     Int?
   kind          String? // EMAIL | DRAWING | SITE_PLAN | ROOF_PLAN | LOGISTICS_PLAN | PHOTO | SCOPE | OTHER
+  // Enquiry reading (docs/20): the estimator ticks which files the AI reads; the
+  // drawing reader's output is stored per file for audit + re-assembly. The internal
+  // answer files (schedule/quote) are never eligible (guarded in the server action).
+  useForDrafting Boolean          @default(false)
+  drawingKind    String? // ELEVATION | FLOOR_PLAN | ROOF_PLAN | SITE_PLAN | SECTION | MARKED_UP | OTHER
+  readStatus     String?          @default("NONE") // NONE | PENDING | READ | FAILED
+  readRawOutput  Json? // the DrawingObservations (docs/20 §5) for audit + re-assembly
+  readMeta       Json? // model, promptVersion, tokens, costUsd
   createdAt     DateTime          @default(now())
 
   @@index([quoteId])

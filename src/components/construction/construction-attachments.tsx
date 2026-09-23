@@ -2,19 +2,20 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { Eye, FileText, ImageIcon, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
 import {
   createSignedConstructionUploads,
   deleteConstructionAttachment,
   registerConstructionAttachments,
 } from "@/server/actions/construction";
+import { setConstructionAttachmentDrafting } from "@/server/actions/constructionDrawings";
 import type { ConstructionAttachmentVM } from "@/server/construction";
 import { isPreviewable } from "@/components/construction/construction-reference-viewer";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 
 /**
- * Attachment panel (docs/19 §3/§8) — upload the enquiry drawings + photos. Files
+ * Attachment panel (docs/19 §3/§8) · upload the enquiry drawings + photos. Files
  * are STORED and DISPLAYED only; NEVER parsed (no AI, no reading). Upload goes
  * browser → Supabase Storage via a signed URL. Supports multi-file select AND
  * folder drag-and-drop. "View" opens a file in the reference viewer beside the
@@ -80,6 +81,13 @@ export function ConstructionAttachments({
       router.refresh();
     });
 
+  const toggleDraft = (id: string, use: boolean) =>
+    start(async () => {
+      const res = await setConstructionAttachmentDrafting(id, quoteId, use);
+      if (!res.ok) setErr(res.error ?? "Couldn’t update.");
+      else { setErr(null); router.refresh(); }
+    });
+
   return (
     <div
       onDragOver={(e) => {
@@ -125,6 +133,22 @@ export function ConstructionAttachments({
                   )}
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5">
+                  {!locked && a.mimeType === "application/pdf" && (
+                    <button
+                      type="button"
+                      onClick={() => toggleDraft(a.id, !a.useForDrafting)}
+                      disabled={pending}
+                      title={a.useForDrafting ? "AI reads this drawing · click to exclude" : "Include this drawing for AI reading"}
+                      className={cn(
+                        "flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+                        a.useForDrafting
+                          ? "bg-ink text-canvas"
+                          : "text-ink-subtle hover:bg-canvas hover:text-ink",
+                      )}
+                    >
+                      <Sparkles className="h-3 w-3" strokeWidth={1.75} /> AI
+                    </button>
+                  )}
                   {canView && onView && (
                     <button
                       type="button"
@@ -210,7 +234,7 @@ function walkEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
         reader.readEntries(async (batch) => {
           if (batch.length === 0) return resolve();
           await Promise.all(batch.map((e) => walkEntry(e, out)));
-          readAll(); // keep reading — readEntries returns in chunks
+          readAll(); // keep reading · readEntries returns in chunks
         }, () => resolve());
       };
       readAll();

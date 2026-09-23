@@ -46,6 +46,7 @@ import {
   isPreviewable,
 } from "@/components/construction/construction-reference-viewer";
 import { DraftFromScope } from "@/components/construction/draft-from-scope";
+import { ReadDrawings } from "@/components/construction/read-drawings";
 import { cn, formatGBP } from "@/lib/utils";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
@@ -482,7 +483,14 @@ function LineBuilder({
             <h2 className="text-sm font-semibold text-ink">Scaffold items</h2>
           </div>
           {!locked && aiEnabled && library.length > 0 && (
-            <DraftFromScope quoteId={quote.id} library={library} />
+            <div className="flex flex-wrap items-center gap-2">
+              <ReadDrawings
+                quoteId={quote.id}
+                library={library}
+                readableCount={quote.attachments.filter((a) => a.useForDrafting && a.mimeType === "application/pdf").length}
+              />
+              <DraftFromScope quoteId={quote.id} library={library} />
+            </div>
           )}
         </div>
       </CardHeader>

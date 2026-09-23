@@ -70,6 +70,12 @@ export const env = {
   get constructionAI() {
     return process.env.CONSTRUCTION_AI !== "false";
   },
+  /** Model for the construction DRAWING reader (docs/20) — multimodal (reads the
+   *  drawing PDF as vision + text). Needs the strong model; defaults to the
+   *  extraction model (Opus 4.8). Override with ANTHROPIC_CONSTRUCTION_DRAWING_MODEL. */
+  get constructionDrawingModel() {
+    return process.env.ANTHROPIC_CONSTRUCTION_DRAWING_MODEL ?? this.extractionModel;
+  },
   get directUrl() {
     return required("DIRECT_URL");
   },

@@ -44,6 +44,8 @@ export interface ConstructionAttachmentVM {
   mimeType: string;
   sizeBytes: number | null;
   kind: string | null;
+  useForDrafting: boolean;
+  readStatus: string | null;
 }
 export interface ConstructionQuoteVM {
   id: string;
@@ -137,6 +139,7 @@ function toQuoteVM(q: {
   }[];
   attachments: {
     id: string; fileName: string; mimeType: string; sizeBytes: number | null; kind: string | null;
+    useForDrafting: boolean; readStatus: string | null;
   }[];
 }): ConstructionQuoteVM {
   return {
@@ -189,6 +192,8 @@ function toQuoteVM(q: {
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes,
       kind: a.kind,
+      useForDrafting: a.useForDrafting,
+      readStatus: a.readStatus,
     })),
   };
 }
