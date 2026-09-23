@@ -60,6 +60,7 @@ export interface DrawingDraftResult {
   flags?: string[];
   suggestedHeightBracket?: HeightBracket | null;
   buildingHeightM?: number | null;
+  accessPoints?: { doorways: number; fireExits: number };
   read?: { fileName: string; ok: boolean; costUsd?: number; error?: string }[];
 }
 
@@ -165,6 +166,7 @@ export async function readConstructionEnquiry(quoteId: string): Promise<DrawingD
     flags: draft.flags,
     suggestedHeightBracket: draft.suggestedHeightBracket,
     buildingHeightM: draft.buildingHeightM,
+    accessPoints: draft.accessPoints,
     read,
   };
 }
@@ -190,7 +192,12 @@ const cleanLifts = (n: number | null): number | null => {
 
 export async function applyDrawingDraft(
   quoteId: string,
-  input: { lines: ApplyDrawingLine[]; measurements: DrawingDraftMeasurement[]; setHeightBracket?: HeightBracket | null },
+  input: {
+    lines: ApplyDrawingLine[];
+    measurements: DrawingDraftMeasurement[];
+    setHeightBracket?: HeightBracket | null;
+    accessPoints?: { doorways: number; fireExits: number };
+  },
 ): Promise<{ ok: boolean; added?: number; error?: string }> {
   const quote = await prisma.constructionQuote.findUnique({ where: { id: quoteId } });
   if (!quote) return { ok: false, error: "Quote not found." };
@@ -273,14 +280,18 @@ export async function applyDrawingDraft(
   const ops: Prisma.PrismaPromise<unknown>[] = [];
   if (lineData.length) ops.push(prisma.constructionQuoteLine.createMany({ data: lineData }));
   if (measData.length) ops.push(prisma.constructionMeasurement.createMany({ data: measData }));
-  // Adopt the drawing's height bracket on the quote if it had none (so bracketed rates resolve).
+  // On the quote itself: adopt the drawing's height bracket if it had none (so bracketed
+  // rates resolve), and store the door/exit counts (so the builder can offer a foam chip) —
+  // only when not already set, so a manual edit is never clobbered.
+  const quoteData: Prisma.ConstructionQuoteUpdateInput = {};
   if (input.setHeightBracket && !quote.defaultHeightBracket)
-    ops.push(
-      prisma.constructionQuote.update({
-        where: { id: quoteId },
-        data: { defaultHeightBracket: input.setHeightBracket },
-      }),
-    );
+    quoteData.defaultHeightBracket = input.setHeightBracket;
+  if (input.accessPoints && quote.doorwayCount == null && quote.fireExitCount == null) {
+    if (input.accessPoints.doorways > 0) quoteData.doorwayCount = input.accessPoints.doorways;
+    if (input.accessPoints.fireExits > 0) quoteData.fireExitCount = input.accessPoints.fireExits;
+  }
+  if (Object.keys(quoteData).length)
+    ops.push(prisma.constructionQuote.update({ where: { id: quoteId }, data: quoteData }));
   await prisma.$transaction(ops);
 
   revalidatePath(`/construction/${quoteId}`);

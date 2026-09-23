@@ -43,6 +43,7 @@ export function ReadDrawings({
   const [readSummary, setReadSummary] = useState<{ fileName: string; ok: boolean; error?: string }[]>([]);
   const [bracket, setBracket] = useState<HeightBracket | null>(null);
   const [heightM, setHeightM] = useState<number | null>(null);
+  const [accessPoints, setAccessPoints] = useState<{ doorways: number; fireExits: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reading, startRead] = useTransition();
   const [applying, startApply] = useTransition();
@@ -71,6 +72,7 @@ export function ReadDrawings({
       setFlags(res.flags ?? []);
       setBracket(res.suggestedHeightBracket ?? null);
       setHeightM(res.buildingHeightM ?? null);
+      setAccessPoints(res.accessPoints ?? null);
       setStep("review");
     });
   };
@@ -101,6 +103,7 @@ export function ReadDrawings({
         lines: applyLines,
         measurements: applyMeas,
         setHeightBracket: bracket,
+        accessPoints: accessPoints ?? undefined,
       });
       if (!res.ok) {
         setError(res.error ?? "Couldn’t add.");

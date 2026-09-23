@@ -23,6 +23,7 @@ import type {
 import { lineAmount, priceConstructionQuote } from "@/lib/construction/price";
 import {
   HAKI_LIFTS,
+  foamCount,
   inspectionWeeks,
   validateConstructionQuote,
 } from "@/lib/construction/rules";
@@ -461,9 +462,12 @@ function LineBuilder({
   const router = useRouter();
   const total = useMemo(() => lines.reduce((a, l) => a + lineAmount({ unit: l.unit as ConstructionUnit, quantity: l.quantity, lifts: l.lifts, rate: l.rate }), 0), [lines]);
 
-  // Rule-driven suggestion chip (docs/19 §6): inspections follow the hire duration.
+  // Rule-driven suggestion chips (docs/19 §6): inspections follow the hire duration;
+  // foam follows the door/exit count read off the drawings (opt-in, never auto-added).
   const inspEl = library.find((e) => e.unit === "PER_WEEK" || /inspection/i.test(e.name));
   const insp = inspectionWeeks(quote.durationWeeks);
+  const foamEl = library.find((e) => /foam/i.test(e.name));
+  const foam = foamCount(quote.doorwayCount, quote.fireExitCount, quote.pedestrianAccessCount);
 
   const [busy, startBusy] = useTransition();
   const addFromElement = (elementId: string, quantity: number, lifts: number | null) =>
@@ -475,6 +479,8 @@ function LineBuilder({
   const suggestions: { key: string; label: string; onAdd: () => void }[] = [];
   if (!locked && insp > 0 && inspEl)
     suggestions.push({ key: "insp", label: `${insp} weekly inspections`, onAdd: () => addFromElement(inspEl.id, insp, null) });
+  if (!locked && foam > 0 && foamEl)
+    suggestions.push({ key: "foam", label: `Foam × ${foam} (doorways / exits)`, onAdd: () => addFromElement(foamEl.id, foam, null) });
 
   return (
     <Card>

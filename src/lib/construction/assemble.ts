@@ -49,6 +49,8 @@ export interface AssembleResult {
   measurements: DrawingDraftMeasurement[];
   suggestedHeightBracket: HeightBracket | null;
   buildingHeightM: number | null;
+  /** Door / fire-exit counts read off the drawings → the foam SUGGESTION (not a line). */
+  accessPoints: { doorways: number; fireExits: number };
   flags: string[];
 }
 
@@ -360,7 +362,14 @@ export function assembleDrawingDraft(
   if (dd.collapsed > 0)
     flags.push(`Collapsed ${dd.collapsed} duplicate line(s) reported by more than one drawing.`);
 
-  return { lines: dd.lines, measurements, suggestedHeightBracket, buildingHeightM, flags };
+  return {
+    lines: dd.lines,
+    measurements,
+    suggestedHeightBracket,
+    buildingHeightM,
+    accessPoints: { doorways: Math.trunc(doors), fireExits: Math.trunc(exits) },
+    flags,
+  };
 }
 
 /** Collapse lines reported identically (same element/unit/qty/lifts) by >1 drawing. */
