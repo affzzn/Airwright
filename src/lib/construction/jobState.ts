@@ -9,7 +9,7 @@
  * Copy here is deliberately terse: the screens are meant to read at a glance.
  */
 
-import { isDraftableFile, looksLikeAnswerFile } from "./fileKinds";
+import { isDraftableFile, looksLikeOurOwnQuote } from "./fileKinds";
 import { PER_LIFT_UNITS, type ConstructionUnit } from "./types";
 
 export type JobStep = "enquiry" | "facts" | "items" | "quote";
@@ -89,7 +89,7 @@ export interface QuoteShapeForFacts {
 /** Flatten a loaded quote into the facts the step logic runs on. */
 export function factsFromQuote(q: QuoteShapeForFacts): JobFacts {
   const readable = q.attachments.filter(
-    (a) => isDraftableFile(a.mimeType, a.fileName) && !looksLikeAnswerFile(a.fileName),
+    (a) => isDraftableFile(a.mimeType, a.fileName) && !looksLikeOurOwnQuote(a.fileName),
   );
   return {
     status: q.status,

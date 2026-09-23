@@ -134,7 +134,8 @@ fine — "have a go, roughly right." What matters is not missing a whole item or
 The real "dream" enquiry from Stepnell (files gitignored PII). It is the reference fixture for
 the builder + the output format.
 
-**Files (all reference-only — displayed, NEVER parsed):**
+**Files** (⚠️ CORRECTED 2026-09-24: these are the CLIENT's enquiry documents. An earlier
+reading of this folder assumed the schedule was our own answer — it is not):
 - `Re_ Scaffolding quote - Wren Park - Air wright.eml` — the enquiry email (scope in prose:
   *"scaffold wrap around the building for brickwork lifts; access scaffold to the roof with
   edge protection; crash decks in each classroom for roof lights"*).
@@ -142,8 +143,12 @@ the builder + the output format.
   locations.pdf`, `wren park way in to site and overall site plan.pdf` — drawings.
 - `Wren - Scaffolding Measure.pdf` — the **marked-up** drawing (blue = 3-lift external, red =
   2-lift birdcage, green = handrail perimeter).
-- **`Wren - Scaffolding Schedule.xlsx` — THE KEY FILE.** This is Airwright's own
-  scaffolding-schedule template = **the exact shape of our quote builder + output.**
+- **`Wren - Scaffolding Schedule.xlsx` — THE KEY FILE.** ✅ **User-confirmed 2026-09-24: it
+  came FROM STEPNELL.** It is the client's own scaffolding schedule — the items, lift counts,
+  quantities and a 7-week duration they want priced, with the **Rate and Total Cost columns
+  left empty for us to fill in**. So it is both the **"scope of works (Excel)" enquiry shape**
+  (§1.2 #2) *and* the shape of our own output: the same template travels both ways. It is
+  therefore **read** as scope, never withheld.
 
 **Decoded schedule (the columns ARE our line-item model):**
 
@@ -169,8 +174,8 @@ own Google-Earth measure instead.
 
 **How the example is used in the build:** it is (a) the **acceptance fixture** for the quote
 builder (reproduce this schedule + a grand total), (b) the **column layout** for the Excel/print
-output, and (c) the demonstration that attachments are **reference material a human reads**, not
-something we parse.
+output, and (c) the reference **client scope-of-works spreadsheet** the scope reader is tuned
+against (docs/20 §1.4 shape #2).
 
 ---
 

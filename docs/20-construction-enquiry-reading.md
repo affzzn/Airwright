@@ -73,9 +73,9 @@ find lift 02, count the entrances, cross-check it's 3 and not 4."*
 
 ## 1. Ground truth from the two real fixtures (probed 2026-09-23)
 
-`data/construction/` holds two enquiries that bracket the whole problem. **The internal
-Airwright "answer" files in each folder are for our understanding only and must NEVER be fed
-to a model** (see §9).
+`data/construction/` holds two enquiries that bracket the whole problem. Only **our own
+priced quote output** (`Quote-*.pdf`) is held back from the readers — a client's schedule or
+scope spreadsheet is an enquiry document and is read (see §9).
 
 ### 1.1 `eg-01/` — Wren Park (Stepnell): the DETAILED "dream" enquiry
 - **Enquiry inputs:** `Re_ Scaffolding quote…​.eml` (prose scope: *"scaffold wrap around the
@@ -89,8 +89,10 @@ to a model** (see §9).
   door/window/roof schedules. The Measure sheet carries the human mark-up: **blue = 3-lift
   external scaffold (42.2 m/lift), red = 2-lift birdcage (~35.2 m/lift), green = handrail
   perimeter**, with side notes.
-- **Answer file (do NOT feed):** `Wren - Scaffolding Schedule.xlsx` (Airwright's own priced
-  schedule — this is the output shape, `docs/19 §2`).
+- **`Wren - Scaffolding Schedule.xlsx` — a CLIENT document, and it IS read** (⚠️ corrected
+  2026-09-24; this doc previously called it our own answer). Stepnell sent it: items, lift
+  counts, quantities, 7 weeks, with **Rate and Total Cost left blank for us**. It is the
+  "scope of works (Excel)" shape of §1.4 #2, so it goes to the scope reader with the email.
 
 ### 1.2 `eg-02/` — Murray Park: the VAGUE enquiry (school, edge protection)
 - **Enquiry inputs:** `FW_ Murray Park - Scaffolding.eml` (thin; the substance was attached),
@@ -99,7 +101,7 @@ to a model** (see §9).
   PDF" RASTER images — ZERO text layer, ZERO selectable dimensions.** They show *where* to
   scaffold, not *how much*. This is precisely why Colin measured it on **Google Earth** (3D,
   counting windows for height → ~4 m → 2 lifts).
-- **Answer file (do NOT feed):** `Quote-1375-1-1.pdf`.
+- **Our own priced quote (held back by default):** `Quote-1375-1-1.pdf`.
 
 ### 1.3 The decisive split this creates
 | Drawing world | Example | Text layer / dimensions | AI leverage |
@@ -114,7 +116,7 @@ image-only plans stay a human-measures case (**no Google-Earth automation**, §2
 1. **Vague** — email + a bird's-eye photo + a sentence (eg-02). No dimensions.
 2. **Scope of works (Excel)** — the QS lists exactly what they want, row by row, with
    locations and often a call-off metreage (the National Grid / McLaughlin-Harvey job). *A
-   pricing document.* (No such Excel is in the repo yet — ⚠️ get one to tune against.)
+   pricing document.* (`eg-01`'s `Wren - Scaffolding Schedule.xlsx` is one — §1.1.)
 3. **Detailed** — photos + prose + fully **marked-up** drawings (eg-01). "The dream ones."
 
 ---
@@ -341,11 +343,13 @@ penny). This layer adds **no** pricing — it only produces the lines the estima
 ## 9. Uploads + the "answer-file" boundary 🔧 (simple, no grouping)
 
 - Reuse the existing `ConstructionAttachment` + signed-URL uploader (`docs/19 §8`). No grouping.
-- 🔧 Add **`ConstructionAttachment.useForDrafting Boolean @default(false)`** and let the
-  estimator tick which files the AI reads. Default heuristics: emails/scope/drawings → on;
-  logistics/site photos → reference only. **The internal Airwright schedule/quote is never
-  eligible** — surface a clear "this looks like a priced answer, not an enquiry" guard if a file
-  matches (`*Schedule*.xlsx`, `Quote-*.pdf`). Only ticked files are ever sent to a model.
+- 🔧 **`ConstructionAttachment.useForDrafting`** decides which files the readers see. On
+  upload it defaults to **on for anything the readers understand** (drawing PDF, email,
+  scope/schedule spreadsheet, text) and **off for our own numbered quote** (`Quote-*.pdf`,
+  `looksLikeOurOwnQuote`) and for anything unreadable (pptx, photos → reference only). The
+  estimator can turn any file on or off; the tick is the only thing that decides, and only
+  ticked files are ever sent to a model. (⚠️ Corrected 2026-09-24: `*Schedule*.xlsx` used to
+  be hard-blocked as an "answer file". A client's schedule is an enquiry document — §1.1.)
 - Text is extracted from scope files with the existing `scopeText.ts` (xlsx/csv/pdf-text/txt);
   drawings go to the drawing reader as `document` blocks.
 
@@ -479,7 +483,8 @@ side in the action, lazily importing pdfjs — same discipline as `scopeText.ts`
    drawing-feature matching is reliable.
 2. **The real rate sheet** + the exact **extra-hire %** (0.05 %/wk verbal) + inspection basis +
    the **height bands** (≤6 / 6-12 / 12-18…).
-3. **A real Excel scope-of-works** (National-Grid type) to tune the row→item + cross-check.
+3. ~~A real Excel scope-of-works to tune the row→item + cross-check.~~ ✅ `eg-01`'s Wren
+   schedule is one. A National-Grid-type one carrying a call-off metreage would still help.
 4. **Per-lift confirmation** for loading bay / Haki / chute (Ben confirmed; keep as the rule).
 5. **Strike walkthrough** — how inclusive vs extra hire is built up, to mirror it exactly.
 

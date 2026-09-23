@@ -11,6 +11,7 @@ import type {
 import { prisma } from "@/lib/db";
 import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
 import { createSignedUploadUrl, createSignedUrl } from "@/lib/supabase/storage";
+import { isDraftableFile, looksLikeOurOwnQuote } from "@/lib/construction/fileKinds";
 
 /**
  * Server actions for the construction estimator (docs/19). Everything is MANUAL —
@@ -450,14 +451,22 @@ export async function registerConstructionAttachments(
 ): Promise<void> {
   if (uploaded.length === 0) return;
   await prisma.constructionAttachment.createMany({
-    data: uploaded.map((u) => ({
-      quoteId,
-      fileName: u.name,
-      storagePath: u.path,
-      mimeType: u.type || "application/octet-stream",
-      sizeBytes: u.size,
-      kind: u.kind ?? null,
-    })),
+    data: uploaded.map((u) => {
+      const mimeType = u.type || "application/octet-stream";
+      return {
+        quoteId,
+        fileName: u.name,
+        storagePath: u.path,
+        mimeType,
+        sizeBytes: u.size,
+        kind: u.kind ?? null,
+        // Anything the readers understand (drawing, email, scope spreadsheet) is
+        // read by default, so dropping the enquiry in is all the estimator does.
+        // Our own priced quote, re-uploaded, starts off; the toggle overrides it.
+        useForDrafting:
+          isDraftableFile(mimeType, u.name) && !looksLikeOurOwnQuote(u.name),
+      };
+    }),
   });
   revalidatePath(`/construction/${quoteId}`);
 }

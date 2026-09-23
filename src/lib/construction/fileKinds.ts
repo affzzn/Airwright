@@ -31,7 +31,15 @@ export function isDraftableFile(mimeType: string, fileName: string): boolean {
   return isDrawingFile(mimeType, fileName) || isScopeTextFile(mimeType, fileName);
 }
 
-/** An internal Airwright answer (schedule / priced quote) — never read. */
-export function looksLikeAnswerFile(name: string): boolean {
-  return /schedule/i.test(name) || /^\s*quote[-_ ]?\d/i.test(name);
+/**
+ * Our OWN priced quote, re-uploaded (e.g. `Quote-1375-1-1.pdf`). Reading our own
+ * output back would just echo our prices, so these default to not being read.
+ *
+ * A client's **scaffolding schedule** is NOT one of these: a schedule listing the
+ * items and quantities the client wants, with no prices, is the "scope of works
+ * (Excel)" enquiry shape (docs/19 §1.2) and is exactly what we want to read.
+ * (User-confirmed 2026-09-24: the Wren Park schedule came FROM Stepnell.)
+ */
+export function looksLikeOurOwnQuote(name: string): boolean {
+  return /^\s*quote[-_ ]?\d/i.test(name);
 }

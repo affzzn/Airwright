@@ -19,7 +19,7 @@ import {
 } from "@/lib/construction/assemble";
 import type { DrawingObservations } from "@/lib/construction/drawingSchema";
 import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
-import { isDrawingFile, isScopeTextFile, looksLikeAnswerFile } from "@/lib/construction/fileKinds";
+import { isDrawingFile, isScopeTextFile } from "@/lib/construction/fileKinds";
 import { loadConstructionLibrary } from "@/server/construction";
 import type { ConstructionUnit, HeightBracket, RateBand } from "@/lib/construction/types";
 
@@ -40,8 +40,6 @@ export async function setConstructionAttachmentDrafting(
 ): Promise<{ ok: boolean; error?: string }> {
   const att = await prisma.constructionAttachment.findUnique({ where: { id: attachmentId } });
   if (!att) return { ok: false, error: "Attachment not found." };
-  if (use && looksLikeAnswerFile(att.fileName))
-    return { ok: false, error: "This looks like a priced answer (schedule/quote), not an enquiry — not read." };
   await prisma.constructionAttachment.update({
     where: { id: attachmentId },
     data: { useForDrafting: use },
@@ -73,14 +71,16 @@ export async function readConstructionEnquiry(
   if (!quote) return { ok: false, error: "Quote not found." };
 
   const pasted = extraScopeText?.trim() || "";
+  // Whatever the estimator ticked: PDFs go to the vision reader, emails and
+  // spreadsheets (a client's scope of works or scaffolding schedule) to the text
+  // reader. Nothing is excluded by name — the tick is the decision.
   const atts = await prisma.constructionAttachment.findMany({ where: { quoteId, useForDrafting: true } });
-  const eligible = atts.filter((a) => !looksLikeAnswerFile(a.fileName));
-  const drawings = eligible.filter((a) => isDrawingFile(a.mimeType, a.fileName));
-  const scopeFiles = eligible.filter(
+  const drawings = atts.filter((a) => isDrawingFile(a.mimeType, a.fileName));
+  const scopeFiles = atts.filter(
     (a) => !isDrawingFile(a.mimeType, a.fileName) && isScopeTextFile(a.mimeType, a.fileName),
   );
   if (drawings.length === 0 && scopeFiles.length === 0 && !pasted)
-    return { ok: false, error: "Tick a drawing / scope file, or paste the scope, first." };
+    return { ok: false, error: "Turn on at least one file to read." };
 
   const library = await loadConstructionLibrary();
   if (library.length === 0)
@@ -140,7 +140,16 @@ export async function readConstructionEnquiry(
       await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
     }
   }
-  if (pasted) scopeTexts.push(pasted); // pasted / uploaded scope from the modal
+  if (pasted) scopeTexts.push(pasted);
+
+  // Keep what the scope actually said, for the audit trail and the quote's
+  // "scope added" state.
+  if (scopeTexts.length > 0) {
+    await prisma.constructionQuote.update({
+      where: { id: quoteId },
+      data: { enquiryText: scopeTexts.join("\n\n---\n\n").slice(0, 200_000) },
+    });
+  }
 
   let scopeItems: ScopeItem[] = [];
   if (scopeTexts.length > 0) {

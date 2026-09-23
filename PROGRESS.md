@@ -11,7 +11,7 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
 ### 2026-09-23 — Configuration derivation made honest (the silent DETACHED fallback)
 
@@ -53,6 +53,32 @@ in a block but is stored on the house type, and `ensureDefaultPlot` creates exac
 plot. A terrace of 5 still yields one END_TERRACE plot; the mid plots must be added by
 hand. The site-layout/plot-schedule reader that would fill this was removed 2026-08-26.
 The flag now makes it visible; it does not make it automatic. See TODO.
+
+### 2026-09-24 — The client's scope spreadsheet is READ (a docs correction, not just code)
+
+**User correction: `Wren - Scaffolding Schedule.xlsx` came FROM Stepnell.** Both docs/19 §2
+and docs/20 §1.1 had it recorded as Airwright's own answer file, and `looksLikeAnswerFile`
+hard-blocked anything matching `/schedule/i` from ever being read. That was wrong: opening
+the real file shows items, lift counts, quantities and 7 weeks with the **Rate and Total
+Cost columns left blank for us to fill in**. It is the "scope of works (Excel)" enquiry
+shape docs/19 §1.2 #2 describes, and docs/20 §17 was still asking for an example of one.
+
+- `looksLikeAnswerFile` → **`looksLikeOurOwnQuote`**, now only our numbered quote output
+  (`Quote-1375-1-1.pdf`). A client schedule is read like any other scope document.
+- **Uploads default to being read** (`registerConstructionAttachments`): on for anything the
+  readers understand (drawing, email, scope/schedule spreadsheet), off for our own quote and
+  for what they cannot parse. Dropping the enquiry in is now the whole job.
+- The read no longer filters by filename — **the tick is the only decision**; a ticked file
+  is always read. The combined scope text is saved to `enquiryText` for the audit trail.
+- **Removed the "Scope of works" paste panel** from step 1 as redundant (the user's call):
+  the client's scope arrives as a file and is read with everything else.
+- New `fileKinds.test.ts` (10 tests) locks the correction in so it cannot regress.
+- Verified on the REAL `data/construction/eg-01` files: the schedule flattens to 612 chars
+  of items/quantities and the .eml to 2,270 chars of the client's request, both routed to
+  the scope reader; and in the browser, 5 of 7 files default to "Reading" with `Quote-1375`
+  off and the .pptx marked reference only.
+- ⚠️ Noted in passing: the client's schedule says **7 weeks**, while docs/19 §2 records the
+  Wren hire as 10. Worth confirming which is right before the example is used as a fixture.
 
 ### 2026-09-23 — Construction UI rebuilt as a four-step job workspace (docs/19 §8a)
 

@@ -149,6 +149,9 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 
 ## Construction — follow-ups
 
+- [ ] **Wren hire duration: 7 or 10 weeks?** The client's schedule
+      (`data/construction/eg-01`) says 7 weeks; docs/19 §2 records 10. Confirm before
+      the example is relied on as a pricing fixture.
 - [ ] **Alias learning is dormant.** The scope-draft apply path
       (`applyConstructionDraftLines`) learned a client's wording as an alias on a
       genuine correction (docs/19 §15). The UI now goes through `applyDrawingDraft`

@@ -18,9 +18,8 @@ import {
   setConstructionAttachmentDrafting,
   type ApplyDrawingLine,
 } from "@/server/actions/constructionDrawings";
-import { extractConstructionScopeText } from "@/server/actions/constructionDraft";
 import type { DrawingDraftLine, DrawingDraftMeasurement } from "@/lib/construction/assemble";
-import { isDraftableFile, looksLikeAnswerFile } from "@/lib/construction/fileKinds";
+import { isDraftableFile, looksLikeOurOwnQuote } from "@/lib/construction/fileKinds";
 import type { ConstructionAttachmentVM, ConstructionElementLibVM, ConstructionQuoteVM } from "@/server/construction";
 import { UNIT_LABEL, type ConstructionUnit, type HeightBracket } from "@/lib/construction/types";
 import type { JobStep } from "@/lib/construction/jobState";
@@ -44,16 +43,7 @@ import { cn, formatBytes } from "@/lib/utils";
 
 const CONF_VALUE: Record<string, number> = { high: 0.9, medium: 0.7, low: 0.4, unknown: 0 };
 
-const SCOPE_ACCEPT =
-  ".xlsx,.xls,.csv,.pdf,.txt,.eml,text/csv,text/plain,application/pdf,message/rfc822,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
 
-const fileToBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
-    r.onerror = () => reject(r.error ?? new Error("Could not read the file."));
-    r.readAsDataURL(file);
-  });
 
 interface LineRow extends DrawingDraftLine {
   include: boolean;
@@ -82,16 +72,11 @@ export function EnquiryStep({
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  const scopeInput = useRef<HTMLInputElement>(null);
 
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const [scopeText, setScopeText] = useState("");
-  const [extracting, setExtracting] = useState(false);
 
   const [reading, startRead] = useTransition();
   const [applying, startApply] = useTransition();
@@ -106,7 +91,7 @@ export function EnquiryStep({
   } | null>(null);
 
   const readable = quote.attachments.filter(
-    (a) => isDraftableFile(a.mimeType, a.fileName) && !looksLikeAnswerFile(a.fileName),
+    (a) => isDraftableFile(a.mimeType, a.fileName) && !looksLikeOurOwnQuote(a.fileName),
   );
   const ticked = readable.filter((a) => a.useForDrafting);
 
@@ -141,30 +126,11 @@ export function EnquiryStep({
       router.refresh();
     });
 
-  const extractScopeFile = async (file: File | undefined) => {
-    if (!file) return;
-    setError(null);
-    setExtracting(true);
-    try {
-      const res = await extractConstructionScopeText({
-        name: file.name,
-        mimeType: file.type,
-        dataBase64: await fileToBase64(file),
-      });
-      if (res.error) setError(res.error);
-      else if (res.text) setScopeText(res.text);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not read that file.");
-    } finally {
-      setExtracting(false);
-      if (scopeInput.current) scopeInput.current.value = "";
-    }
-  };
 
   const runRead = () => {
     setError(null);
     startRead(async () => {
-      const res = await readConstructionEnquiry(quote.id, scopeText.trim() || undefined);
+      const res = await readConstructionEnquiry(quote.id);
       if (!res.ok || !res.lines) {
         setError(res.error ?? "Could not read the enquiry.");
         return;
@@ -478,14 +444,13 @@ export function EnquiryStep({
                 )
               }
             >
-              Drop the enquiry email, the drawings and any scope of works.
+              Drop in the email, the drawings and the client&apos;s scope or schedule.
             </EmptyHint>
           </div>
         ) : (
           <ul>
             {quote.attachments.map((a) => {
-              const answer = looksLikeAnswerFile(a.fileName);
-              const draftable = isDraftableFile(a.mimeType, a.fileName) && !answer;
+              const draftable = isDraftableFile(a.mimeType, a.fileName);
               const isImg = (a.mimeType || "").startsWith("image/");
               return (
                 <li
@@ -502,7 +467,7 @@ export function EnquiryStep({
                   <button
                     type="button"
                     onClick={() => onShowFile(a.id)}
-                    className="min-w-0 flex-1 basis-full text-left sm:basis-auto"
+                    className="min-w-0 flex-1 basis-full text-left sm:basis-0"
                   >
                     <span className="block truncate text-sm font-medium text-ink">{a.fileName}</span>
                     <span className="block text-[11px] text-ink-muted">
@@ -514,11 +479,7 @@ export function EnquiryStep({
                     </span>
                   </button>
 
-                  {answer ? (
-                    <span className="shrink-0 rounded-lg border border-dashed border-hairline-strong px-2.5 py-1 text-[11px] font-semibold text-ink-subtle">
-                      Never read
-                    </span>
-                  ) : draftable && aiEnabled ? (
+                  {draftable && aiEnabled ? (
                     <ToggleButton
                       on={a.useForDrafting}
                       disabled={locked || pending}
@@ -548,64 +509,16 @@ export function EnquiryStep({
 
       {!locked && aiEnabled && (
         <>
-          <Panel
-            title="Scope of works"
-            action={
-              <button
-                type="button"
-                onClick={() => setScopeOpen((v) => !v)}
-                className="text-xs font-semibold text-ink-muted hover:text-ink"
-              >
-                {scopeOpen ? "Hide" : scopeText ? "Edit" : "Paste"}
-              </button>
-            }
-          >
-            {scopeOpen ? (
-              <div className="flex flex-col gap-2.5">
-                <textarea
-                  value={scopeText}
-                  onChange={(e) => setScopeText(e.target.value)}
-                  rows={5}
-                  aria-label="Scope of works"
-                  placeholder="Paste the client's scope of works"
-                  className="w-full resize-y rounded-lg border border-hairline-strong bg-canvas p-3 text-sm leading-relaxed text-ink placeholder:text-ink-subtle focus-visible:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/15"
-                />
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={scopeInput}
-                    type="file"
-                    accept={SCOPE_ACCEPT}
-                    className="hidden"
-                    onChange={(e) => extractScopeFile(e.target.files?.[0])}
-                  />
-                  <Button variant="secondary" size="sm" disabled={extracting} onClick={() => scopeInput.current?.click()} className="gap-1.5">
-                    {extracting && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />}
-                    Upload a scope file
-                  </Button>
-                  {scopeText && (
-                    <Button variant="ghost" size="sm" onClick={() => setScopeText("")}>
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-ink-muted">
-                {scopeText ? `${scopeText.length.toLocaleString()} characters ready to read` : "Optional"}
-              </p>
-            )}
-          </Panel>
-
           <div className="flex flex-col items-stretch gap-4 rounded-xl border border-ink bg-canvas px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1">
               <h2 className="text-[15px] font-semibold tracking-tight text-ink">Read the enquiry</h2>
               <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-                Pulls measurements, counts and mark ups off the ticked files. Nothing is added until you confirm it.
+                Reads the drawings for measurements and counts, and the email and scope for what the client is asking for. Nothing is added until you confirm it.
               </p>
             </div>
             <Button
               onClick={runRead}
-              disabled={reading || (ticked.length === 0 && !scopeText.trim())}
+              disabled={reading || ticked.length === 0}
               className="h-11 w-full gap-2 px-5 text-[15px] sm:w-auto"
             >
               {reading ? (
