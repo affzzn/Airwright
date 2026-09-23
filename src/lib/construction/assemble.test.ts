@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { assembleDrawingDraft, type AssembleLibEl, type CallOff } from "./assemble";
+import {
+  assembleDrawingDraft,
+  scopeOnlyLines,
+  callOffsFromScope,
+  type AssembleLibEl,
+  type CallOff,
+  type DrawingDraftLine,
+} from "./assemble";
 import type { DrawingObservations, NumberField } from "./drawingSchema";
 
 // The seeded library subset (ids + names + aliases + units), as loadConstructionLibrary returns.
@@ -99,10 +106,9 @@ describe("assembleDrawingDraft — Wren Park (acceptance: reproduce the schedule
     expect(byDesc("ce-haki-stair").every((l) => l.unit === "NR_PER_LIFT" && l.quantity === 1)).toBe(true);
   });
 
-  it("emits foam from the access-point counts (4 doors + 1 exit = 5)", () => {
-    const foam = byDesc("ce-foam");
-    expect(foam).toHaveLength(1);
-    expect(foam[0].quantity).toBe(5);
+  it("does NOT auto-add foam — surfaces the access-point count as a flag instead", () => {
+    expect(byDesc("ce-foam")).toHaveLength(0); // foam is Colin's judgment, not auto-priced
+    expect(r.flags.some((f) => /foam by hand/i.test(f))).toBe(true);
   });
 
   it("reads the building height off the elevation and suggests the ≤6 m bracket", () => {
@@ -138,6 +144,38 @@ describe("cross-check — the client call-off vs the drawing (Ben's '3 not 4')",
   it("no flag when they agree", () => {
     const r = assembleDrawingDraft([obs], LIB, [{ keyword: "lift gate", quantity: 3, lifts: null }]);
     expect(r.flags.some((f) => /verify/i.test(f))).toBe(false);
+  });
+});
+
+describe("de-dup — a feature reported by two drawings collapses to one line", () => {
+  const run = emptyObs({ externalRuns: [{ zone: "blue", lengthM: nf(42.199, "high"), liftsMarked: 3 }] });
+  it("keeps one line and flags the collapse when two drawings report the same run", () => {
+    const r = assembleDrawingDraft([run, run], LIB); // same sheet read twice
+    expect(r.lines.filter((l) => l.elementId === "ce-independent-scaffold")).toHaveLength(1);
+    expect(r.flags.some((f) => /collapsed/i.test(f))).toBe(true);
+  });
+});
+
+describe("scope × drawing fusion (docs/20 §7)", () => {
+  const drawingLines: DrawingDraftLine[] = [
+    { elementId: "ce-birdcage", description: "Internal Birdcage (crash deck)", unit: "M2_PER_LIFT", quantity: 203.34, lifts: 2, heightBracket: null, confidence: "high", note: null, needsItem: false },
+  ];
+  it("skips a scope item already covered by a drawing line (no double-count)", () => {
+    const extra = scopeOnlyLines(drawingLines, [{ elementId: "ce-birdcage", quantity: null, lifts: null, clientText: "crash decks in each classroom" }], LIB);
+    expect(extra).toHaveLength(0);
+  });
+  it("appends a scope item NOT on any drawing, flagged for manual quantity", () => {
+    const extra = scopeOnlyLines(drawingLines, [{ elementId: "ce-lift-gate", quantity: 6, lifts: null, clientText: "Safegates all floors" }], LIB);
+    expect(extra).toHaveLength(1);
+    expect(extra[0].elementId).toBe("ce-lift-gate");
+    expect(extra[0].note).toMatch(/from scope/i);
+  });
+  it("ignores an unmatched (null) scope item", () => {
+    expect(scopeOnlyLines(drawingLines, [{ elementId: null, quantity: 1, lifts: null, clientText: "obscure thing" }], LIB)).toHaveLength(0);
+  });
+  it("callOffsFromScope maps scope items to cross-check call-offs", () => {
+    const cos = callOffsFromScope([{ elementId: "ce-lift-gate", quantity: 4, lifts: null, clientText: "x" }], LIB);
+    expect(cos).toEqual([{ keyword: "Lift Gate (Safegate)", quantity: 4, lifts: null }]);
   });
 });
 

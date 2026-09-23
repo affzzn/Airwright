@@ -9,6 +9,7 @@ import {
   registerConstructionAttachments,
 } from "@/server/actions/construction";
 import { setConstructionAttachmentDrafting } from "@/server/actions/constructionDrawings";
+import { isDraftableFile, looksLikeAnswerFile } from "@/lib/construction/fileKinds";
 import type { ConstructionAttachmentVM } from "@/server/construction";
 import { isPreviewable } from "@/components/construction/construction-reference-viewer";
 import { Button } from "@/components/ui/button";
@@ -133,12 +134,12 @@ export function ConstructionAttachments({
                   )}
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5">
-                  {!locked && a.mimeType === "application/pdf" && (
+                  {!locked && isDraftableFile(a.mimeType, a.fileName) && !looksLikeAnswerFile(a.fileName) && (
                     <button
                       type="button"
                       onClick={() => toggleDraft(a.id, !a.useForDrafting)}
                       disabled={pending}
-                      title={a.useForDrafting ? "AI reads this drawing · click to exclude" : "Include this drawing for AI reading"}
+                      title={a.useForDrafting ? "AI reads this file · click to exclude" : "Include this file for AI reading"}
                       className={cn(
                         "flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
                         a.useForDrafting

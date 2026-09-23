@@ -97,6 +97,66 @@ export async function pdfToText(bytes: Buffer): Promise<string> {
   }
 }
 
+/** Decode quoted-printable, reassembling multi-byte UTF-8 (=C3=97 → "×"). */
+function decodeQP(s: string): string {
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "=") {
+      if (s[i + 1] === "\n") { i += 1; continue; } // soft line break
+      const hex = s.slice(i + 1, i + 3);
+      if (/^[0-9A-Fa-f]{2}$/.test(hex)) { bytes.push(parseInt(hex, 16)); i += 2; continue; }
+    }
+    const code = c.charCodeAt(0);
+    if (code < 128) bytes.push(code);
+    else for (const b of Buffer.from(c, "utf8")) bytes.push(b);
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+const stripHtml = (s: string): string =>
+  s
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
+
+/** Pull one MIME part's body (text/plain preferred) out of a raw .eml. */
+function mimePart(raw: string, type: "plain" | "html"): string | null {
+  const m = new RegExp(`content-type:\\s*text/${type}`, "i").exec(raw);
+  if (!m) return null;
+  const afterHdr = raw.indexOf("\n\n", m.index);
+  if (afterHdr < 0) return null;
+  let body = raw.slice(afterHdr + 2);
+  const b = body.search(/\n--[^\n]+\n/); // next MIME boundary
+  if (b >= 0) body = body.slice(0, b);
+  return body;
+}
+
+/** Extract the readable text of an email (.eml) — the client's written scope. */
+export function emlToText(bytes: Buffer): string {
+  const raw = bytes.toString("utf8").replace(/\r\n/g, "\n");
+  const plain = mimePart(raw, "plain");
+  let body: string;
+  if (plain) body = decodeQP(plain);
+  else {
+    const html = mimePart(raw, "html");
+    body = html ? stripHtml(decodeQP(html)) : stripHtml(decodeQP(raw));
+  }
+  // Drop long base64-ish lines (inline attachments) + collapse whitespace.
+  body = body
+    .split("\n")
+    .filter((l) => !/^[A-Za-z0-9+/=]{120,}$/.test(l.trim()))
+    .join("\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return clamp(body);
+}
+
 export interface ScopeFile {
   name: string;
   mimeType: string;
@@ -121,6 +181,9 @@ export async function extractScopeText(file: ScopeFile): Promise<string> {
     mime === "application/vnd.ms-excel"
   ) {
     return xlsxToText(file.bytes);
+  }
+  if (ext === "eml" || mime === "message/rfc822") {
+    return emlToText(file.bytes);
   }
   if (ext === "pdf" || mime === "application/pdf") {
     return pdfToText(file.bytes);

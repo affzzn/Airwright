@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { plainToText, cellToText, xlsxToText, extractScopeText } from "./scopeText";
+import { plainToText, cellToText, xlsxToText, extractScopeText, emlToText } from "./scopeText";
 
 describe("plainToText", () => {
   it("decodes utf-8 and normalises CRLF", () => {
@@ -42,6 +42,38 @@ describe("xlsxToText — flatten a real workbook (acceptance for the Wren-shape 
     expect(text).toContain("Haki Stair Tower\t3\tnr\t1");
     // blank row dropped → no double blank lines inside the sheet block
     expect(text).not.toMatch(/\n\n\n/);
+  });
+});
+
+describe("emlToText — the client's written scope out of an email", () => {
+  it("pulls the text/plain body and decodes quoted-printable", async () => {
+    const eml = [
+      "From: qs@client.co.uk",
+      "Subject: Scaffolding quote",
+      'Content-Type: multipart/alternative; boundary="B"',
+      "",
+      "--B",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: quoted-printable",
+      "",
+      "Scope of works:",
+      "- Edge protection to LV pits 20 LM =C3=97 2 pits.",
+      "- Crash decks to each classroom.",
+      "--B",
+      "Content-Type: text/html",
+      "",
+      "<p>ignore me</p>",
+      "--B--",
+    ].join("\r\n");
+    const out = emlToText(Buffer.from(eml, "utf8"));
+    expect(out).toContain("Edge protection to LV pits 20 LM × 2 pits");
+    expect(out).toContain("Crash decks to each classroom");
+    expect(out).not.toContain("ignore me"); // preferred the text/plain part
+  });
+  it("reads a .eml via the dispatcher", async () => {
+    const eml = "Content-Type: text/plain\r\n\r\nWorking platform to all elevations.";
+    const out = await extractScopeText({ name: "enquiry.eml", mimeType: "message/rfc822", bytes: Buffer.from(eml) });
+    expect(out).toContain("Working platform to all elevations");
   });
 });
 

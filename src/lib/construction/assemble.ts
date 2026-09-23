@@ -337,22 +337,17 @@ export function assembleDrawingDraft(
     }
   }
 
-  // --- Foam at doorways / fire exits -----------------------------------------
-  const foamEl = matchEl(library, ["foam"]);
+  // --- Foam: an INFORMATIONAL flag, NEVER an auto-priced line ----------------
+  // Construction scope is matter-of-fact: price exactly what's asked (Ben). Foam is
+  // Colin's judgment (schools / public), not something the drawing dictates, and the
+  // door/exit count is noisy (it can pick up internal doors). So we surface the count
+  // as a suggestion and let the estimator add foam by hand if the scope requires it.
   const doors = observations.reduce((a, o) => a + (val(o.accessPoints.doorways) ?? 0), 0);
   const exits = observations.reduce((a, o) => a + (val(o.accessPoints.fireExits) ?? 0), 0);
-  const foamCount = Math.trunc(doors + exits);
-  if (foamCount > 0) {
-    add({
-      elementId: foamEl?.id ?? null,
-      description: foamEl?.name ?? "Foam protection",
-      unit: "NR",
-      quantity: foamCount,
-      lifts: null,
-      heightBracket: null,
-      confidence: "medium",
-      note: `${Math.trunc(doors)} doorway(s) + ${Math.trunc(exits)} fire exit(s)`,
-    });
+  if (Math.trunc(doors + exits) > 0) {
+    flags.push(
+      `Drawing shows ~${Math.trunc(doors)} doorway(s) + ${Math.trunc(exits)} fire exit(s) · add foam by hand if the scope requires it.`,
+    );
   }
 
   // Any raster/no-text drawing → flag that its measurements are manual.
@@ -360,5 +355,87 @@ export function assembleDrawingDraft(
     flags.push("One or more drawings are images with no dimensions · measure those by hand.");
   }
 
-  return { lines, measurements, suggestedHeightBracket, buildingHeightM, flags };
+  // Collapse features reported identically by more than one drawing (docs/20 §13).
+  const dd = dedupeLines(lines);
+  if (dd.collapsed > 0)
+    flags.push(`Collapsed ${dd.collapsed} duplicate line(s) reported by more than one drawing.`);
+
+  return { lines: dd.lines, measurements, suggestedHeightBracket, buildingHeightM, flags };
+}
+
+/** Collapse lines reported identically (same element/unit/qty/lifts) by >1 drawing. */
+function dedupeLines(lines: DrawingDraftLine[]): { lines: DrawingDraftLine[]; collapsed: number } {
+  const seen = new Set<string>();
+  const out: DrawingDraftLine[] = [];
+  let collapsed = 0;
+  for (const l of lines) {
+    if (l.elementId == null) {
+      out.push(l); // never collapse one-off / unmatched lines
+      continue;
+    }
+    const key = `${l.elementId}|${l.unit}|${round3(l.quantity ?? 0)}|${l.lifts ?? ""}`;
+    if (seen.has(key)) {
+      collapsed++;
+      continue;
+    }
+    seen.add(key);
+    out.push(l);
+  }
+  return { lines: out, collapsed };
+}
+
+// --- Scope × drawing fusion (docs/20 §7) -----------------------------------
+
+/** One mapped scope item from the text reader (a client's stated call-off). */
+export interface ScopeItem {
+  elementId: string | null;
+  quantity: number | null;
+  lifts: number | null;
+  clientText: string;
+}
+
+/** Turn scope items into call-offs the drawing pass cross-checks against. */
+export function callOffsFromScope(scopeItems: ScopeItem[], library: AssembleLibEl[]): CallOff[] {
+  const out: CallOff[] = [];
+  for (const s of scopeItems) {
+    if (!s.elementId) continue;
+    const el = library.find((e) => e.id === s.elementId);
+    if (el) out.push({ keyword: el.name, quantity: s.quantity, lifts: s.lifts });
+  }
+  return out;
+}
+
+/**
+ * Fuse the client's scope with the drawing draft: an item the scope ASKS FOR but
+ * no drawing produced is appended as a flagged line (Ben: price exactly the scope).
+ * Items already covered by a drawing line are skipped (the drawing holds the real
+ * quantity); a null-mapped scope item is left to the scope reader's own review.
+ * Returns ONLY the extra scope-only lines, deduped by element.
+ */
+export function scopeOnlyLines(
+  drawingLines: DrawingDraftLine[],
+  scopeItems: ScopeItem[],
+  library: AssembleLibEl[],
+): DrawingDraftLine[] {
+  const covered = new Set(drawingLines.map((l) => l.elementId).filter(Boolean) as string[]);
+  const seen = new Set<string>();
+  const extra: DrawingDraftLine[] = [];
+  for (const s of scopeItems) {
+    if (!s.elementId || covered.has(s.elementId) || seen.has(s.elementId)) continue;
+    const el = library.find((e) => e.id === s.elementId);
+    if (!el) continue;
+    seen.add(s.elementId);
+    extra.push({
+      elementId: el.id,
+      description: el.name,
+      unit: el.unit,
+      quantity: s.quantity,
+      lifts: el.usesLifts ? s.lifts : null,
+      heightBracket: null,
+      confidence: "low",
+      note: `From scope · "${s.clientText.trim()}" · not on a drawing, verify quantity`,
+      needsItem: false,
+    });
+  }
+  return extra;
 }

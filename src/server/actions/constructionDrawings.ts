@@ -6,27 +6,30 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { downloadFromStorage } from "@/lib/supabase/storage";
 import { readDrawing } from "@/lib/construction/readDrawing";
+import { extractScopeText } from "@/lib/construction/scopeText";
+import { draftFromScope } from "@/lib/construction/draftFromScope";
 import {
   assembleDrawingDraft,
+  callOffsFromScope,
+  scopeOnlyLines,
+  type AssembleLibEl,
   type DrawingDraftLine,
   type DrawingDraftMeasurement,
+  type ScopeItem,
 } from "@/lib/construction/assemble";
 import type { DrawingObservations } from "@/lib/construction/drawingSchema";
 import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
+import { isDrawingFile, isScopeTextFile, looksLikeAnswerFile } from "@/lib/construction/fileKinds";
 import { loadConstructionLibrary } from "@/server/construction";
 import type { ConstructionUnit, HeightBracket, RateBand } from "@/lib/construction/types";
 
 /**
- * Construction enquiry reading (docs/20) — the DRAWING side. The estimator ticks
- * which attachments the AI reads, runs the drawing reader (Opus 4.8 vision) over
- * them, reviews the assembled draft, then applies it. NEVER reads an answer file;
- * never prices without the estimator (returns a draft to confirm).
+ * Construction enquiry reading (docs/20) — reads the estimator's ticked enquiry
+ * files: DRAWINGS (PDF → Opus 4.8 vision) and SCOPE text (email / spreadsheet →
+ * the text reader), fuses them (drawing quantities are primary; a scope item with
+ * no drawing is added flagged), and returns a draft to confirm. NEVER reads an
+ * answer file; never prices without the estimator.
  */
-
-/** An internal answer file (Airwright's own schedule/quote) is never eligible for reading. */
-function looksLikeAnswerFile(name: string): boolean {
-  return /schedule/i.test(name) || /^\s*quote[-_ ]?\d/i.test(name);
-}
 
 // --- 1. Tick which files the AI reads --------------------------------------
 
@@ -60,36 +63,38 @@ export interface DrawingDraftResult {
   read?: { fileName: string; ok: boolean; costUsd?: number; error?: string }[];
 }
 
-export async function readConstructionDrawings(quoteId: string): Promise<DrawingDraftResult> {
+export async function readConstructionEnquiry(quoteId: string): Promise<DrawingDraftResult> {
   if (!env.constructionAI) return { ok: false, error: "AI reading is turned off." };
   const quote = await prisma.constructionQuote.findUnique({ where: { id: quoteId } });
   if (!quote) return { ok: false, error: "Quote not found." };
 
-  const atts = await prisma.constructionAttachment.findMany({
-    where: { quoteId, useForDrafting: true },
-  });
-  // Only PDFs go to the drawing reader; skip answer files defensively.
-  const drawings = atts.filter(
-    (a) => a.mimeType === "application/pdf" && !looksLikeAnswerFile(a.fileName),
+  const atts = await prisma.constructionAttachment.findMany({ where: { quoteId, useForDrafting: true } });
+  const eligible = atts.filter((a) => !looksLikeAnswerFile(a.fileName));
+  const drawings = eligible.filter((a) => isDrawingFile(a.mimeType, a.fileName));
+  const scopeFiles = eligible.filter(
+    (a) => !isDrawingFile(a.mimeType, a.fileName) && isScopeTextFile(a.mimeType, a.fileName),
   );
-  if (drawings.length === 0)
-    return { ok: false, error: "Tick at least one drawing (PDF) to read first." };
+  if (drawings.length === 0 && scopeFiles.length === 0)
+    return { ok: false, error: "Tick at least one drawing or scope file (the AI badge) first." };
 
   const library = await loadConstructionLibrary();
   if (library.length === 0)
     return { ok: false, error: "The picking list is empty — add elements on the Rates → Construction tab." };
+  const libAssemble: AssembleLibEl[] = library.map((e) => ({
+    id: e.id,
+    name: e.name,
+    aliases: e.aliases,
+    unit: e.unit as ConstructionUnit,
+    usesLifts: e.usesLifts,
+  }));
 
-  const observations: DrawingObservations[] = [];
   const read: NonNullable<DrawingDraftResult["read"]> = [];
 
-  // Read each drawing (bounded parallelism keeps it responsive for a handful of files).
+  // --- Drawings (vision) — bounded parallelism -------------------------------
+  const observations: DrawingObservations[] = [];
   const results = await Promise.allSettled(
-    drawings.map(async (a) => {
-      const bytes = await downloadFromStorage(a.storagePath);
-      return { att: a, result: await readDrawing(bytes) };
-    }),
+    drawings.map(async (a) => ({ att: a, result: await readDrawing(await downloadFromStorage(a.storagePath)) })),
   );
-
   for (let i = 0; i < results.length; i++) {
     const a = drawings[i];
     const r = results[i];
@@ -112,34 +117,50 @@ export async function readConstructionDrawings(quoteId: string): Promise<Drawing
         },
       });
     } else {
-      const msg = r.reason instanceof Error ? r.reason.message : "read failed";
-      read.push({ fileName: a.fileName, ok: false, error: msg });
-      await prisma.constructionAttachment.update({
-        where: { id: a.id },
-        data: { readStatus: "FAILED" },
-      });
+      read.push({ fileName: a.fileName, ok: false, error: r.reason instanceof Error ? r.reason.message : "read failed" });
+      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
     }
   }
 
-  if (observations.length === 0)
-    return { ok: false, error: "Couldn’t read any drawing.", read };
+  // --- Scope text (email / spreadsheet / txt) → the text reader --------------
+  const scopeTexts: string[] = [];
+  for (const a of scopeFiles) {
+    try {
+      const text = await extractScopeText({ name: a.fileName, mimeType: a.mimeType, bytes: await downloadFromStorage(a.storagePath) });
+      if (text.trim()) scopeTexts.push(text);
+      read.push({ fileName: a.fileName, ok: true });
+      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "READ" } });
+    } catch (e) {
+      read.push({ fileName: a.fileName, ok: false, error: e instanceof Error ? e.message : "read failed" });
+      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
+    }
+  }
+  let scopeItems: ScopeItem[] = [];
+  if (scopeTexts.length > 0) {
+    try {
+      const scopeDraft = await draftFromScope(
+        scopeTexts.join("\n\n---\n\n"),
+        library.map((e) => ({ id: e.id, name: e.name, aliases: e.aliases, unit: e.unit, usesLifts: e.usesLifts, category: e.category })),
+      );
+      scopeItems = scopeDraft.lines.map((l) => ({ elementId: l.elementId, quantity: l.quantity, lifts: l.lifts, clientText: l.clientText }));
+    } catch {
+      /* scope reader failed — proceed with the drawings alone */
+    }
+  }
 
-  // Layer 2: fuse the observations into a draft. Call-offs (scope) would be threaded
-  // here once the scope + drawing drafts are merged; for now the drawing is the source.
-  const draft = assembleDrawingDraft(
-    observations,
-    library.map((e) => ({
-      id: e.id,
-      name: e.name,
-      aliases: e.aliases,
-      unit: e.unit as ConstructionUnit,
-      usesLifts: e.usesLifts,
-    })),
-  );
+  if (observations.length === 0 && scopeItems.length === 0)
+    return { ok: false, error: "Couldn’t read any enquiry file.", read };
+
+  // Layer 2: fuse. Drawing quantities are primary; the scope cross-checks the
+  // call-off (docs/20 §7) and adds any item asked-for but not on a drawing.
+  const callOffs = callOffsFromScope(scopeItems, libAssemble);
+  const draft = assembleDrawingDraft(observations, libAssemble, callOffs);
+  const extra = scopeOnlyLines(draft.lines, scopeItems, libAssemble);
+
   revalidatePath(`/construction/${quoteId}`);
   return {
     ok: true,
-    lines: draft.lines,
+    lines: [...draft.lines, ...extra],
     measurements: draft.measurements,
     flags: draft.flags,
     suggestedHeightBracket: draft.suggestedHeightBracket,

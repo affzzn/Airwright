@@ -23,9 +23,18 @@ Construction Walkthrough" calls, and the two real fixtures in `data/construction
 > ×3/×2, building height 4.955 m → ≤6 m bracket), and a full storage→read→assemble→insert
 > round-trip produced the 10-line quote (£12,619.83 on placeholder rates) + 6 measurements, then
 > cleaned up. `eg-02` raster degraded gracefully (hasTextLayer=false, no hallucinated dims).
-> Deferred (v2): auto-measuring un-dimensioned CAD geometry (§16); scope×drawing call-off merge
-> (the cross-check engine is built + tested, just not yet fed the scope reader's numbers). Rates +
-> terminology remain the open Airwright items.
+> Rates + terminology remain the open Airwright items.
+>
+> **UPDATE (2026-09-23, post-live-run fixes):** (1) **Foam is no longer auto-priced** — it was
+> over-including a line the scope didn't ask for (Ben: price exactly the scope) off a noisy door
+> count; it is now an informational flag ("~N doorways + M fire exits · add foam by hand"). (2)
+> **Scope × drawing fusion is now wired**: the "Read drawings" action became **"Read enquiry"** —
+> it reads ticked DRAWINGS (vision) *and* SCOPE files (email/spreadsheet/txt via the text reader,
+> `.eml` parsing added), fuses them (drawing quantities primary; a scope item with no drawing is
+> appended flagged; call-offs cross-checked), and **de-dups** features reported by more than one
+> drawing. The **email now shows the AI badge** (any draftable non-answer file does). Validated
+> live on eg-01: the email + drawings fuse to exactly the 9 correct scaffold lines, **no foam
+> line, no double-count**. Deferred v2: auto-measuring un-dimensioned CAD geometry (§16).
 
 > Legend: **✅ CONFIRMED** (from the calls/examples — build it) · **⚠️ CONFIRM** (needs a
 > Colin/Laura answer — flag, don't guess) · **🔧** (a code/schema change) · **🚫 OUT OF

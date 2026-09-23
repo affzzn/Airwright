@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Layers, Loader2, X } from "lucide-react";
 import {
   applyDrawingDraft,
-  readConstructionDrawings,
+  readConstructionEnquiry,
   type ApplyDrawingLine,
 } from "@/server/actions/constructionDrawings";
 import type { DrawingDraftLine, DrawingDraftMeasurement } from "@/lib/construction/assemble";
@@ -60,10 +60,10 @@ export function ReadDrawings({
   const run = () => {
     setError(null);
     startRead(async () => {
-      const res = await readConstructionDrawings(quoteId);
+      const res = await readConstructionEnquiry(quoteId);
       setReadSummary(res.read ?? []);
       if (!res.ok || !res.lines) {
-        setError(res.error ?? "Couldn’t read the drawings.");
+        setError(res.error ?? "Couldn’t read the enquiry.");
         return;
       }
       setLines(res.lines.map((l) => ({ ...l, include: true })));
@@ -121,20 +121,20 @@ export function ReadDrawings({
         size="sm"
         onClick={() => setOpen(true)}
         className="gap-1.5"
-        title={readableCount > 0 ? "Read the ticked drawings into draft lines" : "Tick a drawing (the AI badge) in Attachments first"}
+        title={readableCount > 0 ? "Read the ticked drawings + scope into draft lines" : "Tick a file (the AI badge) in Attachments first"}
       >
         <Layers className="h-4 w-4" strokeWidth={1.75} />
-        Read drawings{readableCount > 0 ? ` (${readableCount})` : ""}
+        Read enquiry{readableCount > 0 ? ` (${readableCount})` : ""}
       </Button>
 
-      <Modal open={open} onClose={close} label="Read drawings" className="max-w-3xl">
+      <Modal open={open} onClose={close} label="Read enquiry" className="max-w-3xl">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-hairline px-6 py-4">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-surface-2">
               <Layers className="h-3.5 w-3.5 text-ink-muted" strokeWidth={1.75} />
             </span>
-            <h2 className="text-[15px] font-semibold tracking-tight text-ink">Read drawings</h2>
+            <h2 className="text-[15px] font-semibold tracking-tight text-ink">Read enquiry</h2>
           </div>
           <button type="button" aria-label="Close" onClick={close} className="rounded-md p-1 text-ink-subtle hover:bg-surface hover:text-ink">
             <X className="h-4 w-4" strokeWidth={1.75} />
@@ -148,22 +148,22 @@ export function ReadDrawings({
               <span className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline bg-surface">
                 <Loader2 className="h-5 w-5 animate-spin text-ink-muted" strokeWidth={2} />
               </span>
-              <p className="text-sm font-medium text-ink">Reading the drawings…</p>
+              <p className="text-sm font-medium text-ink">Reading the enquiry…</p>
               <p className="max-w-xs text-xs leading-relaxed text-ink-subtle">
-                Finding measurements, counts and mark-ups. A few seconds per drawing.
+                Finding measurements, counts and mark-ups. A few seconds per file.
               </p>
             </div>
           ) : step === "confirm" ? (
             <div className="space-y-3 px-6 py-6 text-sm text-ink-muted">
               {readableCount > 0 ? (
                 <p>
-                  {readableCount} drawing{readableCount === 1 ? "" : "s"} ticked for reading. The AI reads the
-                  drawings only (never the priced answer), pulls measurements and counts, and proposes lines you confirm.
+                  {readableCount} file{readableCount === 1 ? "" : "s"} ticked for reading. The AI reads your
+                  drawings + scope (never the priced answer), pulls measurements and counts, and proposes lines you confirm.
                 </p>
               ) : (
                 <p>
-                  No drawings ticked yet. In <span className="text-ink">Attachments</span>, click the{" "}
-                  <span className="text-ink">AI</span> badge on a drawing PDF to include it, then come back.
+                  No files ticked yet. In <span className="text-ink">Attachments</span>, click the{" "}
+                  <span className="text-ink">AI</span> badge on a drawing or the enquiry email to include it, then come back.
                 </p>
               )}
               {error && <ErrorNote message={error} />}
@@ -282,12 +282,12 @@ export function ReadDrawings({
           {step === "review" ? (
             <Button variant="ghost" size="sm" onClick={() => setStep("confirm")} disabled={applying}>← Back</Button>
           ) : (
-            <span className="text-[11px] text-ink-subtle">Drawings only · never the priced answer.</span>
+            <span className="text-[11px] text-ink-subtle">Enquiry files only · never the priced answer.</span>
           )}
           {step === "confirm" ? (
             <Button onClick={run} disabled={reading || readableCount === 0} className="gap-1.5">
               {reading ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> : <Layers className="h-4 w-4" strokeWidth={1.75} />}
-              Read {readableCount || ""} drawing{readableCount === 1 ? "" : "s"}
+              Read {readableCount || ""} file{readableCount === 1 ? "" : "s"}
             </Button>
           ) : (
             <Button onClick={apply} disabled={applying || (includedLines === 0 && includedMeas === 0)} className="gap-1.5">
