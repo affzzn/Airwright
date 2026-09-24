@@ -8,7 +8,7 @@ import {
   type TakeoffSnapshot,
 } from "./snapshot";
 import { normalizeName, normalizeCode, nameSimilarity } from "./normalize";
-import { compareGeometry, matchAgainstBank, type BankCandidateInput } from "./match";
+import { compareGeometry, matchAgainstBank, nameCodeMatch, type BankCandidateInput } from "./match";
 
 /**
  * The bank matcher proves the core doctrine (docs/20 §1): identity is GEOMETRY,
@@ -255,5 +255,40 @@ describe("matchAgainstBank", () => {
       [dentonEntry],
     );
     expect(r.state).toBe("NEW");
+  });
+});
+
+describe("nameCodeMatch (upload-time, no geometry)", () => {
+  const dentonEntry: BankCandidateInput = {
+    entryId: "e-denton",
+    buildType: "TRADITIONAL",
+    canonicalName: "Denton",
+    canonicalCode: "L363",
+    aliases: ["Denton XYZ"],
+    snapshot: null,
+  };
+
+  it("suggests on an exact code match", () => {
+    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Something", code: "L363" }, [dentonEntry]);
+    expect(hits[0]?.entryId).toBe("e-denton");
+    expect(hits[0]?.codeEqual).toBe(true);
+  });
+
+  it("suggests on a learned alias", () => {
+    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Denton XYZ", code: null }, [dentonEntry]);
+    expect(hits[0]?.aliasHit).toBe(true);
+  });
+
+  it("suggests on a strong name (prefix), no code", () => {
+    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Denton", code: null }, [dentonEntry]);
+    expect(hits[0]?.entryId).toBe("e-denton");
+  });
+
+  it("does NOT suggest on a weak/unrelated name", () => {
+    expect(nameCodeMatch({ buildType: "TRADITIONAL", name: "Aspen", code: null }, [dentonEntry])).toHaveLength(0);
+  });
+
+  it("does NOT suggest across build types", () => {
+    expect(nameCodeMatch({ buildType: "TIMBER_FRAME", name: "Denton", code: "L363" }, [dentonEntry])).toHaveLength(0);
   });
 });

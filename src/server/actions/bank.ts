@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/supabase/server";
-import { saveTakeoffToBank, materializeBankEntry } from "@/server/bank";
+import { saveTakeoffToBank, materializeBankEntry, reuseBankEntryIntoHouseType } from "@/server/bank";
 import { normalizeName, normalizeCode } from "@/lib/bank/normalize";
 
 /**
@@ -73,6 +73,24 @@ export async function reuseBankEntry(
 ): Promise<{ ok: boolean; houseTypeId?: string; error?: string }> {
   const user = await getCurrentUser();
   const res = await materializeBankEntry(projectId, entryId, { userId: user?.id ?? null });
+  if (res.ok) {
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/bank");
+  }
+  return res;
+}
+
+/**
+ * Accept the upload-time suggestion: reuse a bank entry into an existing house type
+ * (skip-read), so an obvious repeat isn't re-read. Revalidates the project page.
+ */
+export async function reuseBankIntoHouseType(
+  projectId: string,
+  houseTypeId: string,
+  entryId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  const res = await reuseBankEntryIntoHouseType(houseTypeId, entryId, { userId: user?.id ?? null });
   if (res.ok) {
     revalidatePath(`/projects/${projectId}`);
     revalidatePath("/bank");

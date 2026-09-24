@@ -16,7 +16,8 @@ import { HouseTypeDelete } from "@/components/house-type-delete";
 import { AddAsPlot } from "@/components/add-as-plot";
 import { GroupingConfirm } from "@/components/grouping-confirm";
 import { ReuseFromBank } from "@/components/bank/reuse-from-bank";
-import { listBankEntries } from "@/server/bank";
+import { ReuseSuggestion } from "@/components/bank/reuse-suggestion";
+import { listBankEntries, suggestBankForTypes } from "@/server/bank";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
@@ -165,6 +166,20 @@ export default async function ProjectPage({
     timesReused: e.timesReused,
   }));
   const buildTypeLabel = project.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional";
+
+  // Upload-time auto-detect (docs/20 §6c): the moment a house type is segmented we
+  // know its name/code — flag any confident bank repeat so it can be reused without
+  // reading the drawing. Only for unlinked, not-yet-confirmed house-build types.
+  const suggestCandidates =
+    project.estimatingMode === "HOUSE_BUILD" && bankEntries.length > 0
+      ? houseTypes
+          .filter((ht) => !ht.bankEntryId && ht.takeoff?.status !== "CONFIRMED")
+          .map((ht) => ({ houseTypeId: ht.id, name: ht.name, code: ht.code }))
+      : [];
+  const bankSuggestions =
+    suggestCandidates.length > 0
+      ? await suggestBankForTypes(project.clientId, project.buildType, suggestCandidates)
+      : new Map<string, { entryId: string; name: string; code: string | null }>();
 
   return (
     <AppShell>
@@ -328,6 +343,15 @@ export default async function ProjectPage({
                             : null
                         }
                         expectedMs={expectedMs}
+                      />
+                    )}
+                    {bankSuggestions.has(ht.id) && (
+                      <ReuseSuggestion
+                        projectId={project.id}
+                        houseTypeId={ht.id}
+                        entryId={bankSuggestions.get(ht.id)!.entryId}
+                        entryName={bankSuggestions.get(ht.id)!.name}
+                        entryCode={bankSuggestions.get(ht.id)!.code}
                       />
                     )}
                   </li>

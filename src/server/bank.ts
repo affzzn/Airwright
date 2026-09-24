@@ -11,6 +11,7 @@ import {
 import {
   matchAgainstBank,
   compareGeometry,
+  nameCodeMatch,
   type BankCandidateInput,
   type MatchResult,
 } from "@/lib/bank/match";
@@ -455,4 +456,133 @@ export async function listBankEntries(filter: { clientId?: string; buildType?: B
       perimeter: snap ? Math.round((snap.walls.reduce((a, w) => a + w.lengthM, 0)) * 10) / 10 : null,
     };
   });
+}
+
+// ── Upload-time auto-detect (docs/20 §6c) ────────────────────────────────────
+
+/**
+ * Suggest bank repeats for a set of house types by NAME/CODE only (pre-read). Used
+ * on the project page the moment a house type is segmented — before/while its
+ * drawing is read — so an obvious repeat can be reused without spending the read.
+ * One entries load for the whole project; matching is in-memory.
+ */
+export async function suggestBankForTypes(
+  clientId: string,
+  buildType: BankBuildType,
+  types: { houseTypeId: string; name: string; code: string | null }[],
+): Promise<Map<string, { entryId: string; name: string; code: string | null }>> {
+  const out = new Map<string, { entryId: string; name: string; code: string | null }>();
+  if (types.length === 0) return out;
+  const candidates = await bankCandidates(clientId, buildType);
+  if (candidates.length === 0) return out;
+  const nameById = new Map(candidates.map((c) => [c.entryId, { name: c.canonicalName, code: c.canonicalCode }]));
+  for (const t of types) {
+    const hits = nameCodeMatch({ buildType, name: t.name, code: t.code }, candidates);
+    const best = hits[0];
+    if (best) {
+      const nm = nameById.get(best.entryId);
+      if (nm) out.set(t.houseTypeId, { entryId: best.entryId, name: nm.name, code: nm.code });
+    }
+  }
+  return out;
+}
+
+/**
+ * Reuse a bank entry into an EXISTING house type (skip-read from the upload-time
+ * suggestion). Fills that house type's take-off from the bank snapshot, confirms
+ * it, links it, and cancels any not-yet-started read so the drawing isn't billed.
+ * A late-completing read cannot clobber it (persist bails on a CONFIRMED take-off).
+ */
+export async function reuseBankEntryIntoHouseType(
+  houseTypeId: string,
+  bankEntryId: string,
+  opts: { userId?: string | null } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  const [houseType, entry] = await Promise.all([
+    prisma.houseType.findUnique({
+      where: { id: houseTypeId },
+      relationLoadStrategy: "join",
+      select: {
+        id: true,
+        clientId: true,
+        projectId: true,
+        project: { select: { buildType: true, estimatingMode: true } },
+        takeoff: { select: { id: true } },
+      },
+    }),
+    prisma.houseTypeBankEntry.findUnique({
+      where: { id: bankEntryId },
+      relationLoadStrategy: "join",
+      include: { currentVersion: true },
+    }),
+  ]);
+  if (!houseType) return { ok: false, error: "house type not found" };
+  if (houseType.project.estimatingMode === "CONSTRUCTION")
+    return { ok: false, error: "the bank is house-build only" };
+  if (!entry || !entry.currentVersion) return { ok: false, error: "bank entry has no confirmed version" };
+  if (entry.clientId !== houseType.clientId) return { ok: false, error: "different client" };
+  if (entry.buildType !== houseType.project.buildType)
+    return { ok: false, error: `that house type is ${entry.buildType.toLowerCase()}` };
+  const snapshot = parseSnapshot(entry.currentVersion.snapshot);
+  if (!snapshot) return { ok: false, error: "bank snapshot unreadable" };
+
+  const warnings = {
+    ...snapshot.warnings,
+    bankReused: true,
+    bankReusedFrom: { entryId: entry.id, version: entry.currentVersion.version },
+    bankReusedUnverified: true,
+  } as unknown as Prisma.InputJsonValue;
+  const measurementsCreate = (Object.keys(snapshot.measurements) as BankMeasurementKey[])
+    .filter((k) => BANK_MEASUREMENT_KEYS.includes(k) && snapshot.measurements[k] != null)
+    .map((k) => ({ key: k, valueNumber: snapshot.measurements[k]!, source: "MANUAL" as const, confidence: null, ambiguous: false }));
+  const wallsCreate = snapshot.walls.map((w) => ({ position: w.position, lengthM: w.lengthM, source: "MANUAL" as const, confidence: null }));
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (houseType.takeoff) {
+        // Replace the (possibly AI-seeded) take-off content with the bank values.
+        await tx.takeoffMeasurement.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
+        await tx.wallSegment.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
+        await tx.takeoff.update({
+          where: { id: houseType.takeoff.id },
+          data: {
+            status: "CONFIRMED",
+            configuration: snapshot.configuration,
+            includePartyWall: snapshot.includePartyWall,
+            confirmedById: opts.userId ?? null,
+            confirmedAt: new Date(),
+            warnings,
+            measurements: { create: measurementsCreate },
+            wallSegments: { create: wallsCreate },
+          },
+        });
+      } else {
+        await tx.takeoff.create({
+          data: {
+            houseTypeId: houseType.id,
+            status: "CONFIRMED",
+            configuration: snapshot.configuration,
+            includePartyWall: snapshot.includePartyWall,
+            confirmedById: opts.userId ?? null,
+            confirmedAt: new Date(),
+            warnings,
+            measurements: { create: measurementsCreate },
+            wallSegments: { create: wallsCreate },
+          },
+        });
+      }
+      await tx.houseType.update({
+        where: { id: houseType.id },
+        data: { bankEntryId: entry.id, bankMatchState: "MATCHED" },
+      });
+      await tx.houseTypeBankEntry.update({ where: { id: entry.id }, data: { timesReused: { increment: 1 } } });
+      // Cancel a not-yet-started read for this type (save the drawing bill). A read
+      // already in flight is left to finish — persist won't overwrite a CONFIRMED take-off.
+      await tx.extraction.deleteMany({ where: { houseTypeId: houseType.id, status: "PENDING" } });
+    });
+    await ensureDefaultPlot(houseType.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "reuse failed" };
+  }
 }

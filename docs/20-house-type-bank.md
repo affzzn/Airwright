@@ -272,6 +272,19 @@ Both entry points exist: skip-read (default, fast) and the auto-extract-then-dif
   it's-new · detach. Skip-read reuse (`materializeBankEntry` + `ReuseFromBank` on the
   project page) → confirmed take-off + plot, flagged `bankReusedUnverified` (the
   "Verify against drawing" safeguard surfaced on review).
+- **P2.5 — upload-time auto-detect. ✅ (2026-09-24)** The moment a house type is
+  segmented, its name/code is known — so the project page flags a confident bank repeat
+  *before/while* the drawing is read (`nameCodeMatch` — a name/code-only signal, no
+  geometry yet; `suggestBankForTypes` batches one entries-load per project). The
+  `ReuseSuggestion` chip ("Looks like a repeat of Millfield — reuse without reading")
+  calls `reuseBankEntryIntoHouseType`: fills the EXISTING house type's take-off from the
+  bank, confirms + links it, auto-creates a plot, and **cancels the not-yet-started read
+  (deletes the PENDING extraction) so the drawing isn't billed**. A read already in
+  flight is left to finish — `persist.ts` now bails on a CONFIRMED take-off, so a
+  late-completing read can never clobber a reused one (a general safety fix too). Only
+  strong name/code hits suggest (name alone is weak); a human still clicks. No worker
+  changes — detection is computed at project-page render, so the existing pipeline is
+  untouched.
 - **P3 — browse. ✅** `/bank` list (grouped by client, build filter, archived toggle) +
   `/bank/[id]` detail (current take-off readout, version history with per-version diff,
   where-used) + admin (`bank-entry-admin.tsx`: rename, aliases, merge, archive;

@@ -203,6 +203,40 @@ const NAME_CANDIDATE_MIN = 0.6;
 const NAME_STRONG_MIN = 0.85;
 
 /**
+ * Upload-time (pre-read) match on NAME/CODE only — there is no geometry yet, so
+ * this is a weaker signal used to SUGGEST a bank repeat before the drawing is read
+ * (docs/20 §6c). Returns strong candidates (alias/code/prefix/high-name), best first.
+ * A human still confirms — the geometry check happens if/when the drawing is read.
+ */
+export function nameCodeMatch(
+  incoming: { buildType: BankBuildType; name: string; code: string | null },
+  entries: BankCandidateInput[],
+): { entryId: string; strong: boolean; nameScore: number; aliasHit: boolean; codeEqual: boolean }[] {
+  const inName = normalizeName(incoming.name);
+  const inCode = normalizeCode(incoming.code);
+  const out: { entryId: string; strong: boolean; nameScore: number; aliasHit: boolean; codeEqual: boolean }[] = [];
+  for (const e of entries) {
+    if (e.buildType !== incoming.buildType) continue;
+    const aliasNorms = e.aliases.map((a) => normalizeName(a));
+    const aliasCodeNorms = e.aliases.map((a) => normalizeCode(a)).filter((c): c is string => !!c);
+    const entryName = normalizeName(e.canonicalName);
+    const entryCode = normalizeCode(e.canonicalCode);
+    const aliasHit =
+      (inName.length > 0 && aliasNorms.includes(inName)) ||
+      (inCode !== null && aliasCodeNorms.includes(inCode));
+    const codeEqual = inCode !== null && entryCode !== null && inCode === entryCode;
+    const sim = nameSimilarity(inName, entryName);
+    const strong = aliasHit || codeEqual || sim.exact || sim.prefix || sim.score >= NAME_STRONG_MIN;
+    if (!strong) continue; // suggestions are strong-only (name alone is a weak signal)
+    out.push({ entryId: e.entryId, strong, nameScore: sim.score, aliasHit, codeEqual });
+  }
+  const score = (c: { aliasHit: boolean; codeEqual: boolean; nameScore: number }) =>
+    (c.aliasHit ? 3 : 0) + (c.codeEqual ? 2 : 0) + c.nameScore;
+  out.sort((a, b) => score(b) - score(a));
+  return out;
+}
+
+/**
  * Match an incoming house type against the client's bank entries (already scoped
  * to the same client + buildType by the caller). Returns ranked proposals.
  */

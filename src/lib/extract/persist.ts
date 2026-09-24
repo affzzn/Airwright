@@ -182,6 +182,17 @@ export async function persistExtraction(
       readPartyGables(result.wallSegments),
     );
 
+    // Never overwrite a CONFIRMED take-off. A human has locked it (e.g. reused from
+    // the House-Type Bank, or confirmed by hand), so a late/re-run extraction must
+    // not wipe the confirmed measurements. Bail out, leaving the confirmed data.
+    const existingTakeoff = await tx.takeoff.findUnique({
+      where: { houseTypeId },
+      select: { id: true, status: true },
+    });
+    if (existingTakeoff?.status === "CONFIRMED") {
+      return { houseTypeId, takeoffId: existingTakeoff.id };
+    }
+
     // Ensure a Takeoff exists; seed it from this extraction if not already seeded.
     const takeoff = await tx.takeoff.upsert({
       where: { houseTypeId },
