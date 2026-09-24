@@ -149,6 +149,14 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 
 ## Construction — follow-ups
 
+- [ ] **The picking list is back on the 13-item placeholder seed** (reverted
+      2026-09-24 on request). Airwright's real 165-item sheet is imported and
+      RETIRED in the database, not deleted. To switch back:
+      `npx tsx scripts/import-rate-sheet.mts "cons-data/picking list.xlsm"`.
+      To go the other way: `npx tsx scripts/restore-seed-library.mts`.
+      While on the seed, extra hire computes as £0 because the placeholder rates
+      carry no E/H value.
+
 - [ ] **Ask Colin: is `%age to charge` band variation deliberate?** Most items track the band
       (H 100 / M 75 / C 50), but e.g. `Con Loading bay (per lift)` is H 75 / M 50 / C 25 at
       <=6 m. It changes every extra-hire figure we quote.
