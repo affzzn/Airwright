@@ -24,7 +24,10 @@ export default async function RatesPage() {
       },
     }),
     prisma.constructionElement.findMany({
-      orderBy: [{ line: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+      // The Construction tab is construction only: its items plus the general
+      // ones any job can use. Traditional and timber frame live on their own tabs.
+      where: { line: { in: ["CONSTRUCTION", "GENERAL"] } },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       relationLoadStrategy: "join",
       include: { rates: { orderBy: [{ band: "asc" }, { bracket: "asc" }] } },
     }),

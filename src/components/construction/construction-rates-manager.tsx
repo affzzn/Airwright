@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Loader2, Plus, Search, Trash2 } from "lucide-react";
 import {
   createConstructionElement,
-  deleteConstructionElement,
   saveConstructionHireTerms,
   saveConstructionRate,
   updateConstructionElement,
@@ -58,12 +57,13 @@ export interface ConstructionElementVM {
   rates: ConstructionRateVM[];
 }
 
-const LINES: { key: string; label: string }[] = [
-  { key: "CONSTRUCTION", label: "Construction" },
-  { key: "GENERAL", label: "General" },
-  { key: "TRADITIONAL", label: "Traditional" },
-  { key: "TIMBER_FRAME", label: "Timber frame" },
-];
+/**
+ * This tab is the CONSTRUCTION library only. A construction quote picks from the
+ * construction items plus the general ones that apply to any job (daywork,
+ * netting, design, inspections), so the tab shows exactly that set and nothing
+ * from the house-build side.
+ */
+const LINES = ["CONSTRUCTION", "GENERAL"];
 const BANDS: RateBand[] = ["HIGH", "MEDIUM", "COMPETITIVE", "SUPER_COMPETITIVE"];
 const BRACKETS: HeightBracket[] = [
   "UP_TO_6M",
@@ -93,22 +93,15 @@ const num = (v: string): number => {
 };
 
 export function ConstructionRatesManager({ elements }: { elements: ConstructionElementVM[] }) {
-  const [line, setLine] = useState("CONSTRUCTION");
   const [band, setBand] = useState<RateBand>("COMPETITIVE");
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const e of elements) if (e.isActive) c[e.line] = (c[e.line] ?? 0) + 1;
-    return c;
-  }, [elements]);
-
   const visible = useMemo(() => {
     const s = query.trim().toLowerCase();
     return elements
-      .filter((e) => e.line === line)
+      .filter((e) => LINES.includes(e.line))
       .filter((e) => showInactive || e.isActive)
       .filter(
         (e) =>
@@ -117,7 +110,7 @@ export function ConstructionRatesManager({ elements }: { elements: ConstructionE
           (e.sourceTitle ?? "").toLowerCase().includes(s) ||
           e.aliases.some((a) => a.toLowerCase().includes(s)),
       );
-  }, [elements, line, showInactive, query]);
+  }, [elements, showInactive, query]);
 
   /** Only show bracket columns this line actually prices. */
   const columns = useMemo(() => {
@@ -154,24 +147,6 @@ export function ConstructionRatesManager({ elements }: { elements: ConstructionE
         <Button variant="secondary" className="gap-2" onClick={() => setNewOpen(true)}>
           <Plus className="h-4 w-4" strokeWidth={2} /> New item
         </Button>
-      </div>
-
-      {/* Business line */}
-      <div className="flex flex-wrap items-center gap-1 rounded-xl bg-surface-2 p-1">
-        {LINES.map((l) => (
-          <button
-            key={l.key}
-            type="button"
-            onClick={() => setLine(l.key)}
-            className={cn(
-              "h-8 rounded-lg px-3 text-[13px] transition-colors",
-              line === l.key ? "bg-canvas font-semibold text-ink" : "text-ink-muted hover:text-ink",
-            )}
-          >
-            {l.label}
-            <span className="ml-1.5 tabular-nums text-ink-subtle">{counts[l.key] ?? 0}</span>
-          </button>
-        ))}
       </div>
 
       {/* Band + search */}
@@ -273,7 +248,7 @@ export function ConstructionRatesManager({ elements }: { elements: ConstructionE
         charged at “E/H £/wk” times “Charge”.
       </p>
 
-      <NewElementModal open={newOpen} onClose={() => setNewOpen(false)} line={line} />
+      <NewElementModal open={newOpen} onClose={() => setNewOpen(false)} />
     </div>
   );
 }
@@ -444,15 +419,7 @@ function RateCell({
   );
 }
 
-function NewElementModal({
-  open,
-  onClose,
-  line,
-}: {
-  open: boolean;
-  onClose: () => void;
-  line: string;
-}) {
+function NewElementModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [unit, setUnit] = useState<ConstructionUnit>("LM");
@@ -465,7 +432,7 @@ function NewElementModal({
   const create = () =>
     start(async () => {
       const res = await createConstructionElement({
-        line,
+        line: "CONSTRUCTION",
         name,
         unit,
         category,
@@ -483,7 +450,7 @@ function NewElementModal({
       <div className="px-6 py-5">
         <h2 className="text-base font-semibold text-ink">New item</h2>
         <p className="mt-1 text-xs text-ink-muted">
-          Added to {LINES.find((l) => l.key === line)?.label}. Set its rates in the table after.
+          Set its rates in the table after.
         </p>
         <div className="mt-4 flex flex-col gap-3">
           <div>
