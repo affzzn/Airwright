@@ -5,7 +5,17 @@ aren't lost, not yet actioned. Each entry: what's wrong, why, and the fix option
 
 ---
 
-## 1. Birdcage over-reads the WHOLE PAIR on a shared-core semi (Type SM1) — ON HOLD (2026-09-01)
+## 1. Birdcage over-reads the WHOLE PAIR on a shared-core semi (Type SM1) — ✅ FIX C BUILT (2026-09-29)
+
+> ✅ **RESOLVED BY FIX C + D (2026-09-29, docs/21 §B6).** The birdcage rectangle now carries
+> `widthCoversDwellings` + `partyWallThicknessMm`: when a plan prints no single-house width,
+> the model reports the pair's width with `widthCoversDwellings = 2` and `birdcage.ts` splits
+> it = `(inside − (n−1)×party) ÷ n` — SM1 → **52.03 m²** (unit-tested), not 109. An
+> undimensioned party wall borrows the flanking wall (low confidence); no wall → unresolved.
+> The prompt teaches the building-line depth (D). The engine's frontage cross-check
+> (`resolveFrontage`) now FLAGS a birdcage wider than one house's frontage allows — but
+> deliberately never "corrects" the frontage from it (a whole-pair birdcage looks
+> identical to a correct one-house frontage). The history below is kept for context.
 
 > ⚠️ **UPDATE (2026-09-01): stated areas + NDSS were REMOVED from the birdcage** — it is
 > now derived purely from the dimensions. This **removes the safety net** that caught this

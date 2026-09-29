@@ -105,7 +105,7 @@ const FIELDS = [
   { key: "lifts", label: "Lifts", unit: "", kind: "int" as const },
   { key: "bcGF", label: "Birdcage — Ground floor", unit: "m²", kind: "decimal" as const },
   { key: "bcFF", label: "Birdcage — First floor", unit: "m²", kind: "decimal" as const },
-  { key: "gables", label: "Gables / apex", unit: "", kind: "int" as const },
+  { key: "gables", label: "Apexes on the drawing", unit: "", kind: "int" as const },
   { key: "lowLevel", label: "Low levels", unit: "", kind: "int" as const },
   { key: "render", label: "Render", unit: "LM", kind: "decimal" as const },
 ] as const;

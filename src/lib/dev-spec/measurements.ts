@@ -46,8 +46,8 @@ export const MEASUREMENTS: Measurement[] = [
     whereRead: ["Floor plans", "Title sheet"],
     layer: "both",
     howRead:
-      "Two mirrored dwellings sharing a party gable → PAIR_SEMI, dwellingsWide=2; three joined → THREE_BLOCK, dwellingsWide=3; four or more → TERRACE, dwellingsWide=4+ ('terrace' is reserved for 4+); flats with a communal entrance → APARTMENT_BLOCK, dwellingsWide=1; a free-standing house → DETACHED, dwellingsWide=1. Report front/rear as the FULL printed frontage spanning all dwellings — do NOT pre-divide. Gable-end walls are per-house depth, never divided. PER-HOUSE vs PER-PAIR: the frontage is shared (engine ÷ dwellings) but the BIRDCAGE width is ONE house's internal width (a single [wall|span|wall] span, else the summed run to the party wall, cross-checked by (frontage − (n+1)×wall)÷n) — never the full pair frontage.",
-    derivation: "The engine divides the front/rear frontage by dwellingsWide to get one house; the birdcage is per house (not divided).",
+      "structure = the BUILDING: DETACHED, PAIR_SEMI (2), THREE_BLOCK (3), TERRACE (4+ — reserved for four or more), APARTMENT_BLOCK. A sheet that draws ONE unit of a pair/terrace (TW 'END'/'MID', Vistry, many Miller semis) is still PAIR_SEMI/TERRACE. dwellingsWide = how many houses the REPORTED front/rear spans — NOT the building: one house drawn → 1 (report that house's frontage, e.g. '4114 GABLE to C/L'); the whole pair on one sheet (Bloor/NSS Dekker, Sinclair) → 2, reporting the FULL printed frontage undivided. The model writes frontageReason first. Flats → 1. Gable-end walls are per-house depth, never divided. PER-HOUSE vs PER-PAIR: the frontage is shared (engine ÷ dwellings) but the BIRDCAGE width is ONE house's internal width (a single [wall|span|wall] span, else the summed run to the party wall, cross-checked by (frontage − (n+1)×wall)÷n) — never the full pair frontage.",
+    derivation: "resolveFrontage checks the frame against physics, then the engine divides the front/rear by it: a per-house frontage under 3 m is impossible, so the length is taken as ONE house (flagged) — this fixed five bank types halved ~25% (Avonsford, Eynsford, Jackdaw, Curlew, Harrton). The house's own birdcage width only CROSS-CHECKS the frame (flag, never a correction — a whole-pair birdcage looks identical to a correct one-house frontage). A whole-block drawing's gables are the block's outer ends. The birdcage is per house (not divided).",
     confidenceRule: "The model's read confidence.",
     crossChecks: ["c3", "c13"],
     status: "confirmed",
@@ -258,7 +258,7 @@ export const MEASUREMENTS: Measurement[] = [
       {
         title: "Per house, not per pair",
         detail:
-          "On a pair/terrace report ONE house. The frontage (front/rear) is shared — the engine divides it by dwellingsWide — but the birdcage width and depth are one house's, never divided.",
+          "On a pair/terrace report ONE house. The frontage (front/rear) may span the pair — the engine divides it by dwellingsWide — but the birdcage width and depth are one house's. Only when the plan prints NO single-house width may the pair width be reported, with widthCoversDwellings = 2 and partyWallThicknessMm: the engine then splits it = (inside − (n−1)×party) ÷ n (Tilia SM1: 52.0 m², not the 109 whole-pair over-read).",
       },
       {
         title: "Get one house's width",

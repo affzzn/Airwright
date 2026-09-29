@@ -11,12 +11,27 @@ import {
   type PageDims,
 } from "./dimensions";
 import { resolveHouseTypeIdentity } from "./houseTypeIdentity";
-import { readPartyGables, resolveConfiguration } from "@/lib/structure";
+import { normalizeWallRoles, readPartyGables, resolveConfiguration } from "@/lib/structure";
+import { resolveFrontage } from "@/lib/takeoff/engine";
 import { parseRangeString } from "@/lib/pdf";
 
 type Conf = "high" | "medium" | "low" | "unknown";
 const CONF_RANK: Record<Conf, number> = { unknown: 0, low: 1, medium: 2, high: 3 };
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+/** The structural wall a birdcage rectangle was measured to (mm): its width-side walls,
+ *  else its depth-side walls — averaged; null when none was read. */
+function structuralWallMm(r: {
+  wallWidthAMm: number | null;
+  wallWidthBMm: number | null;
+  wallDepthAMm: number | null;
+  wallDepthBMm: number | null;
+  wallSource: string;
+}): number | null {
+  if (r.wallSource === "legend") return null; // a finished-face legend value, not the plan wall
+  const pair = (a: number | null, b: number | null) => (a != null && b != null ? (a + b) / 2 : a ?? b);
+  return pair(r.wallWidthAMm, r.wallWidthBMm) ?? pair(r.wallDepthAMm, r.wallDepthBMm);
+}
 
 /** Map the AI confidence label to a 0-1 float for storage. */
 function confToNumber(c: Conf): number {
@@ -176,10 +191,26 @@ export async function persistExtraction(
     // drift from it; an uncertain derivation is flagged below, never silent.
     // Party walls read off the plan LEAD; the structure form is the fallback and the
     // tie-breaker between semi and end terrace (docs/21 §B2, structure.ts).
+    //
+    // Two deterministic corrections come first (docs/21 §B6), shared with the engine:
+    //  - wall ROLES follow the party wall — a front/rear read as the party wall means the
+    //    plan's axes were named the wrong way round (normalizeWallRoles);
+    //  - the frontage FRAME — how many houses the reported front/rear spans — is checked
+    //    against physics before anything divides by it (resolveFrontage). A drawing of
+    //    the WHOLE pair/block has its gables at the block's outer ends, so the party
+    //    gables then say nothing about one plot's position.
+    const roles = normalizeWallRoles(result.wallSegments);
+    const walls = roles.walls;
+    const frontage = resolveFrontage({
+      wallSegments: walls,
+      dwellingsWide: result.dwellingsWide.value ?? 1,
+      isApartmentBlock: result.structure.form === "APARTMENT_BLOCK",
+    });
     const derivedConfig = resolveConfiguration(
       result.structure.form,
       result.structure.confidence,
-      readPartyGables(result.wallSegments),
+      readPartyGables(walls),
+      frontage.blockDrawn,
     );
 
     // Never overwrite a CONFIRMED take-off. A human has locked it (e.g. reused from
@@ -297,6 +328,10 @@ export async function persistExtraction(
     const roleReclassified: string[] = [];
 
     const birdcageDerivation: Prisma.JsonObject[] = [];
+    // One house's internal width (widest ground-floor tile, AFTER any block split) —
+    // the engine cross-checks the frontage frame against it (resolveFrontage).
+    let houseInternalWidth: { widthM: number; singleRect: boolean; wallMm: number | null } | null = null;
+    let maxPerHouseBirdcageWidthM = 0;
     for (const fa of result.floorAreas) {
       const key = BIRDCAGE_KEY[fa.level];
       if (!key) continue; // TF (4th floor) — extremely rare for housing; skip.
@@ -321,6 +356,16 @@ export async function persistExtraction(
         readConfidence: readConf,
       });
       if (r.m2 === null) continue;
+      const widths = r.rectangles.map((x) => x.widthM ?? 0);
+      maxPerHouseBirdcageWidthM = Math.max(maxPerHouseBirdcageWidthM, ...widths);
+      if (fa.level === "GF" && Math.max(...widths) > 0)
+        houseInternalWidth = {
+          widthM: Math.max(...widths),
+          singleRect: r.rectangles.length === 1,
+          // The structural wall on that floor (width sides, else depth sides) — lets
+          // the engine derive a mirrored pair's inside width from its frontage.
+          wallMm: structuralWallMm(r.rectangles[0]),
+        };
       push(key, { value: r.m2, confidence: r.confidence, sourceSheet: fa.sourceSheet ?? null });
       birdcageDerivation.push({
         level: fa.level,
@@ -332,6 +377,8 @@ export async function persistExtraction(
         confidence: r.confidence,
         usedLegendWall: r.usedLegendWall,
         assumedSymmetric: r.assumedSymmetric,
+        blockSplit: r.blockSplit,
+        partyAssumed: r.partyAssumed,
         note: r.note,
       });
     }
@@ -349,9 +396,9 @@ export async function persistExtraction(
       await tx.takeoffMeasurement.createMany({ data: measurements });
     }
 
-    if (result.wallSegments.length) {
+    if (walls.length) {
       await tx.wallSegment.createMany({
-        data: result.wallSegments.map((w) => {
+        data: walls.map((w) => {
           const dimOk = checkDim(w.sourceDimension, w.sourcePage, `${w.position} wall`);
           // A wall length cited off an ELEVATION page is suspect (roof overhang
           // over-reads the wall) — cap + flag it, UNLESS the same dimension also
@@ -385,8 +432,21 @@ export async function persistExtraction(
     // measurement row live on the take-off's warnings JSON (read by review).
     const warnings: Prisma.JsonObject = {};
     if (result.notes) warnings.notes = result.notes;
+    // The frontage divisor the take-off USES (after the physical check), so the review
+    // screen's "front/rear covers N houses" shows what is applied; the raw read and why
+    // it changed are kept alongside for the audit trail.
     if (result.dwellingsWide.value !== null && result.dwellingsWide.value >= 1)
-      warnings.dwellingsWide = result.dwellingsWide.value;
+      warnings.dwellingsWide = frontage.divisor;
+    warnings.frontageResolution = {
+      declared: result.dwellingsWide.value ?? null,
+      divisor: frontage.divisor,
+      basis: frontage.basis,
+      blockDrawn: frontage.blockDrawn,
+      reason: result.frontageReason ?? null,
+      note: frontage.note,
+    };
+    if (houseInternalWidth) warnings.houseInternalWidth = houseInternalWidth;
+    if (roles.swapped && roles.reason) warnings.wallRolesSwapped = roles.reason;
     if (result.structure.form) warnings.structure = result.structure.form;
     // How the configuration was derived — the review screen shows this as the
     // provenance behind the House type control, and flags an uncertain read.
@@ -448,27 +508,28 @@ export async function persistExtraction(
         note: result.underbuild.note ?? null,
       };
 
-    // C3 — structure ↔ dwellingsWide consistency (this drives the frontage
-    // division, so a contradiction silently mis-prices the perimeter).
+    // C3 — structure ↔ dwellingsWide consistency. dwellingsWide is how many houses the
+    // REPORTED front/rear spans, not the building type: a semi drawn as ONE house (TW,
+    // Vistry, Miller single-house sheets) is correctly PAIR_SEMI with dwellingsWide 1.
+    // (The old check demanded 2 for every pair, which pushed the model into halving a
+    // one-house frontage — docs/21 §B6.) So only the impossible combinations flag: a
+    // detached house or a flat block spanning >1, or a count above the building's own.
     const form = result.structure.form;
     const dw = result.dwellingsWide.value;
     if (form && dw != null) {
-      // Each form names a home count: detached/flats = 1, pair/semi = 2,
-      // three-block = 3, terrace = 4+. A mismatch mis-prices the frontage division.
       const bad =
         ((form === "DETACHED" || form === "APARTMENT_BLOCK") && dw !== 1) ||
-        (form === "PAIR_SEMI" && dw !== 2) ||
-        (form === "THREE_BLOCK" && dw !== 3) ||
-        (form === "TERRACE" && dw < 4);
+        (form === "PAIR_SEMI" && dw > 2) ||
+        (form === "THREE_BLOCK" && dw > 3);
       if (bad)
-        warnings.structureDwellingsMismatch = `structure=${form} but dwellingsWide=${dw} — check (frontage division depends on this)`;
+        warnings.structureDwellingsMismatch = `structure=${form} but the front/rear was read as spanning ${dw} houses — check (frontage division depends on this)`;
     }
 
     // C9 — front/rear and gable symmetry: a mismatch flags a possible wall-role
     // swap or misread (front/rear should match, especially on a pair/terrace).
     const wsum = (pos: string) =>
       round3(
-        result.wallSegments
+        walls
           .filter((w) => w.position === pos)
           .reduce((a, w) => a + w.lengthM, 0),
       );
@@ -496,18 +557,16 @@ export async function persistExtraction(
     if (cbWarn) warnings.cornerBirdcageMismatch = cbWarn;
     if (result.cornerReason) warnings.cornerReason = result.cornerReason;
 
-    // C13 — per-house birdcage width vs the shared frontage. On a pair/terrace the
-    // birdcage width must be ONE house (≈ frontage ÷ dwellings), not the whole pair.
+    // C13 — per-house birdcage width vs the shared frontage. On a pair/terrace drawing
+    // the birdcage width must be ONE house (≈ frontage ÷ dwellings), not the whole pair.
+    // Uses the frontage divisor actually applied, and the per-house widths AFTER any
+    // declared block split (a width marked as spanning the block is already split).
     if (!result.structure.form || result.structure.form !== "APARTMENT_BLOCK") {
-      const maxBirdcageWidthM = result.floorAreas.reduce(
-        (m, f) =>
-          (f.rectangles ?? []).reduce(
-            (mm, r) => Math.max(mm, r.internalWidthM ?? r.overallWidthM ?? 0),
-            m,
-          ),
-        0,
+      const pwWarn = pairBirdcageWidthWarning(
+        frontage.divisor,
+        round3(front),
+        round3(maxPerHouseBirdcageWidthM),
       );
-      const pwWarn = pairBirdcageWidthWarning(dw, round3(front), maxBirdcageWidthM);
       if (pwWarn) warnings.pairBirdcageWidth = pwWarn;
     }
 

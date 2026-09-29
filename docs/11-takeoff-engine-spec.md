@@ -334,8 +334,15 @@ cross-checks, and flag contradictions instead of trusting one read.
 
 - **C7 — apex reasoning order:** schema now orders each face `faceRoof → apexReason
   → apexCount`, so the model reasons *before* committing the number (was post-hoc).
-- **C3 — structure ↔ dwellingsWide consistency:** `persist` flags SINGLE/APARTMENT
-  with dwellingsWide ≠ 1, or PAIR/TERRACE with < 2 (`warnings.structureDwellingsMismatch`).
+- **C3 — structure ↔ dwellingsWide consistency:** `persist` flags DETACHED/APARTMENT
+  with dwellingsWide ≠ 1, or a frontage spanning more houses than the building has (pair
+  > 2, three-block > 3) (`warnings.structureDwellingsMismatch`). A pair read as **1** is
+  valid — the sheet draws one house (docs/21 §B6; the old "< 2" rule caused the halving).
+- **Frontage frame + wall roles (2026-09-29, docs/21 §B6):** `resolveFrontage` refuses a
+  per-house frontage under 3 m (the length is one house, flagged) and cross-checks the
+  frame against the house's own birdcage width (flag only); `normalizeWallRoles` renames
+  the axes when a front/rear is read as the party wall. A whole-pair drawing's gables are
+  the block's outer ends (`gableBasis: "block-end"`).
 - **C11 — birdcage internal-vs-derived cross-check** (`birdcage.ts`): when a printed
   internal span AND an independent overall−walls derivation both exist, they must
   agree within **5%** → high (medium if a wall was assumed symmetric); diverge → low

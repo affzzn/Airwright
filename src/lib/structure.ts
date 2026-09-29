@@ -183,8 +183,64 @@ export function readPartyGables(
   return { left: side("gable_left"), right: side("gable_right") };
 }
 
+/**
+ * Wall ROLES follow the party wall, not the labels. The two side walls (gable_left /
+ * gable_right) are by definition the walls that can be shared with a neighbour; the
+ * front and rear are the street and garden faces, which never are. So when the read
+ * marks a FRONT or REAR wall as the party wall — and no gable — the model named the
+ * roles by length or orientation instead (Miller Millfield, 2026-09-29: an 11.138 m
+ * side read as the "front" of a 5.957 m-wide bungalow). Rename the two axes so the
+ * party wall is a side wall.
+ *
+ * This fires ONLY on that explicit evidence. It never swaps on shape: 4 of the 73
+ * attached types in Colin's bank are genuinely wider than deep, so "attached houses
+ * are narrow and deep" is a flag (engine.ts), never a correction. Apex counts are
+ * untouched — they are keyed by the ELEVATION sheet titles, not by these plan labels.
+ * Idempotent: once the party wall is a side wall there is nothing to swap.
+ */
+const ROLE_SWAP: Record<string, string> = {
+  front: "gable_left",
+  rear: "gable_right",
+  gable_left: "front",
+  gable_right: "rear",
+};
+export function normalizeWallRoles<
+  W extends { position: string; isPartyWall?: boolean | null; lengthM?: number },
+>(
+  walls: W[],
+): { walls: W[]; swapped: boolean; reason: string | null } {
+  const role = (w: W) => w.position.toLowerCase();
+  const frontRearParty = walls.some(
+    (w) => (role(w) === "front" || role(w) === "rear") && w.isPartyWall === true,
+  );
+  const gableParty = walls.some(
+    (w) => (role(w) === "gable_left" || role(w) === "gable_right") && w.isPartyWall === true,
+  );
+  if (!frontRearParty || gableParty) return { walls, swapped: false, reason: null };
+  // Keep the party wall on gable_left whichever of front/rear it was read as.
+  const partyWasRear = walls.some((w) => role(w) === "rear" && w.isPartyWall === true);
+  const map = partyWasRear
+    ? { ...ROLE_SWAP, front: "gable_right", rear: "gable_left" }
+    : ROLE_SWAP;
+  const swappedWalls = walls.map((w) => {
+    const next = map[role(w)];
+    return next ? { ...w, position: next } : w;
+  });
+  const party = walls.find(
+    (w) => (role(w) === "front" || role(w) === "rear") && w.isPartyWall === true,
+  );
+  const which = party
+    ? `${role(party)} wall${party.lengthM != null ? ` (${party.lengthM} m)` : ""}`
+    : "front/rear wall";
+  return {
+    walls: swappedWalls,
+    swapped: true,
+    reason: `The ${which} was read as the PARTY wall, but a party wall is always a SIDE wall — the front and rear are the street and garden faces. The plan's front/rear and side labels were swapped, so they have been renamed. Check the front elevation's width matches the new front.`,
+  };
+}
+
 /** How the configuration was arrived at. */
-export type ConfigurationBasis = "party-walls" | "structure";
+export type ConfigurationBasis = "party-walls" | "structure" | "block-drawn";
 
 /**
  * THE configuration decision. Party walls are the DIRECT structural reading of this
@@ -204,7 +260,22 @@ export function resolveConfiguration(
   form: StructureForm | null | undefined,
   confidence: string | null | undefined,
   gables: PartyGableRead,
+  /** The drawing shows the WHOLE pair/block (the reported frontage spans >1 home).
+   *  Its two gables are then the block's OUTER ends — both external by definition — and
+   *  the party walls sit INSIDE the block, so the gable flags say nothing about one
+   *  plot's position. The building type decides it instead (Dekker, Sinclair…). */
+  blockDrawn = false,
 ): DerivedConfiguration & { basis: ConfigurationBasis } {
+  if (blockDrawn) {
+    const base = configFromStructure(form, confidence);
+    return {
+      ...base,
+      basis: "block-drawn",
+      reason: `The drawing shows the whole ${
+        form === "PAIR_SEMI" ? "pair" : "block"
+      }, so its two gables are the block's outer ends and the party wall is inside it. ${base.reason}`,
+    };
+  }
   const known = gables.left !== null && gables.right !== null;
   const count = (gables.left ? 1 : 0) + (gables.right ? 1 : 0);
   const formAttached =

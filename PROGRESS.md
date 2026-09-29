@@ -11,7 +11,66 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-24
+Last updated: 2026-09-29
+
+### 2026-09-29 — Millfield end-to-end + a clearer review screen
+
+- **End-to-end (local, real pipeline):** Miller Millfield uploaded like the app does →
+  processPack (single file → one house type, 8 of 17 pages) → read. The first read (prompt
+  `2026-09-29.1`) still called the 11.138 m side the front: the classifier's page set has
+  no dimensioned elevations, so "front = front elevation's width" had nothing to check.
+  **Prompt `2026-09-29.2`:** find the FRONT DOOR on the ground-floor plan first (its wall is
+  the front), the party wall must be perpendicular to it, then read the lengths. Re-read →
+  front 5.957, party side 11.138 → **semi 25.05 vs Colin 25**, birdcage 57.44 vs 57.
+  ⚠ Apex priced 2 (side gable + a small brick gable over the entrance) vs Colin's 1 —
+  open: does Colin count small entrance gables?
+- **The deployed Render worker shares the DB + queue:** a re-queued read was taken by it and
+  read with the OLD prompt. Local reads of uncommitted code: `scripts/extract-local.mts`
+  (the worker handler in-process); end-to-end driver: `scripts/e2e-millfield.mts`.
+- **Review screen made unambiguous** (numbers straight from the engine's own working):
+  removed the header "measured total" (it summed every wall incl. the party wall); the
+  Perimeter row shows "X m per lift", the exact sum under it ("front 5.957 + rear 5.957 +
+  gable R 11.138 + 2 corners × 1 m") and "× N lifts = total" on its own line; apexes are
+  now two rows — "Apexes on the drawing" (editable, per face) and "Apexes priced" (with
+  why any are dropped, e.g. "gable L not priced — party wall"). Engine: `PerimeterResult.parts`,
+  `ApexResult.faces`. Fixed a React key warning on the review page (the bank strip element
+  handed from the server page) and "1 floors". 582 tests.
+
+### 2026-09-29 — Attached houses: one house vs the whole block (docs/21 §B6)
+
+The question: semis/terraces are sometimes drawn ONE house per sheet and sometimes as the
+WHOLE pair with dimensions across both — which walls count, how is the configuration
+identified, does the birdcage change with it? **Measured first** (the engine on every
+stored attached read vs Colin's bank), which reordered the priorities:
+
+- **The real damage was the perimeter, not the birdcage.** Five bank types (TW Avonsford,
+  Eynsford, Harrton; Vistry Jackdaw, Curlew) were ~25% under (mid ~50%): the prompt
+  hard-coded "PAIR_SEMI → dwellingsWide 2" and C3 flagged a pair read as 1, so on a sheet
+  that draws ONE house of a semi the engine halved a one-house frontage (4.265 → 2.13 m).
+  An instruction bug. Miller Millfield + Delmont were ~22% over: front and side swapped
+  (roles by length, not by the party wall).
+- **The birdcage does not change with the configuration** (Colin's bank: one per house type
+  across semi/end/mid). What changes is how one house is cut out of a whole-pair drawing.
+
+**Built:** `resolveFrontage` (per-house frontage < 3 m is impossible → one house, flagged;
+the birdcage width + a mirrored pair's `(frontage − 3·wall) ÷ 2` only CROSS-CHECK — never
+re-frame, because a whole-pair birdcage looks identical to a correct one-house frontage);
+`normalizeWallRoles` (a front/rear read as the party wall → axes renamed; never on shape —
+4/73 bank types are genuinely wide); whole-block drawings (`blockDrawn`: gables = the
+block's outer ends, config from the building type, `gableBasis: "block-end"` — no more false
+"DETACHED"/"longer gable" flags); whole-pair birdcage split (`widthCoversDwellings` +
+`partyWallThicknessMm` → SM1 52.03 m², not 109); C3 rewritten; persist stores the applied
+divisor + `frontageResolution` / `houseInternalWidth` / `wallRolesSwapped`; the bank snapshot
+keeps `isPartyWall`; the review editor greys exactly the engine's dropped wall and shows
+"Applied: N"; prompt `2026-09-29.1` (dwellingsWide = what YOUR length spans + frontageReason;
+party wall first, front = front-elevation width; walls never a "finished dim"; one-house
+frontage to the party-wall centreline; apexes per house; width from the frontage chain);
+`/docs` + docs 03/11/13/21/doubts synced. New tool: `scripts/validate-attached.mts`.
+
+**Validated live** (12 attached drawings, both conventions, graded vs the bank): every semi
+±1.3%, every mid within Colin's 0.5 m rounding, every birdcage ±3.3% (Dekker 20.56 / 10.66 /
+35.60 vs his 20.5 / 10.6 / 35.6; Millfield 25.05 vs 25, was 30.23; Avonsford 19.78 / 7.92
+vs 20 / 8, was 15.21 / 4.26). Green: typecheck, lint, tests, build.
 
 ### 2026-09-23 — Configuration derivation made honest (the silent DETACHED fallback)
 

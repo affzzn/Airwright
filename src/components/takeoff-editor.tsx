@@ -18,7 +18,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { formatDate } from "@/lib/utils";
 import { Provenance } from "@/components/ui/provenance";
 import type { ExtractionResult } from "@/lib/extract/schema";
-import type { StructureForm } from "@/lib/structure";
+import { normalizeWallRoles, type StructureForm } from "@/lib/structure";
 import {
   aiMeasurementValues,
   buildProvenanceCards,
@@ -33,7 +33,9 @@ import {
   configurationBasisFrom,
   configurationProvenance,
   wallProvenance,
-  wallSumProvenance,
+  perimeterSumText,
+  apexFacesText,
+  apexPricedProvenance,
   type PageRef,
   type ProvContent,
 } from "@/lib/provenance";
@@ -102,7 +104,7 @@ const MEAS_LABEL: Record<string, { label: string; unit: string }> = {
   STOREYS: { label: "Storeys", unit: "" },
   HEIGHT_TO_SOFFIT: { label: "Height to soffit", unit: "m" },
   CORNER_COUNT: { label: "Corners", unit: "" },
-  GABLE_QTY: { label: "Gables / apex", unit: "" },
+  GABLE_QTY: { label: "Apexes on the drawing", unit: "" },
   RENDER_LENGTH: { label: "Render length", unit: "m" },
   BIRDCAGE_GF_M2: { label: "Birdcage (GF)", unit: "m²" },
   BIRDCAGE_FF_M2: { label: "Birdcage (FF)", unit: "m²" },
@@ -364,11 +366,14 @@ export function TakeoffEditor({
     return buildTakeoff(input, params);
   }, [engineMeasurements, engineWalls, engineWarnings, config, includePW, storeyLiftTemplate, buildSystem]);
 
-  const perimeter = useMemo(
-    () => engineWalls.reduce((s, w) => s + w.lengthM, 0),
-    [engineWalls],
-  );
   const engineFlags = line.flags;
+  // The engine refused the "covers N houses" count (it made an impossibly narrow
+  // house) — say so beside the control, with the width the count would have given.
+  const frontageOverride = useMemo(() => {
+    const f = line.perimeter.frontage;
+    if (f.divisor === covers || covers < 1) return null;
+    return String(Math.round(((f.perHouseFrontM * f.divisor) / covers) * 1000) / 1000);
+  }, [line.perimeter.frontage, covers]);
   // The configuration flag is not an engine flag (the engine is given the config,
   // it does not derive it), so it is merged in for display.
   const reviewFlags = useMemo(
@@ -377,21 +382,23 @@ export function TakeoffEditor({
   );
 
   // --- Which wall positions the selected type does NOT scaffold (greyed) ---
+  // Taken from the ENGINE's own choice (perimeter.scaffoldedGables), so the greyed row
+  // can never disagree with the number. The engine works on role-normalised walls (a
+  // front/rear read as the party wall is renamed a side wall — structure.ts), so the
+  // same renaming maps its answer back onto the rows as displayed.
   const suppressed = useMemo<Set<string>>(() => {
     if (isDetached || isApartment) return new Set();
-    // A mid-terrace's two gable ends are party walls; 'other' walls ARE scaffolded
-    // (engine change 2026-09-23), so they are no longer greyed out.
-    if (config === "MID_TERRACE") return new Set(["GABLE_LEFT", "GABLE_RIGHT"]);
-    // Semi / end: drop the gable the DRAWING says is the party wall. Only when it does
-    // not say do we fall back to dropping the shorter one (mirrors the engine).
-    const party = (pos: string) =>
-      wallRows.some((w) => w.position === pos && w.isPartyWall === true);
-    if (party("GABLE_LEFT") && !party("GABLE_RIGHT")) return new Set(["GABLE_LEFT"]);
-    if (party("GABLE_RIGHT") && !party("GABLE_LEFT")) return new Set(["GABLE_RIGHT"]);
-    const sum = (pos: string) =>
-      wallRows.filter((w) => w.position === pos).reduce((a, w) => a + (parseNum(w.lengthM) ?? 0), 0);
-    return new Set([sum("GABLE_RIGHT") <= sum("GABLE_LEFT") ? "GABLE_RIGHT" : "GABLE_LEFT"]);
-  }, [config, isDetached, isApartment, wallRows]);
+    const roles = normalizeWallRoles(
+      wallRows.map((w) => ({ position: w.position.toLowerCase(), isPartyWall: w.isPartyWall ?? null })),
+    );
+    const kept = new Set<string>(line.perimeter.scaffoldedGables);
+    const out = new Set<string>();
+    roles.walls.forEach((w, i) => {
+      const side = w.position === "gable_left" || w.position === "gable_right";
+      if (side && !kept.has(w.position)) out.add(wallRows[i].position);
+    });
+    return out;
+  }, [isDetached, isApartment, wallRows, line.perimeter.scaffoldedGables]);
 
   // --- Auto-save (debounced) whenever the editable state differs from saved ---
   const serialise = (
@@ -456,7 +463,7 @@ export function TakeoffEditor({
       : null;
 
   // --- Row renderers (measured + computed share one list) ---
-  const measureRow = (key: string) => {
+  const measureRow = (key: string, detail?: React.ReactNode) => {
     const conf = MEAS_LABEL[key];
     if (!conf) return null;
     const meta = mMeta[key];
@@ -464,52 +471,63 @@ export function TakeoffEditor({
       mVals[key] !== initialMVals[key] || meta?.source === "EDITED" || meta?.source === "MANUAL";
     const card = measurementCard(key);
     return (
-      <div key={key} className="flex items-center justify-between border-b border-hairline py-2 last:border-0">
-        <span className="text-sm text-ink-muted">
-          {card ? (
-            <Provenance content={card} onGoToPage={onGoToPage}>
-              {conf.label}
-            </Provenance>
-          ) : (
-            conf.label
-          )}
-        </span>
-        <div className="flex items-center gap-2">
-          <NumField
-            value={mVals[key]}
-            unit={conf.unit}
-            disabled={locked}
-            onChange={(v) => setMeasurement(key, v)}
-          />
-          <span className="flex w-10 justify-end">
-            {edited ? (
-              <span className="text-[10px] text-ink-subtle">edited</span>
-            ) : meta ? (
-              <ConfidenceDot value={meta.confidence} />
-            ) : null}
+      <div key={key} className="border-b border-hairline py-2 last:border-0">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-ink-muted">
+            {card ? (
+              <Provenance content={card} onGoToPage={onGoToPage}>
+                {conf.label}
+              </Provenance>
+            ) : (
+              conf.label
+            )}
           </span>
+          <div className="flex items-center gap-2">
+            <NumField
+              value={mVals[key]}
+              unit={conf.unit}
+              disabled={locked}
+              onChange={(v) => setMeasurement(key, v)}
+            />
+            <span className="flex w-10 justify-end">
+              {edited ? (
+                <span className="text-[10px] text-ink-subtle">edited</span>
+              ) : meta ? (
+                <ConfidenceDot value={meta.confidence} />
+              ) : null}
+            </span>
+          </div>
         </div>
+        {detail && <RowDetail>{detail}</RowDetail>}
       </div>
     );
   };
 
-  const calcRow = (label: string, card: ProvContent | null, value: React.ReactNode) => (
-    <div className="flex items-center justify-between border-b border-hairline py-2 last:border-0">
-      <span className="text-sm text-ink">
-        {card ? (
-          <Provenance content={card} onGoToPage={onGoToPage}>
-            {label}
-          </Provenance>
-        ) : (
-          label
-        )}
-      </span>
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium tabular-nums text-ink">{value}</span>
-        <span className="w-10 text-right text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
-          calc
+  const calcRow = (
+    label: string,
+    card: ProvContent | null,
+    value: React.ReactNode,
+    detail?: React.ReactNode,
+  ) => (
+    <div className="border-b border-hairline py-2 last:border-0">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-ink">
+          {card ? (
+            <Provenance content={card} onGoToPage={onGoToPage}>
+              {label}
+            </Provenance>
+          ) : (
+            label
+          )}
         </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium tabular-nums text-ink">{value}</span>
+          <span className="w-10 text-right text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+            calc
+          </span>
+        </div>
       </div>
+      {detail && <RowDetail>{detail}</RowDetail>}
     </div>
   );
 
@@ -525,16 +543,50 @@ export function TakeoffEditor({
     buildSystem,
   );
   const perimCard =
-    line.perimeter.totalM !== null
-      ? perimeterProvenance(
-          line.perimeter.corners,
-          1,
-          line.perimeter.wallsM,
-          line.perimeter.perLiftM,
-          line.lifts.lifts,
-          line.perimeter.totalM,
-        )
-      : null;
+    line.perimeter.totalM !== null ? perimeterProvenance(line.perimeter, line.lifts.lifts) : null;
+
+  // Perimeter: the per-lift figure (Colin's number), with the engine's own sum under it
+  // — only the scaffolded walls — and the total over all lifts on its own line.
+  const perimeterRow =
+    perimCard &&
+    calcRow(
+      "Perimeter",
+      perimCard,
+      <>{line.perimeter.perLiftM} m per lift</>,
+      <>
+        <span className="block">= {perimeterSumText(line.perimeter)}</span>
+        <span className="block">
+          × {line.lifts.lifts ?? "?"} lift{line.lifts.lifts === 1 ? "" : "s"} = {line.perimeter.totalM} m total
+        </span>
+      </>,
+    );
+
+  // Apexes: what the drawing shows (editable) vs what is priced, with the reason for
+  // any dropped — the two numbers differ on a semi/mid and the screen must say why.
+  const droppedApex = line.apex.faces.filter((f) => f.why);
+  const apexReadRow = measureRow(
+    "GABLE_QTY",
+    line.apex.faces.length > 0 ? apexFacesText(line.apex.faces, "read") : null,
+  );
+  const apexPricedDetail = (
+    <>
+      {line.apex.count > 0 && <span className="block">= {apexFacesText(line.apex.faces, "priced")}</span>}
+      {droppedApex.map((f) => (
+        <span key={f.face} className="block">
+          {f.face} not priced — {f.why}
+        </span>
+      ))}
+      {isTF && line.apex.count > 0 && (
+        <span className="block">each apex prices 4 items: apex scaffold, rails, inside-board and hop-up adaption</span>
+      )}
+    </>
+  );
+  const apexPricedRow = calcRow(
+    "Apexes priced",
+    isTF ? tfApexProvenance(line.apex.count) : apexPricedProvenance(line.apex),
+    line.apex.count,
+    apexPricedDetail,
+  );
 
   const wallRuleText = isApartment
     ? "Apartment block — the whole building is scaffolded."
@@ -547,15 +599,8 @@ export function TakeoffEditor({
   // The wall-segments block (rule caption → editable rows → covers helper).
   const wallsBlock = (
     <div className="border-b border-hairline py-2">
-      <div className="mb-1.5 flex items-baseline justify-between">
+      <div className="mb-1.5">
         <p className="eyebrow">Wall segments</p>
-        <Provenance
-          content={wallSumProvenance(engineWalls, perimeter)}
-          onGoToPage={onGoToPage}
-          className="text-xs text-ink-subtle"
-        >
-          measured total {perimeter.toFixed(3)} m
-        </Provenance>
       </div>
       <p className="mb-2 rounded-md border border-hairline bg-surface px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-muted">
         {wallRuleText}
@@ -668,6 +713,12 @@ export function TakeoffEditor({
             ))}
           </select>
           <span>house(s) — the frontage is divided by this to get one house.</span>
+          {frontageOverride && (
+            <span className="w-full text-ink">
+              Applied: {line.perimeter.frontage.divisor} — {covers} would make each house{" "}
+              {frontageOverride} m wide, narrower than any house. See Review flags.
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -719,16 +770,9 @@ export function TakeoffEditor({
         )}
       {wallsBlock}
       {measureRow("CORNER_COUNT")}
-      {perimCard &&
-        calcRow(
-          "Perimeter",
-          perimCard,
-          <>
-            {line.perimeter.perLiftM} m/lift × {line.lifts.lifts ?? "?"} = {line.perimeter.totalM} m
-          </>,
-        )}
-      {measureRow("GABLE_QTY")}
-      {calcRow("Apex", tfApexProvenance(line.apex.count), <>{line.apex.count} → 4 units</>)}
+      {perimeterRow}
+      {apexReadRow}
+      {apexPricedRow}
       {line.adaptions &&
         calcRow(
           "Inside-board adaption",
@@ -779,15 +823,9 @@ export function TakeoffEditor({
       {calcRow("Lifts", liftsCard, line.lifts.lifts ?? "?")}
       {wallsBlock}
       {measureRow("CORNER_COUNT")}
-      {perimCard &&
-        calcRow(
-          "Perimeter",
-          perimCard,
-          <>
-            {line.perimeter.perLiftM} m/lift × {line.lifts.lifts ?? "?"} = {line.perimeter.totalM} m
-          </>,
-        )}
-      {measureRow("GABLE_QTY")}
+      {perimeterRow}
+      {apexReadRow}
+      {apexPricedRow}
       {measureRow("RENDER_LENGTH")}
       {measureRow("BIRDCAGE_GF_M2")}
       {measureRow("BIRDCAGE_FF_M2")}
@@ -797,7 +835,7 @@ export function TakeoffEditor({
           "Birdcage total",
           birdcageTotalProvenance(line.birdcage.floors, line.birdcage.totalM2),
           <>
-            {line.birdcage.totalM2} m² × {line.birdcage.floorCount} floors
+            {line.birdcage.totalM2} m² × {line.birdcage.floorCount} floor{line.birdcage.floorCount === 1 ? "" : "s"}
           </>,
         )}
       {measureRow("LOW_LEVEL_QTY")}
@@ -1120,4 +1158,9 @@ function SaveIndicator({ state }: { state: SaveState }) {
   const s = map[state];
   if (!s) return null;
   return <span className={`text-xs ${s.cls}`}>{s.text}</span>;
+}
+
+/** The working under a row — the exact sum / reason the engine used, in plain words. */
+function RowDetail({ children }: { children: React.ReactNode }) {
+  return <div className="mt-0.5 text-[11.5px] leading-snug text-ink-subtle">{children}</div>;
 }

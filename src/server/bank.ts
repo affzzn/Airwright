@@ -38,7 +38,7 @@ export async function snapshotFromTakeoff(
     relationLoadStrategy: "join",
     include: {
       measurements: { select: { key: true, valueNumber: true } },
-      wallSegments: { select: { position: true, lengthM: true } },
+      wallSegments: { select: { position: true, lengthM: true, isPartyWall: true } },
       houseType: {
         select: {
           id: true,
@@ -399,6 +399,7 @@ export async function materializeBankEntry(
             create: snapshot.walls.map((w) => ({
               position: w.position,
               lengthM: w.lengthM,
+              isPartyWall: w.isPartyWall ?? null,
               source: "MANUAL" as const,
               confidence: null,
             })),
@@ -535,7 +536,13 @@ export async function reuseBankEntryIntoHouseType(
   const measurementsCreate = (Object.keys(snapshot.measurements) as BankMeasurementKey[])
     .filter((k) => BANK_MEASUREMENT_KEYS.includes(k) && snapshot.measurements[k] != null)
     .map((k) => ({ key: k, valueNumber: snapshot.measurements[k]!, source: "MANUAL" as const, confidence: null, ambiguous: false }));
-  const wallsCreate = snapshot.walls.map((w) => ({ position: w.position, lengthM: w.lengthM, source: "MANUAL" as const, confidence: null }));
+  const wallsCreate = snapshot.walls.map((w) => ({
+    position: w.position,
+    lengthM: w.lengthM,
+    isPartyWall: w.isPartyWall ?? null,
+    source: "MANUAL" as const,
+    confidence: null,
+  }));
 
   try {
     await prisma.$transaction(async (tx) => {

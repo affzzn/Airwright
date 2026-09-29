@@ -19,6 +19,7 @@ type Warnings = {
   elevations?: unknown;
   dwellingsWide?: unknown;
   structure?: unknown;
+  houseInternalWidth?: unknown;
 };
 
 /**
@@ -125,5 +126,20 @@ export function takeoffInputFromStored(
     chimney: warnings.chimney === true,
     config,
     buildSystem,
+    // One house's internal width (GF birdcage), for the frontage-frame cross-check.
+    ...houseWidth(warnings.houseInternalWidth),
+  };
+}
+
+function houseWidth(
+  v: unknown,
+): Pick<TakeoffInput, "houseInternalWidthM" | "houseInternalWidthSingleRect" | "houseWallThicknessM"> {
+  if (!v || typeof v !== "object") return {};
+  const o = v as { widthM?: unknown; singleRect?: unknown; wallMm?: unknown };
+  if (typeof o.widthM !== "number" || !(o.widthM > 0)) return {};
+  return {
+    houseInternalWidthM: o.widthM,
+    houseInternalWidthSingleRect: o.singleRect === true,
+    houseWallThicknessM: typeof o.wallMm === "number" && o.wallMm > 0 ? o.wallMm / 1000 : null,
   };
 }

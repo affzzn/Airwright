@@ -19,6 +19,7 @@ import {
   STRUCTURE_LABEL,
   configFromStructure,
   isMultiHome,
+  normalizeWallRoles,
   readPartyGables,
   resolveConfiguration,
   normalizeStructureForm,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/structure";
 import { computeBirdcageFloor } from "@/lib/extract/birdcage";
 import { computeHeight } from "@/lib/extract/height";
-import { computeTimberFrameLifts, type BuildSystem } from "@/lib/takeoff/engine";
+import { computeTimberFrameLifts, resolveFrontage, type BuildSystem } from "@/lib/takeoff/engine";
 
 export interface ProvSource {
   sheet: string | null;
@@ -314,7 +315,7 @@ export function buildProvenanceCards(
     };
   }
 
-  // --- Gables / apex (counted per elevation, summed) ---
+  // --- Apexes on the drawing (counted per elevation, summed — BEFORE the configuration) ---
   if (raw.elevations.length > 0) {
     const withApex = raw.elevations.filter((e) => (e.apexCount ?? 0) > 0);
     const total = raw.elevations.reduce((a, e) => a + (e.apexCount ?? 0), 0);
@@ -326,16 +327,17 @@ export function buildProvenanceCards(
       steps.push({ text: "Hip roof — no brickwork above the scaffold, so no apex." });
     } else {
       steps.push({
-        text: `Total = ${total} apex → ${total} table lift${total === 1 ? "" : "s"} + ${total} apex handrail${total === 1 ? "" : "s"}`,
+        text: `Total on the drawing = ${total} apex${total === 1 ? "" : "es"}. Not all are priced — see "Apexes priced" below.`,
       });
     }
     cards.GABLE_QTY = {
-      title: "Gables / apex",
-      summary: "Counted per elevation",
+      title: "Apexes on the drawing",
+      summary: "Counted per elevation — before the house type drops any",
       method: "counted",
       steps,
       footnotes: [
         "A table lift is an extra lift above the main scaffold to reach brickwork at a gable. A hip roof needs none.",
+        "An apex on a shared (party) wall is not scaffolded, so 'Apexes priced' can be lower than this count.",
       ],
       confidenceLabel: raw.roof.confidence,
       reason: confidenceReason(raw.roof.confidence, { method: "counted" }),
@@ -523,7 +525,7 @@ export function buildProvenanceCards(
       raw.structure.form === "APARTMENT_BLOCK"
         ? "Scaffolded as one whole building — the frontage is not divided per flat."
         : isMultiHome(raw.structure.form)
-          ? "The take-off is per one house; the printed frontage is divided by the dwellings-wide count."
+          ? "The take-off is per one house. When the sheet draws the whole pair/block, its frontage is divided by the number of houses it spans; when it draws one house, that house's frontage is used as is."
           : "One detached house — the full frontage is used.";
     cards.STRUCTURE = {
       title: "Structure",
@@ -617,59 +619,86 @@ export function wallProvenance(
   };
 }
 
-const POS_LABEL: Record<string, string> = {
-  front: "Front",
-  rear: "Rear",
-  gable_left: "Gable (left)",
-  gable_right: "Gable (right)",
-  other: "Other",
-};
+const n3 = (x: number): number => Math.round(x * 1000) / 1000;
 
-/** Provenance for the plain perimeter (all wall lengths summed, before config). */
-export function wallSumProvenance(
-  walls: { position: string; lengthM: number }[],
-  sumM: number,
+/** The perimeter's sum in words, e.g. "front 5.957 + rear 5.957 + gable R 11.138 +
+ *  2 corners × 1 m". Built from the engine's own `parts`, and shared by the review row
+ *  and its tooltip so the two can never show different working. */
+export function perimeterSumText(p: {
+  parts: { label: string; lengthM: number; dividedFrom?: string }[];
+  corners: number;
+  cornerAllowanceM: number;
+}): string {
+  const walls = p.parts.map(
+    (w) => `${w.label} ${n3(w.lengthM)}${w.dividedFrom ? ` (${w.dividedFrom})` : ""}`,
+  );
+  const corners = `${p.corners} corner${p.corners === 1 ? "" : "s"} × ${p.cornerAllowanceM} m`;
+  return [...walls, corners].join(" + ");
+}
+
+/** Provenance for a configuration's perimeter — the exact sum the engine used. */
+export function perimeterProvenance(
+  p: {
+    parts: { label: string; lengthM: number; dividedFrom?: string }[];
+    corners: number;
+    cornerAllowanceM: number;
+    perLiftM: number;
+    totalM: number | null;
+  },
+  lifts: number | null,
 ): ProvContent {
-  const steps: ProvStep[] = walls.map((w) => ({
-    text: `${POS_LABEL[w.position] ?? w.position}: ${n2(w.lengthM)} m`,
-  }));
-  steps.push({ text: `Total = ${n2(sumM)} m` });
+  const steps: ProvStep[] = [
+    ...p.parts.map((w) => ({
+      text: `${w.label}: ${n3(w.lengthM)} m${w.dividedFrom ? ` (${w.dividedFrom} houses — one house)` : ""}`,
+    })),
+    {
+      text: `+ ${p.corners} corner${p.corners === 1 ? "" : "s"} × ${p.cornerAllowanceM} m = ${n3(p.perLiftM)} m per lift`,
+    },
+  ];
+  if (lifts != null && p.totalM != null)
+    steps.push({ text: `× ${lifts} lift${lifts === 1 ? "" : "s"} = ${n3(p.totalM)} m total` });
   return {
-    title: "Wall lengths",
-    summary: "Off the building line, ground-floor plan",
+    title: "Perimeter",
+    summary: "The scaffolded walls + a corner allowance, per lift",
     method: "computed",
     steps,
     footnotes: [
-      "This is the raw sum of every wall. The configuration (which walls apply) and the 1 m/corner allowance are applied per configuration in the computed take-off below.",
+      "Only the walls that are scaffolded are in the sum — a shared (party) wall is not. Detached scaffolds all 4 sides, semi/end 3, mid-terrace front + rear.",
+      "The per-lift figure is Colin's take-off number; the total (× lifts) is what Strike is keyed with.",
     ],
     confidenceLabel: null,
   };
 }
 
-/** Provenance for a configuration's perimeter (config walls + corners × lifts). */
-export function perimeterProvenance(
-  corners: number,
-  cornerAllowanceM: number,
-  wallsM: number,
-  perLiftM: number,
-  lifts: number | null,
-  totalM: number | null,
-): ProvContent {
-  const steps: ProvStep[] = [
-    { text: `Walls for this configuration = ${n2(wallsM)} m` },
-    {
-      text: `+ ${corners} corner${corners === 1 ? "" : "s"} × ${cornerAllowanceM} m = ${n2(perLiftM)} m per lift`,
-    },
-  ];
-  if (lifts != null && totalM != null)
-    steps.push({ text: `× ${lifts} lift${lifts === 1 ? "" : "s"} = ${n2(totalM)} m total` });
+/** Apex counts in words, e.g. "front 1 · gable L 1 · gable R 1". */
+export function apexFacesText(
+  faces: { face: string; read: number; priced: number }[],
+  which: "read" | "priced",
+): string {
+  const shown = faces.filter((f) => f[which] > 0);
+  return shown.length ? shown.map((f) => `${f.face} ${f[which]}`).join(which === "read" ? " · " : " + ") : "none";
+}
+
+/** Provenance for the PRICED apex count — which of the drawing's apexes are kept, and
+ *  why any are dropped (built from the engine's own `faces`). */
+export function apexPricedProvenance(apex: {
+  count: number;
+  faces: { face: string; read: number; priced: number; why?: string }[];
+}): ProvContent {
+  const steps: ProvStep[] = apex.faces.map((f) => ({
+    text:
+      f.read === f.priced
+        ? `${f.face}: ${f.priced} — priced`
+        : `${f.face}: ${f.read} on the drawing → ${f.priced} priced (${f.why ?? "dropped"})`,
+  }));
+  steps.push({ text: `= ${apex.count} apex${apex.count === 1 ? "" : "es"} priced (each a table lift + apex handrail)` });
   return {
-    title: "Perimeter",
-    summary: "Config walls + corner allowance, per lift",
+    title: "Apexes priced",
+    summary: "The drawing's apexes, minus any on a wall that is not scaffolded",
     method: "computed",
     steps,
     footnotes: [
-      "Detached scaffolds 4 sides, semi/end 3, mid-terrace front + rear. Strike is keyed with the total; the per-lift figure drives the pay matrix.",
+      "Edit 'Apexes on the drawing' if the count is wrong — this row recalculates from it.",
     ],
     confidenceLabel: null,
   };
@@ -899,6 +928,10 @@ export function configurationProvenance(
   // building type is then only the semi-vs-end tie-breaker.
   if (derived && (derived as { basis?: string }).basis === "party-walls")
     steps.push({ text: "Decided by the party walls read off the plan (not the building type)." });
+  if (derived && (derived as { basis?: string }).basis === "block-drawn")
+    steps.push({
+      text: "The drawing shows the whole pair/block — its gables are the block's outer ends, so the building type decides the position.",
+    });
   const form = normalizeStructureForm(structureForm, null);
   if (form) {
     const homes = STRUCTURE_DWELLINGS[form];
@@ -944,22 +977,32 @@ export function configurationProvenance(
 export function configurationBasisFrom(
   raw: {
     structure?: { form: string | null; confidence: string };
-    wallSegments?: { position: string; isPartyWall?: boolean | null }[];
+    wallSegments?: { position: string; isPartyWall?: boolean | null; lengthM?: number }[];
+    dwellingsWide?: { value: number | null };
   } | null,
   warnings: Record<string, unknown>,
 ): { derived: DerivedConfiguration | null; form: string | null; confidence: string | null } {
-  if (raw?.structure)
+  if (raw?.structure) {
+    // Must use the SAME rule the extractor used when it set the value (persist.ts: role
+    // normalisation, then the physically-checked frontage frame), or the review screen
+    // would explain a different answer from the one on the record.
+    const walls = normalizeWallRoles(raw.wallSegments ?? []).walls;
+    const blockDrawn = resolveFrontage({
+      wallSegments: walls.map((w) => ({ position: w.position, lengthM: w.lengthM ?? 0 })),
+      dwellingsWide: raw.dwellingsWide?.value ?? 1,
+      isApartmentBlock: raw.structure.form === "APARTMENT_BLOCK",
+    }).blockDrawn;
     return {
-      // Must use the SAME rule the extractor used when it set the value, or the
-      // review screen would explain a different answer from the one on the record.
       derived: resolveConfiguration(
         normalizeStructureForm(raw.structure.form, null),
         raw.structure.confidence,
-        readPartyGables(raw.wallSegments ?? []),
+        readPartyGables(walls),
+        blockDrawn,
       ),
       form: raw.structure.form ?? null,
       confidence: raw.structure.confidence ?? null,
     };
+  }
   const b = warnings.configurationBasis;
   if (b && typeof b === "object" && !Array.isArray(b)) {
     const o = b as Record<string, unknown>;
@@ -968,7 +1011,9 @@ export function configurationBasisFrom(
         config: String(o.config ?? "DETACHED") as DerivedConfiguration["config"],
         certain: o.certain === true,
         reason: typeof o.reason === "string" ? o.reason : "",
-        ...(o.basis === "party-walls" || o.basis === "structure" ? { basis: o.basis } : {}),
+        ...(o.basis === "party-walls" || o.basis === "structure" || o.basis === "block-drawn"
+          ? { basis: o.basis }
+          : {}),
       } as DerivedConfiguration,
       form: typeof o.structure === "string" ? o.structure : null,
       confidence: typeof o.confidence === "string" ? o.confidence : null,

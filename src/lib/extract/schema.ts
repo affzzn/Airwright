@@ -62,14 +62,14 @@ const wallSegment = z.object({
   position: z
     .enum(["front", "rear", "gable_left", "gable_right", "other"])
     .describe(
-      "Which external wall this length is. gable_left / gable_right are the two side/end walls.",
+      "Which external wall this length is. front / rear = the street and garden faces (their length must match the width of the FRONT / REAR ELEVATION). gable_left / gable_right = the two SIDE walls — the only walls that can be party walls. Assign roles from the party wall and the elevations, NEVER from which wall is longer.",
     ),
   label: z.string().nullable().optional(),
   isPartyWall: z
     .boolean()
     .nullable()
     .describe(
-      "TRUE if this wall is a PARTY / SEPARATING wall shared with the neighbouring house (so it is NOT scaffolded), FALSE if it is an external wall, NULL if the drawing does not make it clear. Read it off the drawing — the WALL LEGEND ('…MM THICK PARTY WALL' vs '…MM THICK CAVITY WALL'), the wall's hatching, a neighbouring dwelling drawn beyond it, or a page title such as 'MID TERRACE' / 'END TERRACE'. NEVER infer it from the house's name or from how long the wall is.",
+      "TRUE if this wall is a PARTY / SEPARATING wall shared with the neighbouring house (so it is NOT scaffolded), FALSE if it is an external wall, NULL if the drawing does not make it clear. Read it off the drawing — the WALL LEGEND ('…MM THICK PARTY WALL' vs '…MM THICK CAVITY WALL'), the wall's hatching/thickness, a neighbouring dwelling drawn beyond it, or a page title such as 'MID TERRACE' / 'END TERRACE'. NEVER infer it from the house's name or from how long the wall is. On a drawing of the WHOLE pair/block (dwellingsWide ≥ 2) the gables are the block's two OUTER ends — mark them FALSE; the party wall between the homes is inside the block and is not a wall segment.",
     )
     .optional(),
   lengthM: z.number().describe("Wall length in metres (converted from the printed mm)."),
@@ -107,7 +107,7 @@ const elevation = z.object({
     .number()
     .nullable()
     .describe(
-      "STEP 3 — the number that follows from faceRoof + apexReason: how many gable apexes on THIS face have brickwork up to the point (each needs a table lift). 0 if this face is hipped or has no apex.",
+      "STEP 3 — the number that follows from faceRoof + apexReason: how many gable apexes on THIS face have brickwork up to the point (each needs a table lift), for ONE HOUSE. On an elevation that draws the whole pair/terrace, count only ONE house's apexes on the front/rear (two projecting front gables, one per house → 1); a side face is the block's end gable → count it as drawn. 0 if this face is hipped or has no apex.",
     ),
   rendered: z
     .boolean()
@@ -197,6 +197,20 @@ const birdcageRect = z.object({
       "FALLBACK ONLY: the cavity wall thickness quoted in the WALL LEGEND text (e.g. '353MM THICK CAVITY WALL' → 353). This is the FINISHED-face thickness (bigger than the structural one). Report it only when the plan does not dimension the structural wall; the engine uses it only if no plan wall is given. null if there is no legend value.",
     )
     .optional(),
+  widthCoversDwellings: z
+    .number()
+    .nullable()
+    .describe(
+      "How many houses the WIDTH you reported for this rectangle spans. 1 (the normal case) = one house's width. ONLY when the plan prints NO single-house width at all (e.g. mirrored houses around a shared central core) may you report the whole pair's overall/internal width here with 2 (3 for a three-block) plus partyWallThicknessMm — the engine then strips the party wall(s) and splits it per house. Never report the pair width with 1.",
+    )
+    .optional(),
+  partyWallThicknessMm: z
+    .number()
+    .nullable()
+    .describe(
+      "The PARTY wall thickness (mm) between the houses, read off the plan (e.g. 327 / 300). Needed only when widthCoversDwellings ≥ 2.",
+    )
+    .optional(),
   sourceDimension: z.string().nullable().optional(),
   sourcePage,
 });
@@ -244,7 +258,7 @@ export const extractionResultSchema = z.object({
         .enum(STRUCTURE_FORMS)
         .nullable()
         .describe(
-          "The building type, named by HOW MANY HOUSES are joined side-by-side (set dwellingsWide to match): DETACHED = 1 free-standing house (dwellingsWide 1). PAIR_SEMI = a semi-detached PAIR, 2 houses sharing one party wall (dwellingsWide 2). THREE_BLOCK = 3 houses joined in a row (dwellingsWide 3). TERRACE = 4 OR MORE houses joined in a row — use 'terrace' ONLY for four or more (dwellingsWide 4+). For all house forms the take-off is per ONE house. APARTMENT_BLOCK = a block of FLATS (multiple flats per floor, communal entrance): scaffolded as ONE whole building, so do NOT divide the frontage (dwellingsWide = 1) and report the WHOLE-FLOOR internal area per level, not a single flat's area.",
+          "The building type, named by HOW MANY HOUSES are joined side-by-side in the building (this is NOT dwellingsWide — that is how many houses your reported frontage spans): DETACHED = 1 free-standing house. PAIR_SEMI = a semi-detached PAIR, 2 houses sharing one party wall. THREE_BLOCK = 3 houses joined in a row. TERRACE = 4 OR MORE houses joined in a row — use 'terrace' ONLY for four or more. A sheet that draws ONE unit of a pair/terrace (an 'END' or 'MID' sheet, a party wall on one or both sides) is still PAIR_SEMI / THREE_BLOCK / TERRACE. For all house forms the take-off is per ONE house. APARTMENT_BLOCK = a block of FLATS (multiple flats per floor, communal entrance): scaffolded as ONE whole building, so do NOT divide the frontage (dwellingsWide = 1) and report the WHOLE-FLOOR internal area per level, not a single flat's area.",
         ),
       confidence,
     })
@@ -300,8 +314,15 @@ export const extractionResultSchema = z.object({
       "One-line justification for cornerCount stating the shape and any steps — e.g. 'rectangle, all opposite sides equal → 4', or 'front is 675 deeper on the lounge side → 1 step → 5'. Write the reason BEFORE settling the number.",
     )
     .optional(),
+  frontageReason: z
+    .string()
+    .nullable()
+    .describe(
+      "Write this BEFORE dwellingsWide: one line saying how many houses the front/rear length you reported spans, and the evidence — e.g. 'one house: 4265 gable to C/L of party wall (the sheet draws one end house)' or 'whole pair: 10660 across both mirrored houses, party wall 302 in the middle'.",
+    )
+    .optional(),
   dwellingsWide: numberField.describe(
-    "How many dwellings share the FRONT/REAR frontage in THIS drawing: 1 for a detached house, 2 for a pair/semi, 3 for a three-block, 4 or more for a terrace. Report the front/rear wall lengths as the FULL printed frontage spanning all the dwellings — do NOT pre-divide them. The engine divides the front/rear by this number to get one dwelling; gable-end walls are NOT divided. The BIRDCAGE is per house too — its width is ONE dwelling's internal width (≈ frontage/dwellings), NOT the full frontage.",
+    "How many houses the FRONT/REAR LENGTH YOU REPORTED spans — NOT how many houses the building has. 1 = you reported ONE house's frontage (the sheet draws a single house — common for semis/terraces drawn one unit per sheet — or you read one house's run to the party-wall centreline); 2 / 3 / 4+ = you reported the full printed frontage across the whole pair / three-block / terrace drawn on the sheet. A semi drawn as one house is structure PAIR_SEMI with dwellingsWide 1. The engine divides the front/rear by this; gable-end walls are never divided. The BIRDCAGE is always one house's internal width.",
   ),
   floorAreas: z
     .array(floorArea)

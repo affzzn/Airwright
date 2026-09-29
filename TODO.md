@@ -18,6 +18,17 @@ the Week-3 rules + open questions live in **`docs/11-takeoff-engine-spec.md`** (
 - [ ] **Supabase for prod**: create Colin's login user; set Site URL +
       `/auth/callback` redirect URLs (email+password, confirm-email off). App runs
       without these but you can't sign in until done.
+- [x] **Attached houses — one house vs the whole block (2026-09-29, docs/21 §B6):** frontage
+      frame checked against physics, wall roles follow the party wall, whole-block gables,
+      whole-pair birdcage split, prompt `2026-09-29.1`. Validated live vs Colin's bank.
+- [ ] **Re-run extraction on existing attached house types** (Whitford Road, Perryfields,
+      Earl Shilton…) so they pick up prompt `2026-09-29.1`. Stored take-offs already get
+      the engine fixes (the halving is refused on build), but the role swaps (Millfield,
+      Delmont) and the "finished dim" read need a fresh read. A CONFIRMED take-off is never
+      overwritten — re-open it first if it should be re-read.
+- [ ] **The frame check has a blind spot:** a plausible-but-wrong frame (a 6.5 m one-house
+      frontage read as a pair → 3.25 m) passes the 3 m minimum; only the birdcage
+      cross-check flags it. Watch the Review flag rate on real packs.
 - [ ] Resumable (TUS) uploads for 150MB+ zips — current single PUT works (bucket 250MB)
       but is slow/fragile on weak connections.
 

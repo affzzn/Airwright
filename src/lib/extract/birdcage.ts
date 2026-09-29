@@ -96,6 +96,12 @@ export interface BirdcageRectInput {
   wallThicknessMm?: number | null;
   /** WALL LEGEND cavity-wall thickness (finished face) — fallback only. */
   legendWallThicknessMm?: number | null;
+  /** How many dwellings the reported WIDTH spans (default 1 = one house). 2+ when the
+   *  only width the plan prints runs across the whole pair/block (a shared central core,
+   *  Tilia SM1) — the engine then strips the party wall(s) and splits it per house. */
+  widthCoversDwellings?: number | null;
+  /** The PARTY wall thickness (mm) between the dwellings, for the block split. */
+  partyWallThicknessMm?: number | null;
 }
 export interface BirdcageFloorInput {
   rectangles?: BirdcageRectInput[] | null;
@@ -129,6 +135,12 @@ export interface RectComputed {
   assumedSymmetric: boolean;
   /** The value area could not be resolved (no internal AND no wall to strip an overall). */
   incomplete: boolean;
+  /** Dwellings the reported width spanned (1 = one house; 2+ = split per house). */
+  widthDwellings: number;
+  /** The party wall stripped between dwellings on a block split (mm), else null. */
+  partyWallMm: number | null;
+  /** The party wall was not dimensioned, so the flanking structural wall stood in. */
+  partyAssumed: boolean;
 }
 export type BirdcageSource = "derived" | "none";
 export interface BirdcageResult {
@@ -142,6 +154,10 @@ export interface BirdcageResult {
   relDiff: number | null; // the relative gap that drove `reconciled`
   usedLegendWall: boolean; // a stored value derived an axis off the finished-face legend wall
   assumedSymmetric: boolean; // a stored value assumed a one-sided wall was symmetric
+  /** A width read across the whole pair/block was split per house. */
+  blockSplit: boolean;
+  /** …and the party wall in that split was assumed from the flanking wall. */
+  partyAssumed: boolean;
   note: string; // one-line audit trail for the tooltip
 }
 
@@ -199,15 +215,41 @@ function computeRect(r: BirdcageRectInput): RectComputed {
   //     single house's footprint (the setting-out plan shows one house). The pair
   //     frontage is only for the perimeter walls — that division lives in the
   //     take-off engine, not here. ---
+  //     A width that spans the WHOLE pair/block (widthCoversDwellings ≥ 2 — the plan
+  //     prints no single-house span, e.g. a shared central core) is split here, in
+  //     tested code: one house = (block inside − (n−1) × party wall) ÷ n. The party
+  //     wall is read off the plan; when it isn't dimensioned the flanking structural
+  //     wall stands in (flagged, low confidence); with neither, the width is left
+  //     unresolved — never guessed (docs/doubts §1, docs/21 §B6).
+  const n =
+    r.widthCoversDwellings != null && r.widthCoversDwellings >= 2
+      ? Math.round(r.widthCoversDwellings)
+      : 1;
+  let partyWallMm: number | null = null;
+  let partyAssumed = false;
+  if (n > 1) {
+    partyWallMm = pos(r.partyWallThicknessMm);
+    if (partyWallMm == null && wWall.a != null && wWall.b != null) {
+      partyWallMm = (wWall.a + wWall.b) / 2;
+      partyAssumed = true;
+    }
+  }
+  const perHouse = (blockInsideM: number): number | null =>
+    n === 1
+      ? blockInsideM
+      : partyWallMm == null
+        ? null
+        : round3((blockInsideM - ((n - 1) * partyWallMm) / 1000) / n);
   const overallW = pos(r.overallWidthM);
   const derivedWidthM =
     overallW != null && wWall.a != null && wWall.b != null
-      ? round3(overallW - wWall.a / 1000 - wWall.b / 1000)
+      ? perHouse(round3(overallW - wWall.a / 1000 - wWall.b / 1000))
       : null;
+  const internalW = pos(r.internalWidthM) != null ? perHouse(r.internalWidthM as number) : null;
   let widthM: number | null;
   let widthBasis: Basis;
-  if (pos(r.internalWidthM) != null) {
-    widthM = r.internalWidthM as number; // a printed internal span is already one house
+  if (internalW != null) {
+    widthM = internalW; // a printed internal span (split per house if it spans the block)
     widthBasis = "internal";
   } else if (derivedWidthM != null) {
     widthM = derivedWidthM;
@@ -271,6 +313,9 @@ function computeRect(r: BirdcageRectInput): RectComputed {
     usedLegendWall,
     assumedSymmetric,
     incomplete: widthM == null || depthM == null,
+    widthDwellings: n,
+    partyWallMm,
+    partyAssumed,
   };
 }
 
@@ -293,6 +338,8 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
   const rects = (floor.rectangles ?? []).map((r) => computeRect(r));
   const usedLegendWall = rects.some((r) => r.usedLegendWall);
   const assumedSymmetric = rects.some((r) => r.assumedSymmetric);
+  const blockSplit = rects.some((r) => r.widthDwellings > 1 && r.widthM != null);
+  const partyAssumed = rects.some((r) => r.partyAssumed && r.widthM != null);
   const anyInternal = rects.some((r) => r.widthBasis === "internal" || r.depthBasis === "internal");
   // A rectangle we were given but couldn't fully compute — e.g. an overall
   // dimension with no wall thickness to strip. Never silently guessed a wall.
@@ -310,7 +357,13 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
 
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
   const flags = (extra = "") =>
-    `${extra}${assumedSymmetric ? " (One wall side not dimensioned — assumed symmetric.)" : ""}`;
+    `${extra}${assumedSymmetric ? " (One wall side not dimensioned — assumed symmetric.)" : ""}${
+      blockSplit
+        ? ` (Width read across the whole ${rects.find((r) => r.widthDwellings > 1)?.widthDwellings}-house block and split per house${
+            partyAssumed ? " — party wall NOT dimensioned, the flanking wall was used; confirm" : ""
+          }.)`
+        : ""
+    }`;
 
   if (derivedM2 != null) {
     // --- A printed internal footprint, corroborated by the independent overall −
@@ -322,17 +375,17 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
       const reconciled = relDiff <= BIRDCAGE_INTERNAL_XCHECK_TOLERANCE;
       if (reconciled) {
         // Symmetric assumption on a passed check is fine but not "high".
-        const conf: Conf = assumedSymmetric ? "medium" : "high";
+        const conf: Conf = partyAssumed ? "low" : assumedSymmetric ? "medium" : "high";
         return {
           m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
-          confidence: conf, reconciled: true, relDiff, usedLegendWall, assumedSymmetric,
+          confidence: conf, reconciled: true, relDiff, usedLegendWall, assumedSymmetric, blockSplit, partyAssumed,
           note: flags(`Internal footprint ${derivedM2} m² ✓ cross-checked vs overall − walls ${crossCheckM2} m² (Δ ${pct(relDiff)}).`),
         };
       }
       // Keep the internal value (preferred), but flag the disagreement.
       return {
         m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
-        confidence: "low", reconciled: false, relDiff, usedLegendWall, assumedSymmetric,
+        confidence: "low", reconciled: false, relDiff, usedLegendWall, assumedSymmetric, blockSplit, partyAssumed,
         note: flags(`Internal footprint ${derivedM2} m² vs overall − walls ${crossCheckM2} m² DIVERGE (Δ ${pct(relDiff)}) — internal used, check the reads.`),
       };
     }
@@ -340,7 +393,7 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
     // A bare footprint with no independent cross-check (internal with no overall, a
     // pair, or a pure overall − walls derivation). Structural wall → medium; a
     // legend fallback or a one-sided (assumed-symmetric) wall → low; flagged.
-    const base: Conf = usedLegendWall || assumedSymmetric ? "low" : "medium";
+    const base: Conf = usedLegendWall || assumedSymmetric || partyAssumed ? "low" : "medium";
     const how = anyInternal
       ? `Internal footprint ${derivedM2} m²`
       : usedLegendWall
@@ -348,14 +401,14 @@ export function computeBirdcageFloor(floor: BirdcageFloorInput): BirdcageResult 
         : `Derived ${derivedM2} m² from the printed dimensions (structural wall)`;
     return {
       m2: derivedM2, source: "derived", derivedM2, crossCheckM2, rectangles: rects,
-      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, assumedSymmetric,
+      confidence: worseConf(base, readConf), reconciled: null, relDiff: null, usedLegendWall, assumedSymmetric, blockSplit, partyAssumed,
       note: flags(`${how}. Computed from the printed dimensions.`),
     };
   }
 
   return {
     m2: null, source: "none", derivedM2: null, crossCheckM2: null, rectangles: rects,
-    confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false, assumedSymmetric: false,
+    confidence: "unknown", reconciled: null, relDiff: null, usedLegendWall: false, assumedSymmetric: false, blockSplit: false, partyAssumed: false,
     note: hasUnresolvedRect
       ? "Dimensions given but no wall thickness to derive the internal footprint — birdcage unresolved, needs a human."
       : "No legible internal dimensions — birdcage not computed.",

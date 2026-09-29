@@ -10,7 +10,7 @@
  * It NEVER calls a model and touches no I/O — feed it facts, get a take-off.
  */
 
-import { readPartyGables } from "@/lib/structure";
+import { normalizeWallRoles, readPartyGables } from "@/lib/structure";
 
 export type RoofType = "PITCHED" | "HIPPED" | "MIXED";
 export type Configuration =
@@ -109,7 +109,11 @@ export interface TakeoffInput {
   heightToSoffitM: number | null;
   roofType: RoofType | null;
   wallSegments: WallSeg[];
-  dwellingsWide: number; // how many dwellings share the front/rear frontage (1 single, 2 semi pair)
+  /** How many dwellings the REPORTED front/rear length spans: 1 when the read is one
+   *  house (a single-house drawing, or one house's slice), N when it is the full printed
+   *  frontage of a pair/block. NOT the building type — a semi drawn as one house is 1.
+   *  Checked against physics by `resolveFrontage` before the engine divides by it. */
+  dwellingsWide: number;
   isApartmentBlock: boolean; // a block of flats — scaffolded as ONE whole building (no per-house split)
   cornerCount: number | null; // external corners read off the (detached) footprint
   apexByFace: ApexByFace; // apexes per elevation face (reduced by config downstream)
@@ -123,6 +127,17 @@ export interface TakeoffInput {
   includePartyWall?: boolean;
   /** Build system (project-level). Undefined → TRADITIONAL. */
   buildSystem?: BuildSystem;
+  /** One house's INTERNAL width off the ground-floor birdcage (the widest rectangle),
+   *  used only to CROSS-CHECK the frontage frame (`resolveFrontage`). Absent on legacy
+   *  take-offs — the physical minimum still applies. */
+  houseInternalWidthM?: number | null;
+  /** The ground floor is a single rectangle, so its width is the whole house's inside
+   *  width and an upper bound applies too (a stepped floor's widest tile is only a
+   *  lower bound). */
+  houseInternalWidthSingleRect?: boolean;
+  /** The structural wall (m) the birdcage read on that floor — lets a mirrored PAIR's
+   *  inside width be derived independently from its frontage (resolveFrontage). */
+  houseWallThicknessM?: number | null;
 }
 
 /**
@@ -338,6 +353,129 @@ export function computeTimberFrameLifts(
   return { lifts, basis, heightLifts: hLifts, storeyLifts: sLifts, flag: disagree };
 }
 
+/**
+ * The narrowest external frontage ONE house can have. A physical sanity bound, not a
+ * business rule: no UK new-build house is under 3 m wide (the narrowest types in
+ * Colin's bank are ~4 m). A per-house frontage below it means the read was divided by
+ * the wrong dwelling count.
+ */
+export const MIN_HOUSE_FRONTAGE_M = 3.0;
+/** External frontage minus internal width for one house = its walls: an outer wall
+ *  plus half a party wall, or two external walls (~0.3-0.8 m). Above this the two reads
+ *  describe different buildings. Generous on purpose — it only raises a flag. */
+export const MAX_FRONTAGE_OVER_INTERNAL_M = 1.2;
+/** …and at least this much: even the thinnest external wall plus half a party wall is
+ *  ~0.25 m. A frontage within this of the internal width is an INTERNAL dimension read
+ *  as the wall (TW Avonsford: the 3610 "finished dim" reported as the front). */
+export const MIN_FRONTAGE_OVER_INTERNAL_M = 0.15;
+/** A mirrored pair's per-house inside width, derived from its frontage, must match the
+ *  birdcage's read within this (Dekker, Sinclair, Sorley: exact; Byron's depth-chain
+ *  segment read as the width: 8% off). */
+export const PAIR_WIDTH_XCHECK_TOLERANCE = 0.03;
+
+export interface FrontageResult {
+  /** `dwellingsWide` as read (or edited). */
+  declared: number;
+  /** The divisor actually applied to the front/rear lengths. */
+  divisor: number;
+  /** One house's front length after the division (0 if no front was read). */
+  perHouseFrontM: number;
+  /** "declared" = used as read; "physical-minimum" = the declared count gave an
+   *  impossibly narrow house, so the length was taken as ONE house. */
+  basis: "declared" | "physical-minimum";
+  /** True when the reported frontage spans the whole pair/block (divisor > 1): the
+   *  gables are then the block's OUTER ends and the party walls sit inside it. */
+  blockDrawn: boolean;
+  /** Why the divisor differs from the read, or why the frame is doubtful. */
+  note: string | null;
+  /** The frame could not be reconciled with the house's own birdcage width — the
+   *  frontage or the birdcage is the wrong scope. Flagged, never auto-corrected. */
+  birdcageMismatch: boolean;
+}
+
+/**
+ * How many dwellings the reported front/rear length spans — the divisor for the
+ * frontage. The model reports it (`dwellingsWide`), but that read has two known
+ * failure modes (docs/21 §B6): it conflated "the building is a pair" with "the length
+ * I reported spans the pair", halving a one-house frontage (TW Avonsford 4.265 m → 2.13 m;
+ * Vistry Jackdaw, TW Eynsford, Harrton, Curlew — five bank types, ~25% under-measured).
+ *
+ * ONE auto-correction, and only on physics: a per-house frontage under
+ * MIN_HOUSE_FRONTAGE_M is impossible, so when the undivided length is a plausible house
+ * the length was ONE house. Everything subtler is FLAGGED, never guessed — in particular
+ * the house's own birdcage width is NOT used to re-frame: a whole-pair birdcage read (Tilia
+ * SM1, docs/doubts §1) is numerically indistinguishable from a correct one-house frontage,
+ * so trusting it would reproduce that bug. It only raises `birdcageMismatch`.
+ */
+export function resolveFrontage(input: {
+  wallSegments: { position: string; lengthM: number }[];
+  dwellingsWide: number;
+  isApartmentBlock: boolean;
+  houseInternalWidthM?: number | null;
+  houseInternalWidthSingleRect?: boolean;
+  houseWallThicknessM?: number | null;
+}): FrontageResult {
+  const len = (pos: string) =>
+    input.wallSegments.filter((w) => w.position === pos).reduce((a, w) => a + w.lengthM, 0);
+  const front = len("front") || len("rear");
+  const declared = input.isApartmentBlock
+    ? 1
+    : input.dwellingsWide >= 1
+      ? Math.round(input.dwellingsWide)
+      : 1;
+  const result = (divisor: number, basis: FrontageResult["basis"], note: string | null) => {
+    const perHouseFrontM = front > 0 ? round3(front / divisor) : 0;
+    const w = input.houseInternalWidthM ?? null;
+    let birdcageMismatch = false;
+    let why: string | null = null;
+    if (!input.isApartmentBlock && w !== null && w > 0 && perHouseFrontM > 0) {
+      if (perHouseFrontM < w - 0.02) {
+        birdcageMismatch = true;
+        why = `one house's frontage (${perHouseFrontM} m) is NARROWER than its own internal birdcage width (${w} m)`;
+      } else if (perHouseFrontM - w < MIN_FRONTAGE_OVER_INTERNAL_M) {
+        birdcageMismatch = true;
+        why = `one house's frontage (${perHouseFrontM} m) is no wider than its internal birdcage width (${w} m) — there is no room for its walls, so an INTERNAL dimension was probably read as the front wall`;
+      } else if (input.houseInternalWidthSingleRect && perHouseFrontM - w > MAX_FRONTAGE_OVER_INTERNAL_M) {
+        birdcageMismatch = true;
+        why = `one house's frontage (${perHouseFrontM} m) is ${round3(perHouseFrontM - w)} m wider than its internal birdcage width (${w} m) — more than its walls`;
+      } else if (divisor === 2 && input.houseInternalWidthSingleRect) {
+        // A mirrored PAIR drawn whole: one house's inside width is fixed by the frontage,
+        // (frontage − outer wall × 2 − party wall) ÷ 2 — an independent derivation of
+        // the birdcage width, like the internal-vs-overall check (C11).
+        const t = input.houseWallThicknessM ?? null;
+        if (t !== null && t > 0) {
+          const expected = round3((front - 3 * t) / 2);
+          if (expected > 0 && Math.abs(w - expected) / expected > PAIR_WIDTH_XCHECK_TOLERANCE) {
+            birdcageMismatch = true;
+            why = `the pair's frontage gives one house an inside width of (${round3(front)} − 3 × ${t}) ÷ 2 = ${expected} m, but the birdcage read ${w} m (${Math.round((Math.abs(w - expected) / expected) * 1000) / 10}% off) — the birdcage width may be a segment of the wrong dimension chain`;
+          }
+        }
+      }
+    }
+    const mismatchNote = why
+      ? `${why}. Either the frontage covers a different number of houses than ${divisor}, or the birdcage was read for a different number of houses — check both against the plan.`
+      : null;
+    return {
+      declared,
+      divisor,
+      perHouseFrontM,
+      basis,
+      blockDrawn: divisor > 1,
+      note: [note, mismatchNote].filter(Boolean).join(" ") || null,
+      birdcageMismatch,
+    };
+  };
+  if (front <= 0 || declared <= 1 || input.isApartmentBlock) return result(declared, "declared", null);
+  const perHouse = front / declared;
+  if (perHouse < MIN_HOUSE_FRONTAGE_M && front >= MIN_HOUSE_FRONTAGE_M)
+    return result(
+      1,
+      "physical-minimum",
+      `The front was read as ${round3(front)} m across ${declared} houses, which would make each house ${round3(perHouse)} m wide — narrower than any house (${MIN_HOUSE_FRONTAGE_M} m minimum). So ${round3(front)} m is ONE house's frontage and it is not divided.`,
+    );
+  return result(declared, "declared", null);
+}
+
 export interface PerimeterResult {
   perLiftM: number;
   totalM: number | null; // per-lift × lifts (what Strike is keyed with)
@@ -345,9 +483,28 @@ export interface PerimeterResult {
   wallsM: number; // before the corner allowance
   irregular: boolean; // "other" walls present on a non-detached config
   /** How the exposed gable was chosen on a semi/end: "party" = the drawing said which
-   *  gable is the party wall; "size" = it did not, so the longer gable was kept (a
-   *  fallback, flagged); "n/a" = the config does not choose a gable. */
-  gableBasis: "party" | "size" | "n/a";
+   *  gable is the party wall; "block-end" = the drawing shows the whole pair/block, so
+   *  its gables are the block's outer ends (either is the end house's exposed gable);
+   *  "size" = the drawing did not say, so the longer gable was kept (a fallback,
+   *  flagged); "n/a" = the config does not choose a gable. */
+  gableBasis: "party" | "block-end" | "size" | "n/a";
+  /** The side walls the configuration SCAFFOLDS (semi/end: the exposed one; detached:
+   *  both; mid: neither) — so the review screen greys exactly what the engine drops. */
+  scaffoldedGables: ("gable_left" | "gable_right")[];
+  /** The perimeter's own working, in order: each scaffolded wall (per house) — so the
+   *  review screen can print the exact sum the engine used, never a different one. */
+  parts: PerimeterPart[];
+  /** Corner allowance per corner (m) used in `perLiftM`. */
+  cornerAllowanceM: number;
+  /** How the front/rear frontage was divided down to one house. */
+  frontage: FrontageResult;
+}
+
+export interface PerimeterPart {
+  label: "front" | "rear" | "gable L" | "gable R" | "other";
+  lengthM: number;
+  /** Set when the read length was divided to one house, e.g. "10.66 ÷ 2". */
+  dividedFrom?: string;
 }
 
 /** Perimeter along the building line, by config, + the corner allowance. */
@@ -360,14 +517,12 @@ export function computePerimeter(
     input.wallSegments
       .filter((w) => ps.includes(w.position))
       .reduce((a, w) => a + w.lengthM, 0);
-  // The front/rear frontage spans every dwelling drawn (semi pair, terrace block),
-  // so divide it to one dwelling. An apartment block is scaffolded whole, so no
-  // division. Gable-end walls are the full depth — never divided.
-  const dwellings = input.isApartmentBlock
-    ? 1
-    : input.dwellingsWide >= 1
-      ? input.dwellingsWide
-      : 1;
+  // The front/rear frontage may span every dwelling drawn (semi pair, terrace block),
+  // so divide it to one dwelling — by the count resolveFrontage checked against
+  // physics. An apartment block is scaffolded whole, so no division. Gable-end walls
+  // are the full depth — never divided.
+  const frontage = resolveFrontage(input);
+  const dwellings = frontage.divisor;
   const front = sum(["front"]) / dwellings;
   const rear = sum(["rear"]) / dwellings;
   const gableLeft = sum(["gable_left"]);
@@ -378,6 +533,7 @@ export function computePerimeter(
   let corners: number;
   let irregular = false;
   let exposedGable = 0;
+  let scaffoldedGables: PerimeterResult["scaffoldedGables"] = ["gable_left", "gable_right"];
   let gableBasis: PerimeterResult["gableBasis"] = "n/a";
   const pg = partyGables(input.wallSegments);
   if (input.isApartmentBlock) {
@@ -396,14 +552,25 @@ export function computePerimeter(
         // wall). Which one is exposed comes from the drawing's party-wall flag; only
         // when the drawing does not say do we fall back to "keep the longer gable"
         // (recorded in gableBasis so the caller can flag it) — docs/21 §B3.
-        if (pg.left === true && pg.right !== true) {
-          exposedGable = gableRight;
+        // A drawing of the WHOLE pair/block: its two gables are the block's outer ends,
+        // both external — the end house's exposed gable is one of them (equal on a
+        // mirrored pair; the longer is kept and flagged if they differ). docs/21 §B6.
+        const keep = (side: "gable_left" | "gable_right") => {
+          exposedGable = side === "gable_left" ? gableLeft : gableRight;
+          scaffoldedGables = [side];
+        };
+        const longer = gableLeft >= gableRight ? "gable_left" : "gable_right";
+        if (frontage.blockDrawn) {
+          keep(longer);
+          gableBasis = "block-end";
+        } else if (pg.left === true && pg.right !== true) {
+          keep("gable_right");
           gableBasis = "party";
         } else if (pg.right === true && pg.left !== true) {
-          exposedGable = gableLeft;
+          keep("gable_left");
           gableBasis = "party";
         } else {
-          exposedGable = Math.max(gableLeft, gableRight);
+          keep(longer);
           gableBasis = "size";
         }
         walls = front + rear + exposedGable + other;
@@ -412,6 +579,7 @@ export function computePerimeter(
         break;
       }
       case "MID_TERRACE":
+        scaffoldedGables = [];
         // 2 sides: front + rear (both gable ends are party walls). Any 'other' external
         // wall is still scaffolded — it is not a party gable — so it is INCLUDED, the
         // same as on a semi/end, and flagged as irregular for a human check.
@@ -425,7 +593,31 @@ export function computePerimeter(
   }
   const perLiftM = round3(walls + corners * params.cornerAllowanceM);
   const totalM = lifts !== null ? round3(perLiftM * lifts) : null;
-  return { perLiftM, totalM, corners, wallsM: round3(walls), irregular, gableBasis };
+  const div = dwellings > 1 ? (raw: number) => `${round3(raw)} ÷ ${dwellings}` : null;
+  const parts: PerimeterPart[] = [];
+  if (front > 0) parts.push({ label: "front", lengthM: round3(front), ...(div ? { dividedFrom: div(sum(["front"])) } : {}) });
+  if (rear > 0) parts.push({ label: "rear", lengthM: round3(rear), ...(div ? { dividedFrom: div(sum(["rear"])) } : {}) });
+  const sides =
+    input.isApartmentBlock || input.config === "DETACHED"
+      ? (["gable_left", "gable_right"] as const)
+      : scaffoldedGables;
+  for (const g of sides) {
+    const len = g === "gable_left" ? gableLeft : gableRight;
+    if (len > 0) parts.push({ label: g === "gable_left" ? "gable L" : "gable R", lengthM: round3(len) });
+  }
+  if (other > 0) parts.push({ label: "other", lengthM: round3(other) });
+  return {
+    perLiftM,
+    totalM,
+    corners,
+    wallsM: round3(walls),
+    irregular,
+    gableBasis,
+    scaffoldedGables,
+    parts,
+    cornerAllowanceM: params.cornerAllowanceM,
+    frontage,
+  };
 }
 
 export interface BirdcageResult {
@@ -502,7 +694,19 @@ export interface ApexResult {
   tableLifts: number;
   handrails: number;
   /** How the exposed gable's apex was chosen on a semi/end — see PerimeterResult. */
-  gableBasis: "party" | "size" | "n/a";
+  gableBasis: "party" | "block-end" | "size" | "n/a";
+  /** The count's own working, per elevation face: apexes READ off the drawing vs
+   *  PRICED, and a plain reason when some are dropped — so the review screen shows
+   *  exactly why the priced number differs from the drawing's. */
+  faces: ApexFace[];
+}
+
+export interface ApexFace {
+  face: "front" | "rear" | "gable L" | "gable R" | "other";
+  read: number;
+  priced: number;
+  /** Why read ≠ priced (e.g. "party wall — not scaffolded"). */
+  why?: string;
 }
 
 /**
@@ -511,24 +715,50 @@ export interface ApexResult {
  * both gable apexes (front/rear apexes, e.g. a projecting gable, always count).
  */
 export function computeApex(input: TakeoffInput): ApexResult {
-  if (input.roofType === "HIPPED")
-    return { count: 0, tableLifts: 0, handrails: 0, gableBasis: "n/a" };
   const a = input.apexByFace;
+  const faces = (keepLeft: number, keepRight: number, why: { left?: string; right?: string; all?: string }) => {
+    const r = (n: number) => Math.max(0, Math.round(n));
+    const row = (face: ApexFace["face"], read: number, priced: number, reason?: string): ApexFace => ({
+      face,
+      read: r(read),
+      priced: r(priced),
+      ...(r(read) !== r(priced) && reason ? { why: reason } : {}),
+    });
+    return [
+      row("front", a.front, why.all ? 0 : a.front, why.all),
+      row("rear", a.rear, why.all ? 0 : a.rear, why.all),
+      row("gable L", a.left, keepLeft, why.all ?? why.left),
+      row("gable R", a.right, keepRight, why.all ?? why.right),
+      row("other", a.other, why.all ? 0 : a.other, why.all),
+    ].filter((f) => f.read > 0 || f.priced > 0);
+  };
+  if (input.roofType === "HIPPED")
+    return {
+      count: 0,
+      tableLifts: 0,
+      handrails: 0,
+      gableBasis: "n/a",
+      faces: faces(0, 0, { all: "hipped roof — no brickwork above the eaves" }),
+    };
   // A whole block keeps every apex — no party-wall reduction.
   if (input.isApartmentBlock) {
     const count = Math.max(0, Math.round(totalApex(a)));
-    return { count, tableLifts: count, handrails: count, gableBasis: "n/a" };
+    return { count, tableLifts: count, handrails: count, gableBasis: "n/a", faces: faces(a.left, a.right, {}) };
   }
   // 'other' faces (a projecting wing at an angle) are NOT gable ends, so their apexes
   // count on EVERY configuration — they sit on a scaffolded wall. Before 2026-09-23
   // they were added only for DETACHED and silently dropped everywhere else (docs/21 §B3).
   const frontRear = a.front + a.rear + a.other;
   const pg = partyGables(input.wallSegments);
-  let gable: number;
+  let keepL = 0;
+  let keepR = 0;
+  let why: { left?: string; right?: string } = {};
   let basis: ApexResult["gableBasis"] = "n/a";
+  const PARTY = "party wall — not scaffolded";
   switch (input.config) {
     case "DETACHED":
-      gable = a.left + a.right;
+      keepL = a.left;
+      keepR = a.right;
       break;
     case "SEMI_DETACHED":
     case "END_TERRACE":
@@ -536,23 +766,45 @@ export function computeApex(input: TakeoffInput): ApexResult {
       // wall. Choosing by apex COUNT (the old `Math.max`) is wrong whenever the exposed
       // end is hipped (0 apexes) and the party end is gabled (1): that scored 1 and
       // priced a table lift + handrail for an apex we never scaffold.
-      if (pg.left === true && pg.right !== true) {
-        gable = a.right;
+      // A whole-pair/block drawing: the gables are the block's outer ends, so the end
+      // house keeps ONE end's apex (equal on a mirrored pair) — docs/21 §B6.
+      if (resolveFrontage(input).blockDrawn) {
+        const OTHER_END = "the other end of the pair/block — the neighbour's, not this house";
+        if (a.left >= a.right) {
+          keepL = a.left;
+          why = { right: OTHER_END };
+        } else {
+          keepR = a.right;
+          why = { left: OTHER_END };
+        }
+        basis = "block-end";
+      } else if (pg.left === true && pg.right !== true) {
+        keepR = a.right;
+        why = { left: PARTY };
         basis = "party";
       } else if (pg.right === true && pg.left !== true) {
-        gable = a.left;
+        keepL = a.left;
+        why = { right: PARTY };
         basis = "party";
       } else {
-        gable = Math.max(a.left, a.right);
+        // The drawing does not say which side is the party wall (flagged elsewhere).
+        const GUESS = "assumed the party wall — the drawing does not say which side is (flagged)";
+        if (a.left >= a.right) {
+          keepL = a.left;
+          why = { right: GUESS };
+        } else {
+          keepR = a.right;
+          why = { left: GUESS };
+        }
         basis = "size";
       }
       break;
     case "MID_TERRACE":
-      gable = 0; // both gable ends are party walls
+      why = { left: PARTY, right: PARTY }; // both gable ends are party walls
       break;
   }
-  const count = Math.max(0, Math.round(frontRear + gable));
-  return { count, tableLifts: count, handrails: count, gableBasis: basis };
+  const count = Math.max(0, Math.round(frontRear + keepL + keepR));
+  return { count, tableLifts: count, handrails: count, gableBasis: basis, faces: faces(keepL, keepR, why) };
 }
 
 /**
@@ -597,9 +849,16 @@ export interface TakeoffLine {
 
 /** Build the full deterministic take-off line for one house-type × configuration. */
 export function buildTakeoff(
-  input: TakeoffInput,
+  rawInput: TakeoffInput,
   params: EngineParams = DEFAULT_PARAMS,
 ): TakeoffLine {
+  // Wall roles follow the party wall (structure.ts): a front/rear read as the party wall
+  // means the plan's axes were named the wrong way round. Everything below — the
+  // perimeter, the party gables, the swap guard — works on the corrected roles.
+  const roles = normalizeWallRoles(rawInput.wallSegments);
+  const input: TakeoffInput = roles.swapped
+    ? { ...rawInput, wallSegments: roles.walls }
+    : rawInput;
   const isTF = input.buildSystem === "TIMBER_FRAME";
   const lifts = isTF ? computeLiftsTimberFrame(input, params) : computeLifts(input, params);
   const perimeter = computePerimeter(input, lifts.lifts, params);
@@ -607,9 +866,12 @@ export function buildTakeoff(
   const birdcage = isTF ? NO_BIRDCAGE : computeBirdcage(input);
   const render = computeRender(input);
   const apex = computeApex(input);
-  // What the DRAWING itself implies, from the party-wall flags on the gable ends.
+  // What the DRAWING itself implies, from the party-wall flags on the gable ends. Not
+  // on a whole-pair/block drawing: its gables are the block's OUTER ends (external by
+  // definition), so they say nothing about one plot's position (docs/21 §B6).
   const pgBlock = partyGables(input.wallSegments);
-  const drawingConfig = input.isApartmentBlock ? null : configFromPartyGables(pgBlock);
+  const drawingConfig =
+    input.isApartmentBlock || perimeter.frontage.blockDrawn ? null : configFromPartyGables(pgBlock);
   // Party wall: traditional prices the inside-apex spec item on a non-detached
   // house; timber frame does NOT (Laura's semi line has none — docs/18 §7, ⚠ confirm).
   const pw =
@@ -626,6 +888,8 @@ export function buildTakeoff(
     : null;
 
   const flags: string[] = [];
+  if (roles.swapped && roles.reason) flags.push(roles.reason);
+  if (perimeter.frontage.note) flags.push(`Frontage: ${perimeter.frontage.note}`);
   if (lifts.lifts === null) flags.push("No height or storeys read — cannot derive lifts.");
   if (lifts.flag)
     flags.push(
@@ -650,21 +914,33 @@ export function buildTakeoff(
   // The drawing states which gable is the party wall. Flag when we had to fall back to
   // the length heuristic, and when what the drawing says disagrees with the chosen
   // configuration — never silently override the estimator's choice (docs/21 §B3).
-  // Wall-role swap guard. An ATTACHED house type is narrow and deep — the party
-  // wall is a gable, so the gable (depth) normally exceeds the frontage. Colin's bank:
-  // Delmont 4.5 × 9.5, Whitton 5.766 × 9.103. When the read says otherwise on an
-  // attached type, front/rear and the gables have most likely been swapped, which
-  // DOUBLES a mid-terrace perimeter (found on Miller Delmont, 2026-09-23: read
-  // front 9.44 / gable 4.567; correcting the roles matched Colin to 0.4%).
+  // Wall-role swap guard. An ATTACHED house type is USUALLY narrow and deep — the party
+  // wall is a side wall, so the side (depth) normally exceeds the frontage. Colin's bank:
+  // Delmont 4.567 × 9.44, Millfield 5.957 × 11.138. When the read says otherwise the
+  // roles may be swapped, which DOUBLES a mid-terrace perimeter. It is a FLAG, not a
+  // correction: 4 of the 73 attached types in the bank really are wider than deep
+  // (Vistry Birchden, Selwood, Sherwood; Bellway Parkmen). The evidence-based swap is
+  // normalizeWallRoles (a front/rear read as the party wall).
   if (!input.isApartmentBlock && input.config !== "DETACHED") {
     const segSum = (ps: WallPosition[]) =>
       input.wallSegments.filter((w) => ps.includes(w.position)).reduce((a, w) => a + w.lengthM, 0);
-    const dw = input.dwellingsWide >= 1 ? input.dwellingsWide : 1;
-    const frontage = segSum(["front"]) / dw;
+    const frontage = perimeter.frontage.perHouseFrontM;
     const depth = Math.max(segSum(["gable_left"]), segSum(["gable_right"]));
     if (frontage > 0 && depth > 0 && frontage > depth)
       flags.push(
-        `Front/rear (${round3(frontage)} m) is WIDER than the gable (${round3(depth)} m) on an attached house — the wall roles may be swapped (an attached type is normally narrow and deep). Check the front elevation's width.`,
+        `Front/rear (${round3(frontage)} m per house) is WIDER than the side wall (${round3(depth)} m) on an attached house — the wall roles may be swapped (most attached types are narrow and deep, not all). Check the FRONT elevation's width matches the front.`,
+      );
+  }
+  // A whole-block drawing whose two ends differ: which end this plot is decides the
+  // exposed gable, and the drawing alone does not say.
+  if (perimeter.gableBasis === "block-end") {
+    const segSum = (p: WallPosition) =>
+      input.wallSegments.filter((w) => w.position === p).reduce((a, w) => a + w.lengthM, 0);
+    const gl = segSum("gable_left");
+    const gr = segSum("gable_right");
+    if (gl > 0 && gr > 0 && Math.abs(gl - gr) / Math.max(gl, gr) > 0.02)
+      flags.push(
+        `The block's two ends differ (${round3(gl)} m vs ${round3(gr)} m) — the longer was kept as this plot's exposed side wall. Confirm which end this plot is.`,
       );
   }
   if (perimeter.gableBasis === "size" || apex.gableBasis === "size")

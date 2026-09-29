@@ -48,6 +48,17 @@ export interface BankWarnings {
   dwellingsWide?: number | null;
   /** Per-elevation apex/render breakdown — preserved verbatim for fromStored. */
   elevations?: unknown[];
+  /** One house's internal width (GF birdcage) — the frontage-frame cross-check. */
+  houseInternalWidth?: { widthM: number; singleRect: boolean; wallMm?: number | null };
+}
+
+/** A banked wall. `isPartyWall` is carried so a reused take-off still knows which
+ *  side is the party wall (it decides the exposed side on a semi/end). Not part of
+ *  the geometry fingerprint, so older entries are unaffected. */
+export interface BankWall {
+  position: BankWallPosition;
+  lengthM: number;
+  isPartyWall?: boolean | null;
 }
 
 export interface TakeoffSnapshot {
@@ -57,14 +68,26 @@ export interface TakeoffSnapshot {
   configuration: BankConfiguration;
   includePartyWall: boolean;
   measurements: Partial<Record<BankMeasurementKey, number>>;
-  walls: { position: BankWallPosition; lengthM: number }[];
+  walls: BankWall[];
   warnings: BankWarnings;
 }
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000;
 
+function HOUSE_WIDTH(v: unknown): { widthM: number; singleRect: boolean; wallMm: number | null } | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as { widthM?: unknown; singleRect?: unknown; wallMm?: unknown };
+  return typeof o.widthM === "number" && o.widthM > 0
+    ? {
+        widthM: o.widthM,
+        singleRect: o.singleRect === true,
+        wallMm: typeof o.wallMm === "number" && o.wallMm > 0 ? o.wallMm : null,
+      }
+    : null;
+}
+
 type StoredMeasurement = { key: string; valueNumber: unknown };
-type StoredWall = { position: string; lengthM: unknown };
+type StoredWall = { position: string; lengthM: unknown; isPartyWall?: boolean | null };
 
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -95,9 +118,14 @@ export function serializeSnapshot(input: {
     .map((w) => ({
       position: String(w.position).toUpperCase() as BankWallPosition,
       lengthM: toNum(w.lengthM),
+      isPartyWall: typeof w.isPartyWall === "boolean" ? w.isPartyWall : null,
     }))
-    .filter((w): w is { position: BankWallPosition; lengthM: number } => w.lengthM !== null)
-    .map((w) => ({ position: w.position, lengthM: round3(w.lengthM) }));
+    .filter((w): w is { position: BankWallPosition; lengthM: number; isPartyWall: boolean | null } => w.lengthM !== null)
+    .map((w) => ({
+      position: w.position,
+      lengthM: round3(w.lengthM),
+      ...(w.isPartyWall !== null ? { isPartyWall: w.isPartyWall } : {}),
+    }));
 
   const w =
     input.warnings && typeof input.warnings === "object" && !Array.isArray(input.warnings)
@@ -111,6 +139,8 @@ export function serializeSnapshot(input: {
   if (typeof w.structure === "string") warnings.structure = w.structure;
   if (typeof w.dwellingsWide === "number") warnings.dwellingsWide = w.dwellingsWide;
   if (Array.isArray(w.elevations)) warnings.elevations = w.elevations;
+  const hw = HOUSE_WIDTH(w.houseInternalWidth);
+  if (hw) warnings.houseInternalWidth = hw;
 
   return {
     snapshotVersion: 1,
@@ -146,10 +176,14 @@ export function parseSnapshot(raw: unknown): TakeoffSnapshot | null {
           const pos = String(wo.position ?? "OTHER").toUpperCase();
           const len = toNum(wo.lengthM);
           return len !== null && ["FRONT", "REAR", "GABLE_LEFT", "GABLE_RIGHT", "OTHER"].includes(pos)
-            ? { position: pos as BankWallPosition, lengthM: len }
+            ? ({
+                position: pos as BankWallPosition,
+                lengthM: len,
+                ...(typeof wo.isPartyWall === "boolean" ? { isPartyWall: wo.isPartyWall } : {}),
+              } as BankWall)
             : null;
         })
-        .filter((x): x is { position: BankWallPosition; lengthM: number } => x !== null)
+        .filter((x): x is BankWall => x !== null)
     : [];
   const wIn = o.warnings && typeof o.warnings === "object" ? (o.warnings as Record<string, unknown>) : {};
   const warnings: BankWarnings = {};
@@ -160,6 +194,8 @@ export function parseSnapshot(raw: unknown): TakeoffSnapshot | null {
   if (typeof wIn.structure === "string") warnings.structure = wIn.structure;
   if (typeof wIn.dwellingsWide === "number") warnings.dwellingsWide = wIn.dwellingsWide;
   if (Array.isArray(wIn.elevations)) warnings.elevations = wIn.elevations;
+  const hw = HOUSE_WIDTH(wIn.houseInternalWidth);
+  if (hw) warnings.houseInternalWidth = hw;
 
   return {
     snapshotVersion: 1,

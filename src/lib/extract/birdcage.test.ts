@@ -288,3 +288,50 @@ describe("pairBirdcageWidthWarning (C13: per-house width vs shared frontage)", (
     expect(pairBirdcageWidthWarning(2, 9.406, 0)).toBeNull();
   });
 });
+
+describe("whole-pair birdcage width split per house (Tilia SM1, docs/doubts §1)", () => {
+  // The pair prints no single-house span (a shared central core), only 14727 overall
+  // with 327 walls; building-line depth 8224. One house = (14.727 − 2×0.327 − 0.327) ÷ 2.
+  const sm1 = {
+    overallWidthM: 14.727,
+    overallDepthM: 8.224,
+    wallThicknessMm: 327,
+    widthCoversDwellings: 2,
+  };
+  it("splits a block overall width per house when the party wall is read → 52.0 m² (not 109)", () => {
+    const r = computeBirdcageFloor({ rectangles: [{ ...sm1, partyWallThicknessMm: 327 }], readConfidence: "high" });
+    expect(r.rectangles[0].widthM).toBe(6.873);
+    expect(r.rectangles[0].depthM).toBe(7.57);
+    expect(r.m2).toBe(52.029);
+    expect(r.blockSplit).toBe(true);
+    expect(r.partyAssumed).toBe(false);
+    expect(r.confidence).toBe("medium");
+    expect(r.note).toMatch(/split per house/);
+  });
+  it("an undimensioned party wall borrows the flanking wall → same area but LOW confidence", () => {
+    const r = computeBirdcageFloor({ rectangles: [sm1], readConfidence: "high" });
+    expect(r.m2).toBe(52.029);
+    expect(r.partyAssumed).toBe(true);
+    expect(r.confidence).toBe("low");
+    expect(r.note).toMatch(/party wall NOT dimensioned/);
+  });
+  it("a block INTERNAL span is split too: (14.073 − 0.327) ÷ 2", () => {
+    const r = computeBirdcageFloor({
+      rectangles: [{ internalWidthM: 14.073, internalDepthM: 7.57, widthCoversDwellings: 2, partyWallThicknessMm: 327 }],
+    });
+    expect(r.rectangles[0].widthM).toBe(6.873);
+  });
+  it("with no wall at all the block width is UNRESOLVED — never guessed", () => {
+    const r = computeBirdcageFloor({
+      rectangles: [{ overallWidthM: 14.727, internalDepthM: 7.57, widthCoversDwellings: 2 }],
+    });
+    expect(r.m2).toBeNull();
+  });
+  it("one house (the default) is untouched — Dekker still 35.602", () => {
+    const r = computeBirdcageFloor({
+      rectangles: [{ internalWidthM: 4.877, overallDepthM: 7.904, wallThicknessMm: 302, widthCoversDwellings: 1 }],
+    });
+    expect(r.m2).toBe(35.602);
+    expect(r.blockSplit).toBe(false);
+  });
+});

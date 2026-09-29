@@ -355,6 +355,94 @@ one needs Colin's answer on the birdcage question in B3 first.
       handwritten sheets show semi ×1 *and* ×2, and mid ×2: `docs/11 §8 #5`.)
 - [ ] Phase 4 variants (blocked on the birdcage answer).
 
+## B6. Attached houses — one house vs the whole block (✅ BUILT 2026-09-29)
+
+**The question (from the user):** a semi or terrace drawing sometimes shows ONE house and
+sometimes the WHOLE pair as one rectangle, with dimensions across both. We only ever take
+off ONE house — so which walls count, how is the configuration identified, and does the
+birdcage change with the configuration?
+
+**Measured first** (the engine re-run on every stored attached read, graded against
+Colin's bank — `scripts/validate-attached.mts`, `data/pricing-data/bank.json`):
+
+| Failure | Types | Size | Root cause |
+|---|---|---|---|
+| One-house frontage **halved again** | TW Avonsford, Eynsford, Harrton; Vistry Jackdaw, Curlew (+ Tilia 3B5P) | semi ~25% under, mid ~50% under | The prompt hard-coded "PAIR_SEMI → dwellingsWide 2" and C3 flagged a pair read as 1. On a sheet that draws ONE house of a semi, the model said 2 and the engine halved a one-house frontage (Avonsford 4.265 → 2.13 m). **An instruction bug, not a misread.** |
+| Front and side **swapped** | Miller Millfield, Delmont | semi +21–24%, mid ×2 | Roles assigned by length / sheet orientation. Millfield is 5.957 wide × 11.138 deep with the 300 mm party wall along an 11.138 side; the model called 11.138 the front (30.2 vs Colin 25). |
+| Birdcage | 12/12 graded within ~2% | — | Fine — but the whole-pair path (Tilia SM1, docs/doubts §1) was undefended. |
+| Internal dim read as the wall | TW Avonsford END (live, new prompt) | −6% | "3610 finished dim" reported as the front instead of "4114 GABLE to C/L". |
+
+**The rules (what is now true):**
+1. **The birdcage does NOT change with the configuration.** It is the inside of ONE house;
+   a neighbour does not change the rooms. Colin's bank: one birdcage per house type across
+   semi/end/mid (104/108). What the drawing's STRUCTURE changes is how one house is cut out
+   of the dimensions — handled by the per-house read + the block split below.
+2. **`dwellingsWide` = how many houses the REPORTED front/rear spans**, not the building.
+   `structure` names the building. A semi drawn one house per sheet is `PAIR_SEMI` +
+   `dwellingsWide 1`; a Bloor pair drawn whole is `PAIR_SEMI` + `2`. The model writes
+   `frontageReason` first.
+3. **`resolveFrontage` (engine) checks the frame against physics** before dividing: a
+   per-house frontage under **3 m** is impossible → the length is ONE house (flagged). The
+   house's own birdcage width only CROSS-CHECKS it (narrower than the inside / within
+   0.15 m of it / >1.2 m wider → Review flag). It never re-frames from the birdcage — a
+   whole-pair birdcage looks identical to a correct one-house frontage (the SM1 trap).
+4. **Wall roles follow the party wall.** A party wall is always a SIDE wall; the front must
+   match the FRONT ELEVATION's width. `normalizeWallRoles` renames the axes when a
+   front/rear is read as the party wall (evidence only). **Never on shape**: 4 of 73
+   attached bank types are genuinely wider than deep (Vistry Birchden, Selwood, Sherwood;
+   Bellway Parkmen), so "front wider than the side" stays a flag.
+5. **Whole-block drawings:** the two drawn gables are the block's OUTER ends (both
+   external); the party wall is inside the block. The configuration then comes from the
+   building type (`resolveConfiguration(…, blockDrawn)` → basis `block-drawn`), the end
+   house keeps one end (`gableBasis: "block-end"`) — no more false "0 party gables →
+   DETACHED" or "keep the longer gable" flags. Differing block ends are flagged.
+6. **One-house sheets run to the party-wall centreline:** END "GABLE to C/L", MID "C/L to
+   C/L" — never a "finished dim" (internal) or a brick-count dimension over the full party wall.
+7. **Apexes per house:** a front/rear gable repeating on every house of a pair elevation
+   counts once.
+8. **Whole-pair birdcage fallback:** only when no single-house width is printed —
+   `widthCoversDwellings = 2` + `partyWallThicknessMm` → `(inside − (n−1)×party) ÷ n`
+   (SM1 52.03 m², not 109). Party wall undimensioned → flanking wall, LOW; none → unresolved.
+
+**Where:** `src/lib/structure.ts` (`normalizeWallRoles`, `resolveConfiguration` blockDrawn),
+`src/lib/takeoff/engine.ts` (`resolveFrontage`, `scaffoldedGables`, block-end gable/apex),
+`src/lib/extract/birdcage.ts` (block split), `persist.ts` (roles + frame before storing,
+`warnings.frontageResolution` / `houseInternalWidth` / `wallRolesSwapped`, C3 rewritten),
+`fromStored.ts`, the bank snapshot (now keeps `isPartyWall`), `provenance.ts`, the review
+editor (greyed walls = the engine's own choice; "Applied: N" beside the covers control),
+prompt `2026-09-29.1` + schema, the in-app `/docs`.
+
+**Validated** — `npx tsx scripts/validate-attached.mts <cacheDir>` (live reads, new prompt):
+
+| Type (sheet draws) | Semi LM (Colin) | Mid LM (Colin) | Birdcage/floor (Colin) | Before this fix |
+|---|---|---|---|---|
+| Millfield (one house) | **25.05** (25) +0.2% | 11.91 (—) | 57.4 (57) | semi 30.23 — roles swapped |
+| Delmont (one house) | **20.57** (20.5) +0.4% | **9.13** (9) | 35.9 (34.8–36) | 25.45 / 18.88 — roles swapped |
+| Denton (one house) | 22.17 (22) | 10.16 (10) | 42.9 (43.24) | same |
+| Avonsford END (one house) | **19.78** (20) −1.1% | **8.23** (8) | 32.1 (32.4) | 15.21 / 4.26 — halved |
+| Avonsford MID (one house) | — (a mid sheet) | **7.92** (8) −0.9% | 32.1 (32.4) | halved |
+| Brambleford END (one house) | 22.03 (22) | 10.48 (10) | 42.4 (42.3) | same |
+| Harrton (one house) | **21.36** (21.5) | **9.80** (10) | 39.1 (39.6) | 16.61 / 5.05 — halved |
+| Eynsford (one house) | **22.71** (23) | **11.15** (11) | 45.1 (45) | 17.23 / 5.73 — halved |
+| Dekker (whole pair) | 20.56 (20.5) | 10.66 (10.6) | **35.60** (35.6) | same, but false "DETACHED" / "longer gable" flags — now none |
+| Sinclair (whole pair) | 20.16 (20) | 9.41 (9) | 34.7 (35.26) | same |
+| Sorley (whole pair) | 21.81 (22) | 10.51 (10) | 41.8 (41.76) | same |
+| Byron (whole pair) | 21.31 (21.5) | 10.51 (—) | **39.36** (39.36) | — (a first re-read took a depth-chain segment as the width → 36.1, now caught by the pair-width cross-check) |
+
+Every semi within **±1.3%**, every mid within Colin's 0.5 m rounding, every birdcage within
+**±3.3%** (11 of 12 within 2%). Live spend ≈ $17 (12 drawings + 3 re-reads). Stored reads
+re-graded through the new engine alone (no re-read) also fix all five halved types — see
+the table above, "before" column, vs `scripts/validate-attached.mts`.
+
+**Cross-check added after the live run:** on a whole mirrored PAIR, one house's inside
+width = (frontage − 3 × wall) ÷ 2 (Dekker 4.877, Sinclair 4.250, Byron 4.800 — exact); a
+birdcage width >3% off is flagged (`PAIR_WIDTH_XCHECK_TOLERANCE`). It caught Byron's
+depth-chain misread; the prompt now says the width comes from the FRONTAGE chain.
+
+**Still open:** a whole terrace yields one plot (Part A); the frame check cannot catch a
+plausible-but-wrong read (e.g. a 6.5 m one-house frontage read as a pair → 3.25 m passes
+the minimum — only the birdcage cross-check flags it).
+
 ---
 
 *Evidence: `data/816125 Whitford Road, Bromsgrove…` (Miller, 120 plots),

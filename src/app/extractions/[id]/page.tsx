@@ -166,7 +166,10 @@ export default async function ReviewPage({
         linked,
         proposal,
       };
-      bankPanel = <BankMatchPanel data={panelData} />;
+      // Keyed: a server-created element handed to a client component as a prop is
+      // rendered among ReviewWorkspace's children, and React 19 (dev) warns about an
+      // unkeyed child there ("passed a child from ReviewPage").
+      bankPanel = <BankMatchPanel key="bank-panel" data={panelData} />;
     }
   }
 

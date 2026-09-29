@@ -3,6 +3,7 @@ import {
   STRUCTURE_FORMS,
   configFromStructure,
   normalizeStructureForm,
+  normalizeWallRoles,
   readPartyGables,
   resolveConfiguration,
   type StructureForm,
@@ -241,5 +242,46 @@ describe("readPartyGables", () => {
       left: null,
       right: null,
     });
+  });
+});
+
+describe("resolveConfiguration — a whole-pair/block drawing (docs/21 §B6)", () => {
+  it("both outer gables external on a PAIR drawing is NOT detached — the building type decides", () => {
+    const r = resolveConfiguration("PAIR_SEMI", "high", { left: false, right: false }, true);
+    expect(r.config).toBe("SEMI_DETACHED");
+    expect(r.certain).toBe(true);
+    expect(r.basis).toBe("block-drawn");
+    expect(r.reason).toMatch(/whole pair/);
+  });
+  it("a terrace block still defaults to END, uncertain (the block holds mid plots too)", () => {
+    const r = resolveConfiguration("TERRACE", "high", { left: false, right: false }, true);
+    expect(r.config).toBe("END_TERRACE");
+    expect(r.certain).toBe(false);
+  });
+  it("a one-house drawing still reads its own party gables", () => {
+    expect(resolveConfiguration("TERRACE", "high", { left: true, right: true }, false).config).toBe("MID_TERRACE");
+  });
+});
+
+describe("normalizeWallRoles — roles follow the party wall, never the shape", () => {
+  const w = (position: string, lengthM: number, isPartyWall: boolean | null = null) => ({ position, lengthM, isPartyWall });
+  it("a front read as the party wall swaps the axes (Millfield)", () => {
+    const r = normalizeWallRoles([w("front", 11.138, true), w("rear", 11.138, false), w("gable_left", 5.957), w("gable_right", 5.957)]);
+    expect(r.swapped).toBe(true);
+    expect(r.walls.map((x) => `${x.position}=${x.lengthM}${x.isPartyWall ? "P" : ""}`)).toEqual([
+      "gable_left=11.138P",
+      "gable_right=11.138",
+      "front=5.957",
+      "rear=5.957",
+    ]);
+    expect(normalizeWallRoles(r.walls).swapped).toBe(false); // idempotent
+  });
+  it("a REAR party wall keeps the party wall on gable_left", () => {
+    const r = normalizeWallRoles([w("front", 9.44), w("rear", 9.44, true), w("gable_left", 4.567), w("gable_right", 4.567)]);
+    expect(r.walls.find((x) => x.isPartyWall)?.position).toBe("gable_left");
+  });
+  it("no swap without explicit evidence, or when a gable is already the party wall", () => {
+    expect(normalizeWallRoles([w("front", 9.25), w("rear", 9.25), w("gable_left", 6), w("gable_right", 6)]).swapped).toBe(false);
+    expect(normalizeWallRoles([w("front", 9, true), w("gable_left", 6, true)]).swapped).toBe(false);
   });
 });

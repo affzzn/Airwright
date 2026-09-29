@@ -724,3 +724,329 @@ describe("wall-role swap guard (Miller Delmont, real miss 2026-09-23)", () => {
     expect(mk(4.567, 9.44, "SEMI_DETACHED").perimeter.perLiftM).toBeCloseTo(20.574, 2);
   });
 });
+
+/**
+ * Attached houses (docs/21 §B6, 2026-09-29). The fixtures are REAL model reads from the
+ * stored extractions, graded against Colin's House Take-Offs Bank (data/pricing-data).
+ * Before this fix the engine halved a one-house frontage when the model said
+ * dwellingsWide 2 (five bank types ~25% under), and priced a Miller type whose plan
+ * roles were swapped (~22% over).
+ */
+describe("resolveFrontage — how many houses the reported frontage spans", () => {
+  const semi = (front: number, depth: number, dw: number, extra: Partial<TakeoffInput> = {}) => ({
+    ...base,
+    dwellingsWide: dw,
+    cornerCount: 4,
+    wallSegments: [
+      { position: "front" as const, lengthM: front },
+      { position: "rear" as const, lengthM: front },
+      { position: "gable_left" as const, lengthM: depth },
+      { position: "gable_right" as const, lengthM: depth },
+    ],
+    ...extra,
+  });
+
+  it("TW Avonsford: one house (4.265) read with dwellingsWide 2 is NOT halved (bank semi 20 / mid 8)", () => {
+    const i = semi(4.265, 8.948, 2);
+    const s = computePerimeter({ ...i, config: "SEMI_DETACHED" }, 1);
+    expect(s.frontage.divisor).toBe(1);
+    expect(s.frontage.basis).toBe("physical-minimum");
+    expect(s.frontage.blockDrawn).toBe(false);
+    expect(s.perLiftM).toBe(19.478); // was 15.21 (halved)
+    expect(computePerimeter({ ...i, config: "MID_TERRACE" }, 1).perLiftM).toBe(8.53); // was 4.26
+  });
+
+  it("Vistry Jackdaw / TW Eynsford reproduce Colin's semi + mid (23 / 11)", () => {
+    const jd = semi(5.5638, 9.7775, 2);
+    expect(computePerimeter({ ...jd, config: "SEMI_DETACHED" }, 1).perLiftM).toBe(22.905);
+    expect(computePerimeter({ ...jd, config: "MID_TERRACE" }, 1).perLiftM).toBe(11.128);
+    const ey = semi(5.7275, 9.5025, 2);
+    expect(computePerimeter({ ...ey, config: "SEMI_DETACHED" }, 1).perLiftM).toBe(22.958);
+    expect(computePerimeter({ ...ey, config: "MID_TERRACE" }, 1).perLiftM).toBe(11.455);
+  });
+
+  it("a real pair frontage is still divided (Bloor Sinclair 9.406 over 2 → bank semi 20 / mid 9)", () => {
+    const i = semi(9.406, 8.757, 2);
+    const s = computePerimeter({ ...i, config: "SEMI_DETACHED" }, 1);
+    expect(s.frontage.divisor).toBe(2);
+    expect(s.frontage.basis).toBe("declared");
+    expect(s.frontage.blockDrawn).toBe(true);
+    expect(s.perLiftM).toBe(20.163);
+    expect(computePerimeter({ ...i, config: "MID_TERRACE" }, 1).perLiftM).toBe(9.406);
+  });
+
+  it("the birdcage width CROSS-CHECKS the frame but never re-frames it (the SM1 trap)", () => {
+    // A whole-pair birdcage (14.073 m wide) next to a correctly-read pair frontage:
+    // trusting the birdcage would re-frame the frontage to one house = the SM1 bug.
+    const sm1 = computePerimeter(
+      { ...semi(14.727, 8.224, 2), houseInternalWidthM: 14.073, houseInternalWidthSingleRect: true, config: "SEMI_DETACHED" },
+      1,
+    );
+    expect(sm1.frontage.divisor).toBe(2);
+    expect(sm1.frontage.birdcageMismatch).toBe(true);
+    expect(sm1.frontage.note).toMatch(/NARROWER than its own internal birdcage width/);
+    // Dekker read as one house by mistake: flagged, not silently re-divided.
+    const dk = computePerimeter(
+      { ...semi(10.66, 7.904, 1), houseInternalWidthM: 4.877, houseInternalWidthSingleRect: true, config: "SEMI_DETACHED" },
+      1,
+    );
+    expect(dk.frontage.divisor).toBe(1);
+    expect(dk.frontage.birdcageMismatch).toBe(true);
+    // Consistent reads raise nothing.
+    const ok = computePerimeter(
+      { ...semi(10.66, 7.904, 2), houseInternalWidthM: 4.877, houseInternalWidthSingleRect: true, config: "SEMI_DETACHED" },
+      1,
+    );
+    expect(ok.frontage.birdcageMismatch).toBe(false);
+    expect(ok.frontage.note).toBeNull();
+  });
+
+  it("an apartment block is never divided", () => {
+    const r = computePerimeter({ ...semi(16, 9, 3), isApartmentBlock: true, config: "DETACHED" }, 1);
+    expect(r.frontage.divisor).toBe(1);
+  });
+});
+
+describe("whole-pair drawings — the gables are the block's OUTER ends (Dekker)", () => {
+  // The model reads a pair drawing correctly: full frontage over 2, and both end
+  // gables EXTERNAL (the party wall is the central 302, inside the block).
+  const dekker: TakeoffInput = {
+    ...base,
+    storeys: 2,
+    heightToSoffitM: 4.725,
+    roofType: "PITCHED",
+    dwellingsWide: 2,
+    cornerCount: 4,
+    wallSegments: [
+      { position: "front", lengthM: 10.66, isPartyWall: false },
+      { position: "rear", lengthM: 10.66, isPartyWall: false },
+      { position: "gable_left", lengthM: 7.904, isPartyWall: false },
+      { position: "gable_right", lengthM: 7.904, isPartyWall: false },
+    ],
+    apexByFace: { front: 0, rear: 0, left: 1, right: 1, other: 0 },
+    floors: [
+      { level: "GF", m2: 35.602 },
+      { level: "FF", m2: 35.602 },
+    ],
+  };
+  it("semi 20.56 / mid 10.66 with NO false flags", () => {
+    const s = buildTakeoff({ ...dekker, config: "SEMI_DETACHED" });
+    expect(s.perimeter.perLiftM).toBe(20.564);
+    expect(s.perimeter.gableBasis).toBe("block-end");
+    expect(s.apex.count).toBe(1);
+    expect(s.apex.gableBasis).toBe("block-end");
+    expect(s.drawingConfig).toBeNull(); // not "0 party gables → DETACHED"
+    expect(s.flags.join(" ")).not.toMatch(/LONGER gable|party gable wall\(s\)|DETACHED/);
+    const m = buildTakeoff({ ...dekker, config: "MID_TERRACE" });
+    expect(m.perimeter.perLiftM).toBe(10.66);
+    expect(m.apex.count).toBe(0);
+  });
+  it("the birdcage is the same one house whatever the configuration (Colin: 35.6 semi AND mid)", () => {
+    expect(buildTakeoff({ ...dekker, config: "SEMI_DETACHED" }).birdcage.totalM2).toBe(71.204);
+    expect(buildTakeoff({ ...dekker, config: "MID_TERRACE" }).birdcage.totalM2).toBe(71.204);
+  });
+  it("a block whose two ends differ flags which end the plot is", () => {
+    const t = buildTakeoff({
+      ...dekker,
+      wallSegments: [
+        ...dekker.wallSegments.filter((w) => !w.position.startsWith("gable")),
+        { position: "gable_left", lengthM: 7.904 },
+        { position: "gable_right", lengthM: 9.1 },
+      ],
+      config: "END_TERRACE",
+    });
+    expect(t.flags.join(" ")).toMatch(/block's two ends differ/);
+  });
+});
+
+describe("wall roles follow the PARTY wall (Miller Millfield + Delmont)", () => {
+  it("Millfield: the 11.138 m wall read as a party 'front' → roles renamed (bank semi 25)", () => {
+    const t = buildTakeoff({
+      ...base,
+      cornerCount: 4,
+      wallSegments: [
+        { position: "front", lengthM: 11.138, isPartyWall: true },
+        { position: "rear", lengthM: 11.138, isPartyWall: false },
+        { position: "gable_left", lengthM: 5.957, isPartyWall: false },
+        { position: "gable_right", lengthM: 5.957, isPartyWall: false },
+      ],
+      config: "SEMI_DETACHED",
+    });
+    expect(t.perimeter.perLiftM).toBe(25.052); // was 30.233
+    expect(t.flags.join(" ")).toMatch(/PARTY wall, but a party wall is always a SIDE wall/);
+    expect(t.flags.join(" ")).not.toMatch(/WIDER than the side wall/);
+  });
+  it("Delmont: semi 20.57 / mid 9.13 once the 9.44 m party wall is a side wall (bank 20.5 / 9)", () => {
+    const walls = [
+      { position: "front" as const, lengthM: 9.44, isPartyWall: true },
+      { position: "rear" as const, lengthM: 9.44 },
+      { position: "gable_left" as const, lengthM: 4.567 },
+      { position: "gable_right" as const, lengthM: 4.567 },
+    ];
+    const b = { ...base, cornerCount: 4, wallSegments: walls };
+    expect(buildTakeoff({ ...b, config: "SEMI_DETACHED" }).perimeter.perLiftM).toBe(20.574);
+    expect(buildTakeoff({ ...b, config: "MID_TERRACE" }).perimeter.perLiftM).toBe(9.134);
+  });
+  it("never swaps on SHAPE alone — a genuinely wide attached type only flags (Vistry Birchden)", () => {
+    const t = buildTakeoff({
+      ...base,
+      cornerCount: 4,
+      wallSegments: [
+        { position: "front", lengthM: 9.25 },
+        { position: "rear", lengthM: 9.25 },
+        { position: "gable_left", lengthM: 6.0, isPartyWall: true },
+        { position: "gable_right", lengthM: 6.0, isPartyWall: false },
+      ],
+      config: "SEMI_DETACHED",
+    });
+    expect(t.perimeter.perLiftM).toBe(26.5); // Colin's Birchden semi: 26.5
+    expect(t.flags.join(" ")).toMatch(/WIDER than the side wall/);
+    expect(t.flags.join(" ")).not.toMatch(/always a SIDE wall/);
+  });
+});
+
+describe("resolveFrontage — an internal dimension read as the wall is flagged", () => {
+  it("TW Avonsford: front 3.61 (the 'finished dim') against a 3.61 internal width → flagged", () => {
+    const r = computePerimeter(
+      {
+        ...base,
+        wallSegments: [
+          { position: "front", lengthM: 3.61 },
+          { position: "rear", lengthM: 3.61 },
+          { position: "gable_left", lengthM: 9.553, isPartyWall: true },
+          { position: "gable_right", lengthM: 9.553, isPartyWall: false },
+        ],
+        houseInternalWidthM: 3.61,
+        houseInternalWidthSingleRect: true,
+        config: "SEMI_DETACHED",
+      },
+      1,
+    );
+    expect(r.frontage.birdcageMismatch).toBe(true);
+    expect(r.frontage.note).toMatch(/INTERNAL dimension was probably read as the front wall/);
+    // …and the correct external read (4114 GABLE to C/L) is clean: semi 19.781 (Colin 20).
+    const ok = computePerimeter(
+      {
+        ...base,
+        cornerCount: 4,
+        wallSegments: [
+          { position: "front", lengthM: 4.114 },
+          { position: "rear", lengthM: 4.114 },
+          { position: "gable_left", lengthM: 9.553, isPartyWall: true },
+          { position: "gable_right", lengthM: 9.553, isPartyWall: false },
+        ],
+        houseInternalWidthM: 3.61,
+        houseInternalWidthSingleRect: true,
+        config: "SEMI_DETACHED",
+      },
+      1,
+    );
+    expect(ok.frontage.birdcageMismatch).toBe(false);
+    expect(ok.perLiftM).toBe(19.781);
+  });
+});
+
+describe("resolveFrontage — a mirrored pair's inside width is fixed by its frontage", () => {
+  const pair = (front: number, w: number, t: number | null) =>
+    computePerimeter(
+      {
+        ...base,
+        dwellingsWide: 2,
+        wallSegments: [
+          { position: "front", lengthM: front },
+          { position: "rear", lengthM: front },
+          { position: "gable_left", lengthM: 8.804 },
+          { position: "gable_right", lengthM: 8.804 },
+        ],
+        houseInternalWidthM: w,
+        houseInternalWidthSingleRect: true,
+        houseWallThicknessM: t,
+        config: "SEMI_DETACHED",
+      },
+      1,
+    ).frontage;
+  it("Bloor Byron: a depth-chain room segment (4.407) read as the width is flagged — (10.506 − 3×0.302)/2 = 4.800", () => {
+    const f = pair(10.506, 4.407, 0.302);
+    expect(f.birdcageMismatch).toBe(true);
+    expect(f.note).toMatch(/= 4\.8 m, but the birdcage read 4\.407 m/);
+    expect(f.divisor).toBe(2); // the frame itself is untouched
+  });
+  it("Dekker 4.877, Sinclair 4.25 and Byron's true 4.8 all reconcile exactly", () => {
+    expect(pair(10.66, 4.877, 0.302).birdcageMismatch).toBe(false);
+    expect(pair(9.406, 4.25, 0.302).birdcageMismatch).toBe(false);
+    expect(pair(10.506, 4.8, 0.302).birdcageMismatch).toBe(false);
+  });
+  it("no wall read → no derivation, no flag", () => {
+    expect(pair(10.506, 4.407, null).birdcageMismatch).toBe(false);
+  });
+});
+
+describe("the engine reports its own working (review screen shows exactly this)", () => {
+  // Miller Millfield as read end-to-end (2026-09-29): one house, party wall on gable L,
+  // a small entrance gable on the front elevation + a gable on each side face.
+  const millfield: TakeoffInput = {
+    ...base,
+    storeys: 1,
+    heightToSoffitM: 2.325,
+    roofType: "PITCHED",
+    cornerCount: 4,
+    wallSegments: [
+      { position: "front", lengthM: 5.957, isPartyWall: false },
+      { position: "rear", lengthM: 5.957, isPartyWall: false },
+      { position: "gable_right", lengthM: 11.138, isPartyWall: false },
+      { position: "gable_left", lengthM: 11.138, isPartyWall: true },
+    ],
+    apexByFace: { front: 1, rear: 0, left: 1, right: 1, other: 0 },
+  };
+  it("semi: perimeter parts = front + rear + gable R (the party gable L is not in the sum)", () => {
+    const t = buildTakeoff({ ...millfield, config: "SEMI_DETACHED" });
+    expect(t.perimeter.parts).toEqual([
+      { label: "front", lengthM: 5.957 },
+      { label: "rear", lengthM: 5.957 },
+      { label: "gable R", lengthM: 11.138 },
+    ]);
+    expect(t.perimeter.corners).toBe(2);
+    expect(t.perimeter.cornerAllowanceM).toBe(1);
+    expect(t.perimeter.perLiftM).toBe(25.052);
+    expect(t.perimeter.totalM).toBe(50.104);
+  });
+  it("semi: 3 apexes read, 2 priced — gable L dropped as the party wall", () => {
+    const t = buildTakeoff({ ...millfield, config: "SEMI_DETACHED" });
+    expect(t.apex.count).toBe(2);
+    expect(t.apex.faces).toEqual([
+      { face: "front", read: 1, priced: 1 },
+      { face: "gable L", read: 1, priced: 0, why: "party wall — not scaffolded" },
+      { face: "gable R", read: 1, priced: 1 },
+    ]);
+  });
+  it("detached keeps all four walls + every apex; mid keeps front + rear and drops both side apexes", () => {
+    const d = buildTakeoff({ ...millfield, config: "DETACHED" });
+    expect(d.perimeter.parts.map((p) => p.label)).toEqual(["front", "rear", "gable L", "gable R"]);
+    expect(d.apex.faces.every((f) => f.read === f.priced)).toBe(true);
+    const m = buildTakeoff({ ...millfield, config: "MID_TERRACE" });
+    expect(m.perimeter.parts.map((p) => p.label)).toEqual(["front", "rear"]);
+    expect(m.apex.faces.filter((f) => f.why).map((f) => f.face)).toEqual(["gable L", "gable R"]);
+  });
+  it("a whole-pair drawing shows the division (Dekker 10.66 ÷ 2) and the other end's apex as the neighbour's", () => {
+    const t = buildTakeoff({
+      ...base,
+      dwellingsWide: 2,
+      cornerCount: 4,
+      wallSegments: [
+        { position: "front", lengthM: 10.66 },
+        { position: "rear", lengthM: 10.66 },
+        { position: "gable_left", lengthM: 7.904 },
+        { position: "gable_right", lengthM: 7.904 },
+      ],
+      apexByFace: { front: 0, rear: 0, left: 1, right: 1, other: 0 },
+      config: "SEMI_DETACHED",
+    });
+    expect(t.perimeter.parts[0]).toEqual({ label: "front", lengthM: 5.33, dividedFrom: "10.66 ÷ 2" });
+    expect(t.apex.faces.find((f) => f.why)?.why).toMatch(/other end of the pair/);
+  });
+  it("a hipped roof reads apexes as 0 priced, with the reason", () => {
+    const t = buildTakeoff({ ...millfield, roofType: "HIPPED", config: "SEMI_DETACHED" });
+    expect(t.apex.count).toBe(0);
+    expect(t.apex.faces.every((f) => f.priced === 0 && f.why?.startsWith("hipped"))).toBe(true);
+  });
+});
