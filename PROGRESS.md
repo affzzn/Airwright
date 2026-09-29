@@ -13,6 +13,20 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-09-29
 
+### 2026-09-29 — Review "Summary" replaces AI notes + Review flags
+
+- **Summary panel** at the top of the review, collapsed to one line: what the house is,
+  built by CODE from the take-off ("Single-storey semi-detached bungalow · one house of a
+  pair drawn · party wall on the left") + "N to check". Expanded: the facts line (roof,
+  render, chimney, build system), **Check these** (engine flags + uncertain house type +
+  low-confidence reads + the AI's assumptions/unclear/unread, with page links) and **From the
+  drawing** (spec notes printed on the drawing; legacy notes). The bottom "Review flags"
+  list is merged into it. `src/lib/review-summary.ts` (pure, tested).
+- **Structured AI notes:** schema `reviewNotes[{kind, text, sourcePage}]` (max 4, <20 words,
+  ASSUMPTION / UNCLEAR / UNREAD / SPEC_NOTE); prompt `2026-09-29.3` forbids how-it-was-read
+  noise. Old `notes` kept for legacy reads. Millfield re-read: 3 tight notes, incl. the
+  model itself flagging "confirm front apex needs a table lift".
+
 ### 2026-09-29 — Millfield end-to-end + a clearer review screen
 
 - **End-to-end (local, real pipeline):** Miller Millfield uploaded like the app does →

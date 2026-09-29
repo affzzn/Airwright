@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
 import { buildTakeoff, DEFAULT_PARAMS, type BuildSystem, type Configuration } from "@/lib/takeoff/engine";
 import { takeoffInputFromStored } from "@/lib/takeoff/fromStored";
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ConfidenceDot } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
 import { formatDate } from "@/lib/utils";
+import { buildReviewSummary, reviewNotesFrom, type ReviewSummary } from "@/lib/review-summary";
 import { Provenance } from "@/components/ui/provenance";
 import type { ExtractionResult } from "@/lib/extract/schema";
 import { normalizeWallRoles, type StructureForm } from "@/lib/structure";
@@ -168,14 +169,6 @@ const parseNum = (v: string): number | null => {
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 };
-
-/** Break the AI's free-text notes into readable bullet points — one per sentence. */
-function splitNotes(notes: string): string[] {
-  return notes
-    .split(/(?<=[.!?])\s+(?=[A-Z(])/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 export function TakeoffEditor({
   takeoffId,
@@ -376,10 +369,44 @@ export function TakeoffEditor({
   }, [line.perimeter.frontage, covers]);
   // The configuration flag is not an engine flag (the engine is given the config,
   // it does not derive it), so it is merged in for display.
-  const reviewFlags = useMemo(
-    () => (configFlag ? [configFlag, ...engineFlags] : engineFlags),
-    [configFlag, engineFlags],
-  );
+  // The Summary (top of the panel): what this house is, in one line built from the
+  // take-off itself, plus EVERYTHING a reviewer must check (engine flags, an uncertain
+  // house type, low-confidence reads, the AI's assumptions) — one place, not two.
+  const summary = useMemo(() => {
+    const roles = normalizeWallRoles(
+      wallRows.map((w) => ({ position: w.position.toLowerCase(), isPartyWall: w.isPartyWall ?? null })),
+    ).walls;
+    const party = (pos: string) =>
+      roles.some((w) => w.position === pos && w.isPartyWall === true)
+        ? true
+        : roles.some((w) => w.position === pos && w.isPartyWall === false)
+          ? false
+          : null;
+    const lowConfidence = Object.keys(MEAS_LABEL).filter((k) => {
+      const m = mMeta[k];
+      const edited = mVals[k] !== initialMVals[k] || m?.source === "EDITED" || m?.source === "MANUAL";
+      return !edited && m?.confidence != null && m.confidence <= (CONF_NUM.low ?? 0.4) && mVals[k] !== "";
+    });
+    return buildReviewSummary({
+      config,
+      isApartment,
+      structure: cats.structure ?? null,
+      storeys: parseNum(mVals.STOREYS ?? ""),
+      roomInRoof: cats.roomInRoof === true,
+      roofType: cats.roofType ?? null,
+      rendered: cats.rendered ?? null,
+      chimney: cats.chimney ?? null,
+      timberFrame: isTF,
+      frontageDivisor: line.perimeter.frontage.divisor,
+      partyLeft: party("gable_left"),
+      partyRight: party("gable_right"),
+      engineFlags,
+      configFlag,
+      lowConfidence: lowConfidence.map((k) => MEAS_LABEL[k].label),
+      reviewNotes: reviewNotesFrom(warnings.reviewNotes),
+      legacyNotes: notes ?? null,
+    });
+  }, [wallRows, mMeta, mVals, initialMVals, config, isApartment, cats, isTF, line.perimeter.frontage.divisor, engineFlags, configFlag, warnings.reviewNotes, notes]);
 
   // --- Which wall positions the selected type does NOT scaffold (greyed) ---
   // Taken from the ENGINE's own choice (perimeter.scaffoldedGables), so the greyed row
@@ -716,7 +743,7 @@ export function TakeoffEditor({
           {frontageOverride && (
             <span className="w-full text-ink">
               Applied: {line.perimeter.frontage.divisor} — {covers} would make each house{" "}
-              {frontageOverride} m wide, narrower than any house. See Review flags.
+              {frontageOverride} m wide, narrower than any house. See Summary.
             </span>
           )}
         </div>
@@ -895,21 +922,8 @@ export function TakeoffEditor({
           </div>
         )}
 
-        {/* 1 — AI notes (first) */}
-        {notes && (
-          <div>
-            <p className="eyebrow mb-2">AI notes</p>
-            <div className="rounded-md border border-hairline bg-surface px-3 py-3">
-              <ul className="list-disc space-y-1.5 pl-4 marker:text-ink-subtle">
-                {splitNotes(notes).map((s, i) => (
-                  <li key={i} className="pl-0.5 text-[13px] leading-relaxed text-ink-muted">
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
+        {/* 1 — Summary (first): collapsed to one line; expands to what to check */}
+        <SummaryPanel summary={summary} onGoToPage={onGoToPage} />
 
         {/* 2 — House type (cascades) */}
         <div>
@@ -953,20 +967,6 @@ export function TakeoffEditor({
               : "Extras (loading bay, chute, access, propping) come from the builder profile — not yet applied."}
           </p>
         </div>
-
-        {/* Review flags (contextual) */}
-        {reviewFlags.length > 0 && (
-          <div className="rounded-md border border-hairline bg-surface px-3 py-3">
-            <p className="eyebrow mb-1.5">Review flags</p>
-            <ul className="space-y-1">
-              {reviewFlags.map((f) => (
-                <li key={f} className="text-[11px] leading-snug text-ink-muted">
-                  ⚠ {f}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* 4 — Also read from the drawing */}
         <div>
@@ -1163,4 +1163,79 @@ function SaveIndicator({ state }: { state: SaveState }) {
 /** The working under a row — the exact sum / reason the engine used, in plain words. */
 function RowDetail({ children }: { children: React.ReactNode }) {
   return <div className="mt-0.5 text-[11.5px] leading-snug text-ink-subtle">{children}</div>;
+}
+
+/**
+ * The Summary panel — collapsed by default to ONE line (what the house is + how many
+ * things need checking); click to see the checks (with page links) and the notes printed
+ * on the drawing. Monochrome: the count is the only emphasis.
+ */
+function SummaryPanel({
+  summary,
+  onGoToPage,
+}: {
+  summary: ReviewSummary;
+  onGoToPage?: (page: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const n = summary.check.length;
+  const item = (it: { text: string; page?: number | null }, i: number) => (
+    <li key={i} className="flex items-start justify-between gap-3 text-[12.5px] leading-snug text-ink-muted">
+      <span>{it.text}</span>
+      {it.page != null && onGoToPage && (
+        <button
+          type="button"
+          onClick={() => onGoToPage(it.page as number)}
+          className="shrink-0 text-[11px] text-ink-subtle underline-offset-2 hover:text-ink hover:underline"
+        >
+          p.{it.page}
+        </button>
+      )}
+    </li>
+  );
+  return (
+    <div className="rounded-md border border-hairline bg-surface">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+      >
+        <span className="min-w-0">
+          <span className="eyebrow mb-0.5 block">Summary</span>
+          <span className="block text-[13px] font-medium leading-snug text-ink">{summary.headline}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-ink-muted">
+          {n > 0 ? (
+            <span className="rounded-full border border-hairline-strong px-2 py-0.5 font-medium text-ink">
+              {n} to check
+            </span>
+          ) : (
+            <span className="text-ink-subtle">nothing to check</span>
+          )}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
+            strokeWidth={1.75}
+          />
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-hairline px-3 py-3">
+          <p className="text-[12px] text-ink-subtle">{summary.facts}</p>
+          {n > 0 && (
+            <div>
+              <p className="eyebrow mb-1.5">Check these</p>
+              <ul className="space-y-1.5">{summary.check.map(item)}</ul>
+            </div>
+          )}
+          {summary.info.length > 0 && (
+            <div>
+              <p className="eyebrow mb-1.5">From the drawing</p>
+              <ul className="space-y-1.5">{summary.info.map(item)}</ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

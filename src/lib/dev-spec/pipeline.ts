@@ -77,5 +77,6 @@ export const SCHEMA_FIELDS: SchemaField[] = [
   { name: "chimney", type: "bool field", meaning: "A chimney stack actually drawn." },
   { name: "smartRoofPeakHeightM", type: "number field", meaning: "Peak height if unusually high (no threshold applied)." },
   { name: "underbuild", type: "{ needed, note }", meaning: "Slope/stepped-foundation flag; real source is the site-elevations plan." },
-  { name: "notes", type: "string", meaning: "Short, useful estimator notes only." },
+  { name: "reviewNotes", type: "array of { kind, text, sourcePage }", meaning: "Up to 4 notes a reviewer genuinely needs — ASSUMPTION / UNCLEAR / UNREAD go under 'Check these' in the review Summary, SPEC_NOTE (printed on the drawing) under 'From the drawing'. Never how a number was read." },
+  { name: "notes", type: "string", meaning: "Legacy free-text notes (older reads); the model now leaves it empty." },
 ];

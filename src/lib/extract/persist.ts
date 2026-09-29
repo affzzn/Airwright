@@ -431,7 +431,13 @@ export async function persistExtraction(
     // Categorical facts + per-elevation provenance that don't fit a numeric
     // measurement row live on the take-off's warnings JSON (read by review).
     const warnings: Prisma.JsonObject = {};
-    if (result.notes) warnings.notes = result.notes;
+    if (result.notes) warnings.notes = result.notes; // legacy free text (old prompts)
+    if (result.reviewNotes.length > 0)
+      warnings.reviewNotes = result.reviewNotes.slice(0, 4).map((n) => ({
+        kind: n.kind,
+        text: n.text,
+        sourcePage: n.sourcePage ?? null,
+      }));
     // The frontage divisor the take-off USES (after the physical check), so the review
     // screen's "front/rear covers N houses" shows what is applied; the raw read and why
     // it changed are kept alongside for the audit trail.

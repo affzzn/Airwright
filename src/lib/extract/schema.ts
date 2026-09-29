@@ -394,12 +394,29 @@ export const extractionResultSchema = z.object({
     })
     .describe("Underbuild / foot-scaffold need where the plot is on a slope (often not knowable without the site plan).")
     .default({ needed: null, note: null, confidence: "unknown" }),
-  notes: z
-    .string()
-    .describe(
-      "Short, useful notes only (max 2-3 sentences): assumptions made, ambiguities resolved, an orientation caveat, or fields you couldn't read. No obvious restatements, no reasoning steps, no lists of skipped sheets. Empty if nothing useful.",
+  reviewNotes: z
+    .array(
+      z.object({
+        kind: z
+          .enum(["ASSUMPTION", "UNCLEAR", "UNREAD", "SPEC_NOTE"])
+          .describe(
+            "ASSUMPTION = you had to assume something the drawing does not state. UNCLEAR = the drawing is ambiguous or contradicts itself. UNREAD = a value you could not read. SPEC_NOTE = a note printed ON the drawing the estimator should know (e.g. 'chimney if required', 'render on selected plots', 'handed plots').",
+          ),
+        text: z
+          .string()
+          .describe(
+            "ONE plain-English sentence, under 20 words, for the estimator — what it is and what to check. No dimension chains, no how-you-read-it, no numbers already in the take-off.",
+          ),
+        sourcePage: z.number().nullable().optional(),
+      }),
     )
-    .default(""),
+    .describe(
+      "At most 4 notes a reviewer genuinely needs — ONLY things to check or know. Empty if there is nothing. NEVER: how a dimension was read, what you ignored (stated areas, skipped sheets), or a restatement of a value you already reported.",
+    )
+    .default([]),
+  /** Legacy free-text notes (prompts before 2026-09-29.3) — kept so old stored reads
+   *  still parse. The model is told to leave it empty; use `reviewNotes`. */
+  notes: z.string().describe("Leave empty — use reviewNotes.").default(""),
 });
 
 export type ExtractionResult = z.infer<typeof extractionResultSchema>;
