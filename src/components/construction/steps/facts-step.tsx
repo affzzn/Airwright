@@ -36,13 +36,13 @@ import { cn, formatGBP } from "@/lib/utils";
  */
 
 const SITE_EFFECT: Record<SiteType, string> = {
-  SCHOOL: "Suggests a scaffold mat",
-  PUBLIC_STREET: "Suggests a scaffold mat",
-  CONSTRUCTION_SITE: "No access rules",
-  COMMERCIAL: "No access rules",
+  COMMERCIAL: "New build house sites — timber + traditional",
+  CONSTRUCTION: "New build, refurb, specialist works",
+  PUBLIC_SECTOR: "Hospitals, schools, streets, shops · suggests a scaffold mat",
+  SMALL_WORKS: "Wagon works, small roof jobs · £20k and under",
   OTHER: "No access rules",
 };
-const SITE_ORDER: SiteType[] = ["SCHOOL", "PUBLIC_STREET", "CONSTRUCTION_SITE", "COMMERCIAL"];
+const SITE_ORDER: SiteType[] = ["COMMERCIAL", "CONSTRUCTION", "PUBLIC_SECTOR", "SMALL_WORKS"];
 
 const BRACKETS = (Object.keys(BRACKET_LABEL) as HeightBracket[]).filter((b) => b !== "ANY");
 

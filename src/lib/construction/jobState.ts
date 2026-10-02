@@ -358,10 +358,10 @@ export function defaultStep(f: JobFacts): JobStep {
 }
 
 const SITE_SHORT: Record<string, string> = {
-  SCHOOL: "School",
-  PUBLIC_STREET: "Public street",
-  CONSTRUCTION_SITE: "Site",
   COMMERCIAL: "Commercial",
+  CONSTRUCTION: "Construction",
+  PUBLIC_SECTOR: "Public sector",
+  SMALL_WORKS: "Small works",
   OTHER: "Other",
 };
 function siteTypeShort(s: string): string {

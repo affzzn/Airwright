@@ -37,7 +37,7 @@ const wren = f({
   attachmentCount: 6,
   readableCount: 4,
   readCount: 4,
-  siteType: "SCHOOL",
+  siteType: "PUBLIC_SECTOR",
   buildingHeightM: 4.955,
   heightBracket: "UP_TO_6M",
   durationWeeks: 10,
@@ -67,7 +67,7 @@ describe("missingFacts", () => {
   });
 
   it("accepts a bracket in place of a measured height", () => {
-    expect(missingFacts(f({ siteType: "SCHOOL", heightBracket: "UP_TO_6M", durationWeeks: 4 }))).toBe(0);
+    expect(missingFacts(f({ siteType: "PUBLIC_SECTOR", heightBracket: "UP_TO_6M", durationWeeks: 4 }))).toBe(0);
   });
 });
 

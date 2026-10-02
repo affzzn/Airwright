@@ -60,9 +60,9 @@ export function suggestedHakiLifts(
   return suggestedLiftsFor(heightM, liftHeightM) ?? HAKI_LIFTS_FALLBACK;
 }
 
-/** A scaffold mat (2.7 m first walking lift) applies at schools + public streets. ✅ */
+/** A scaffold mat (2.7 m first walking lift) applies where the public can be — public sector (schools, streets…). ✅ */
 export function needsScaffoldMat(siteType: SiteType | null | undefined): boolean {
-  return siteType === "SCHOOL" || siteType === "PUBLIC_STREET";
+  return siteType === "PUBLIC_SECTOR";
 }
 
 /** Foam count = doorways + fire exits + pedestrian walk-unders (docs/19 §6 rule 5). */

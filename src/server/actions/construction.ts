@@ -27,7 +27,7 @@ const UNITS = new Set<ConstructionUnit>([
 const BRACKETS = new Set<HeightBracket>(["UP_TO_6M", "H6_12M", "H12_18M", "H18_24M", "H24_30M", "ANY"]);
 const BANDS = new Set<RateBand>(["SUPER_COMPETITIVE", "COMPETITIVE", "MEDIUM", "HIGH", "CUSTOM"]);
 const SITE_TYPES = new Set<SiteType>([
-  "SCHOOL", "PUBLIC_STREET", "CONSTRUCTION_SITE", "COMMERCIAL", "OTHER",
+  "COMMERCIAL", "CONSTRUCTION", "PUBLIC_SECTOR", "SMALL_WORKS", "OTHER",
 ]);
 const MEASUREMENT_KINDS = new Set([
   "PERIMETER_LM", "BIRDCAGE_M2", "HANDRAIL_LM", "HEIGHT_M", "LIFTS", "AREA_LM",

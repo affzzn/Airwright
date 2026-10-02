@@ -37,9 +37,9 @@ describe("construction rules — pre-fill defaults", () => {
     expect(suggestedLiftsFor(4, 0)).toBeNull();
   });
   it("scaffold mat for schools + public streets only", () => {
-    expect(needsScaffoldMat("SCHOOL")).toBe(true);
-    expect(needsScaffoldMat("PUBLIC_STREET")).toBe(true);
-    expect(needsScaffoldMat("CONSTRUCTION_SITE")).toBe(false);
+    expect(needsScaffoldMat("PUBLIC_SECTOR")).toBe(true);
+    expect(needsScaffoldMat("CONSTRUCTION")).toBe(false);
+    expect(needsScaffoldMat("SMALL_WORKS")).toBe(false);
     expect(needsScaffoldMat(null)).toBe(false);
   });
   it("foam count sums the access points", () => {
@@ -75,7 +75,7 @@ describe("validateConstructionQuote — the assumptions checklist", () => {
       durationWeeks: 10,
       buildingHeightM: 4,
       defaultHeightBracket: "UP_TO_6M",
-      siteType: "SCHOOL",
+      siteType: "PUBLIC_SECTOR",
       lineCount: 9,
       measurementCount: 3,
       unpricedLineCount: 0,

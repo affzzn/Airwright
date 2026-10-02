@@ -31,10 +31,10 @@ export type RateBand =
   | "CUSTOM";
 
 export type SiteType =
-  | "SCHOOL"
-  | "PUBLIC_STREET"
-  | "CONSTRUCTION_SITE"
   | "COMMERCIAL"
+  | "CONSTRUCTION"
+  | "PUBLIC_SECTOR"
+  | "SMALL_WORKS"
   | "OTHER";
 
 /** The units whose quantity is multiplied by the number of lifts. */
@@ -73,9 +73,9 @@ export const BAND_LABEL: Record<RateBand, string> = {
 };
 
 export const SITE_TYPE_LABEL: Record<SiteType, string> = {
-  SCHOOL: "School",
-  PUBLIC_STREET: "Public street",
-  CONSTRUCTION_SITE: "Construction site",
   COMMERCIAL: "Commercial",
+  CONSTRUCTION: "Construction",
+  PUBLIC_SECTOR: "Public sector",
+  SMALL_WORKS: "Small works",
   OTHER: "Other",
 };
