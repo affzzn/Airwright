@@ -1,16 +1,18 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { createConstructionQuote } from "@/server/actions/construction";
-import { filesFromDataTransfer, fileKindLabel, uploadConstructionFiles } from "@/components/construction/upload";
+import { uploadConstructionPack, type FileWithPath, type UploadProgress } from "@/components/construction/upload";
+import { BoxDrop, emptyBoxes, scenarioPreview, taggedFiles, type BoxFiles } from "@/components/construction/enquiry-boxes";
+import { ProgressBar } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { Field, IconButton, Panel } from "@/components/construction/parts";
+import { Field, Panel } from "@/components/construction/parts";
+import { ENQUIRY_BOXES, SCENARIO_COPY, type EnquiryBox } from "@/lib/construction/pack/files";
 import { BAND_LABEL, type RateBand } from "@/lib/construction/types";
-import { cn, formatBytes } from "@/lib/utils";
 
 const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({
   value: b,
@@ -18,13 +20,14 @@ const BAND_OPTS = (Object.keys(BAND_LABEL) as RateBand[]).map((b) => ({
 }));
 
 /**
- * Start a job. The enquiry files are picked up HERE, so the estimator never
- * lands on an empty job: the quote is created first (the files need its id for
- * the storage path), the files upload, then we open the enquiry step.
+ * Start a job. The enquiry files are picked up HERE, in three boxes (Scope ·
+ * Drawings · Email, all optional), so the estimator never lands on an empty job:
+ * the quote is created first (the files need its id for the storage path), the
+ * files upload with their box, then we open the enquiry step. The boxes decide
+ * the scenario.
  */
 export function ConstructionNewForm() {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const [reference, setReference] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -33,18 +36,19 @@ export function ConstructionNewForm() {
   const [durationWeeks, setDurationWeeks] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [files, setFiles] = useState<File[]>([]);
-  const [dragOver, setDragOver] = useState(false);
+  const [boxes, setBoxes] = useState<BoxFiles>(emptyBoxes);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
 
-  const addFiles = (incoming: File[]) => {
-    if (incoming.length === 0) return;
-    setFiles((prev) => {
-      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
-      return [...prev, ...incoming.filter((f) => !seen.has(`${f.name}:${f.size}`))];
+  // A file's path is its identity on the job, so one path sits in one box only.
+  const addFiles = (box: EnquiryBox, incoming: FileWithPath[]) =>
+    setBoxes((prev) => {
+      const seen = new Set(taggedFiles(prev).map((f) => f.relativePath));
+      return { ...prev, [box]: [...prev[box], ...incoming.filter((f) => !seen.has(f.relativePath))] };
     });
-  };
+  const files = taggedFiles(boxes);
+  const scenario = SCENARIO_COPY[scenarioPreview({ SCOPE: boxes.SCOPE.length, DRAWINGS: boxes.DRAWINGS.length, EMAIL: boxes.EMAIL.length })];
 
   const submit = () => {
     setError(null);
@@ -58,7 +62,10 @@ export function ConstructionNewForm() {
           durationWeeks: durationWeeks ? Number(durationWeeks) : null,
           notes,
         });
-        if (files.length > 0) await uploadConstructionFiles(id, files);
+        if (files.length > 0) {
+          const p = await uploadConstructionPack(id, files, setProgress);
+          if (p.failed > 0 && p.done === 0) throw new Error("The files could not be uploaded — the job was created; add them again from its first step.");
+        }
         router.push(`/construction/${id}?step=enquiry`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not create the job.");
@@ -135,71 +142,33 @@ export function ConstructionNewForm() {
 
         <div className="lg:col-span-5">
           <Panel title="Enquiry files">
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={async (e) => {
-                e.preventDefault();
-                setDragOver(false);
-                addFiles(await filesFromDataTransfer(e.dataTransfer));
-              }}
-              className={cn(
-                "rounded-xl border border-dashed border-hairline-strong bg-surface/60 px-5 py-7 text-center transition-colors",
-                dragOver && "border-ink bg-surface",
-              )}
-            >
-              <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-hairline bg-canvas">
-                <UploadCloud className="h-4 w-4 text-ink-muted" strokeWidth={1.75} />
-              </span>
-              <p className="text-sm font-semibold text-ink">Drop files here</p>
-              <p className="mt-1 text-xs text-ink-muted">Email, drawings, scope of works</p>
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files) addFiles(Array.from(e.target.files));
-                  if (inputRef.current) inputRef.current.value = "";
-                }}
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="mt-3.5"
-                onClick={() => inputRef.current?.click()}
-              >
-                Browse files
-              </Button>
+            <div className="flex flex-col gap-3">
+              {ENQUIRY_BOXES.map((box) => (
+                <BoxDrop
+                  key={box}
+                  box={box}
+                  files={boxes[box]}
+                  disabled={pending}
+                  onAdd={(f) => addFiles(box, f)}
+                  onRemove={(idx) => setBoxes((prev) => ({ ...prev, [box]: prev[box].filter((_, k) => k !== idx) }))}
+                  onClear={() => setBoxes((prev) => ({ ...prev, [box]: [] }))}
+                />
+              ))}
             </div>
-
-            {files.length > 0 && (
-              <ul className="mt-3 flex flex-col gap-1.5">
-                {files.map((f, i) => (
-                  <li
-                    key={`${f.name}-${i}`}
-                    className="flex items-center gap-3 rounded-lg border border-hairline px-3 py-2"
-                  >
-                    <FileText className="h-4 w-4 shrink-0 text-ink-subtle" strokeWidth={1.75} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-ink">{f.name}</span>
-                      <span className="block text-[11px] text-ink-muted">{formatBytes(f.size)}</span>
-                    </span>
-                    <span className="shrink-0 rounded-md bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
-                      {fileKindLabel(f.type, f.name)}
-                    </span>
-                    <IconButton
-                      label="Remove file"
-                      onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    </IconButton>
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-3 rounded-lg border border-hairline px-3.5 py-2.5">
+              <p className="text-[13px] font-semibold text-ink">{scenario.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{scenario.body}</p>
+            </div>
+            {progress && (
+              <div className="mt-3">
+                <ProgressBar value={progress.bytesTotal ? (progress.bytesDone / progress.bytesTotal) * 100 : 0} />
+                <p className="mt-1.5 truncate text-[11px] text-ink-muted">
+                  {progress.done} of {progress.total} uploaded
+                  {progress.skipped ? ` · ${progress.skipped} already there` : ""}
+                  {progress.failed ? ` · ${progress.failed} failed` : ""}
+                  {progress.current ? ` · ${progress.current}` : ""}
+                </p>
+              </div>
             )}
           </Panel>
         </div>
@@ -213,7 +182,7 @@ export function ConstructionNewForm() {
         </Link>
         <Button onClick={submit} disabled={pending} className="gap-2">
           {pending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
-          {pending && files.length > 0 ? "Uploading" : "Create job"}
+          {pending && files.length > 0 ? "Uploading" : files.length > 0 ? "Create job and upload" : "Create job"}
         </Button>
       </div>
     </div>

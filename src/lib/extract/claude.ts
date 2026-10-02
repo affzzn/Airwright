@@ -9,6 +9,8 @@ export interface ToolRunResult {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  /** Why the model stopped ("max_tokens" = the answer was cut off). Set by `runToolText`. */
+  stopReason?: string | null;
 }
 
 /**
@@ -80,7 +82,7 @@ export async function runToolExtraction(opts: {
     (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK +
     (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK;
 
-  return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd };
+  return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd, stopReason: response.stop_reason };
 }
 
 /**
@@ -130,5 +132,5 @@ export async function runToolText(opts: {
     (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK +
     (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK;
 
-  return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd };
+  return { input: toolUse.input, model, latencyMs, inputTokens, outputTokens, costUsd, stopReason: response.stop_reason };
 }

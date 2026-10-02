@@ -11,7 +11,173 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 ## rate sheet + the 16 open questions (docs/11 §8) are the one thing gating correct
 ## pricing. Canonical docs: 11 (take-off), 13 (extraction playbook), 14 (pricing/quote).
 
-Last updated: 2026-09-29
+Last updated: 2026-10-02
+
+### 2026-10-02 (b) — Construction: three upload boxes, three scenarios, Scenario 1 made simple
+
+Upload is now three boxes — **Scope · Drawings · Email**, all optional (new-job form + step 1,
+`enquiry-boxes.tsx`); the box is saved on `ConstructionAttachment.kind` and is the file's label
+(no guessing; zip contents inherit it; old files get one from their type, `boxOf`). The
+scenario comes from the boxes only (`scenarioFromBoxes`): a scope → **Scenario 1**; drawings and
+no scope → **2**; else **3**. Auto-detect and the A/B/C switch removed (`setConstructionMode`
+deleted). **Scenario 1** reads ONLY the scope + email (email = extra lines; lines the schedule
+already has are not repeated) and uses the client's numbers as given (`scopeOnly.ts`) — no
+drawing reads, buildings, cards, cross-checks, information list, confidence or job settings; a
+line with no number is blank for Colin. Kept: per-line hire, "2nr" / "1600hrs" / sizes,
+`scopeFixes` (two-in-one-row, temporary stairs, the "× 2" note), empty sections, full hire
+priced. Scenarios 2 and 3 unchanged (email = reference in 2; nothing read in 3). Evals re-run
+for $0: KE 9/9, Wren 11/11 (new Scenario 1 keys), CBAND 11/11, Murray 3/3. 733 tests, lint,
+typecheck, build green; the new form + step 1 + items checked in the browser (a real upload
+saved each file's box; the test job was deleted). Detail: docs/22 "As built 2026-10-02 b".
+
+### 2026-10-02 (later) — Ben's corrections from the 9 Sep call, applied by code
+
+`scopeFixes.ts` (pure, tested, runs after every scope read — fresh or cached): stair sets /
+up-and-over steps → the new "Temporary Stair Set" item, never a Haki; a row asking for two
+items ("perimeter access scaffolding AND roof edge protection") → two lines with the row's
+measurement; "Allow 1600hrs" → 1600; a length with "× 2" (LV pits) flagged "in total or each?"
+(number unchanged). Prompt `SCOPE_PROMPT_VERSION 2026-10-02.1` says the same. **P18**: a scope
+job now prices the whole hire the client asks for by default (Ben: 40 weeks asked = 40 weeks
+priced); other jobs keep extra hire as terms — still a placeholder for Colin to confirm.
+Verified on the National Grid (Stanmore) schedule itself; evals unchanged (KE 13/13, Wren 9/9,
+Murray 3/3, CBAND 11/11); 716 tests, lint, typecheck, build green.
+
+### 2026-10-02 — Construction made simple: only reliable numbers, section cards, measuring tool
+
+The automatic reading was doing too much, and too much of it was not reliable. Now a number is
+filled in automatically ONLY when it is printed on the drawings and read by code — and, for the
+shape-dependent ones, when TWO drawings agree. Everything else is the estimator's: typed, or
+measured on the drawing with the new tool. Quotes are built on section cards that match
+Airwright's real quotes (Quote-1350 / 1375).
+
+- **Kept automatic** (`model/buildingModel.ts`, rewritten): heights of each part (printed soffit
+  / parapet → lifts + band); the external perimeter + corners ONLY for a plain rectangle the roof
+  plan or another floor confirms; main gables ONLY when roof plan and elevations agree; printed
+  clear heights and room areas as sources to pick from; numbers written on a client mark-up.
+  Anything weaker is a HINT (shown, one click to use, never filled). **Removed:** slab / void /
+  leading edges, risers, lift entrances, cores / shafts, doors, roof access / edges, pitch,
+  internal footprint, colour-mark-up coverage, traced non-rectangular outlines. Readers unchanged
+  (saved reads still reused). Settings trimmed to the ones still used (P5, P5b, P10–P14 gone).
+- **Trust, explained** (`cards.ts`, `trust-badge.tsx`): Checked (two drawings agree) · Printed
+  (one drawing) · Measured by you · Entered by you · Client's figure · Not set. Hover: what it
+  means, how it was worked out in plain words, and the sheets it came from (links to the page).
+- **Section cards** (`section-cards.tsx`, `constructionCards.ts`, migration
+  `20261002120000_construction_section_cards` adds `ConstructionQuoteLine.cardKey`): per building
+  External (perimeter, corners → run; height → lifts; gables), Internal (run, clear height,
+  lifts), Birdcage (tick printed rooms → area, or measure; clear height; lifts), each with its
+  hire weeks; the job's weekly inspections. Every number editable; yours beats the drawings';
+  "back to the drawings' value". The cards write their lines and keep them in step; a line
+  edited by hand is pinned. Scope jobs keep the scope's lines (cards hold the numbers only).
+- **Add-ons — Colin's call** (ticked, never by the AI): Haki, loading bay, ladder tower, table
+  lifts + apex handrails (= gables), low-level independent, raised first lift, netting (run ×
+  height), brick guards, triple / A-frame handrail, beams over a canopy, rakers, foam, scaffold
+  mat, carry time; internal ladder towers. 8 new DEV placeholder items in `library.ts`.
+- **Measuring tool** (`measure-dialog.tsx`, `measureGeometry.ts`): click corners on the drawing;
+  scale from the title block, or checked / set from a printed dimension (photo-only plans too);
+  lines square up; a closed outline gives perimeter + outside corners + area.
+- **Scope binding simplified** (`bindScope.ts`): only the reliable numbers fill a line; edges,
+  blockwork, risers, cores (unless the scope names one), roof edges/access stay blank. The
+  estimator's own measurements feed a re-read.
+- **Graded on the real packs** (`construction-eval.mts`, new rule "right or blank"): CBAND 11/11
+  (Pavilion perimeter checked by plan + roof plan; Hall perimeter and gables left blank — they
+  can't be confirmed), KE 13/13, Wren 9/9, Murray Park 3/3. Measuring tool + cards + add-ons
+  clicked through in the browser. 711 tests, typecheck, lint, build green.
+
+### 2026-10-01 — Construction scope mode + output: Milestones 3 + 4 BUILT (docs/22, docs/23)
+
+A client's scope now becomes DRAFT LINES whose quantities come from the drawings, each with its
+visible working; a measure-only job turns any measurement into a line with "Use this"; and the
+quote prints in Airwright's real lump-sum section layout or fills the client's own schedule.
+
+- **M3 · scope mode.** `scopeTable.ts` reads a spreadsheet scope's STRUCTURE by code (header
+  rows, column roles, sections, EMPTY sections, items, total; a duplicate sheet skipped). The
+  scope reader (`SCOPE_PROMPT_VERSION 2026-10-01.2`) is given the table row by row and returns a
+  `rowRef`; `attachScopeTables` takes section / hire / lifts / quantity / dimensions from the ROW,
+  adds back missed rows; counts in the wording ("2nr", "x2") parsed by code; headings must be
+  printed (no invented "Email scope"); the scope read is cached on the job (re-runs $0; scope
+  files read in a fixed order so the key is stable); output cap 20k + a clear "cut off" error.
+  `bindScope.ts` (pure, 28 tests): one rule per item ROLE over the building model (scaffold run,
+  boarded lifts "at each level" ⚠P19, guardrail, counts from the scope, slab edge ⚠P12, opening
+  edges, lift gates, risers ⚠P13b, named cores / shafts, roof edge, inspections), client number vs
+  drawing → AGREES / DIFFERS (drawing kept), leading edge (P14) + blockwork (P5b) blank with an
+  unknown basis, a non-closing outline never prices, features not asked for → INFORMATION list,
+  empty sections → "confirm none required", every scope line accounted for; a numbered mark-up
+  (Wren) pairs each schedule row with ONE mark-up line. `applyDrawingDraft` saves section,
+  building, formula, provenance, params, flags, `clientRef`, per-line hire; replace-on-reapply;
+  **alias learning restored**.
+- **Engine fixes found on real packs.** Several unprinted walls running the same way are solved
+  as a TOTAL by closure (KE 1F → 96.036 m, low + flagged); a printed OVERALL chain beats a
+  partly-scaled grid (D4) — the grid still beats a misread window chain; opening-edge perimeters
+  (printed sizes only); lift shafts and stair cores counted apart; every measurement keyed and
+  linked to its source sheets; level names normalised ("01-First Floor" → 1F).
+- **M4 · screens + output.** Shared measurement sheet (per building: heights / runs / roof /
+  internal / features; source sheets open the drawing at its page; ⚠ codes; **Use this**).
+  Scope review panel. Draft review grouped by building × section with formula, status, the
+  client's figure, per-line hire. Site facts: "From the drawings" + the **job settings panel**
+  (P1–P19, confirm / reset, re-measure for $0). Items grouped by building × section with the
+  working on every line + editable hire. Quote: new checks (blank lines, placeholders, empty
+  sections) + **three outputs**: SECTIONS (Airwright's Quote-1350 layout, `sections.ts`),
+  SCHEDULE (itemised), CLIENT (the client's own workbook filled, `clientTemplateExcel.ts`).
+  Pricing uses each line's own hire weeks; ⚠ **P18** decides whether the price covers the whole
+  stated hire (default: today's behaviour, terms). Migration `20261001120000_construction_scope_mode`
+  (additive, applied).
+- **Validated on the real DB, in-process** (`scripts/e2e-scope.mts`, `scripts/construction-eval.mts`):
+  **KE 15/15**, **Wren 8/8**, **Murray Park 2/2**, **CBAND 9/11** (Hall gables = P9; a stored Hall
+  read that does not close — never priced), Stanmore 37/37 rows accounted. Reads paid this session:
+  KE $4.79, Wren $2.33, Murray $0.63, scope reads ≈ $1.5; every re-run since $0. UI clicked through
+  locally (pack view, Use this, scope review, settings, items, quote formats, print view).
+- **Kept test jobs** (delete when done): KE `cmupoijhb0000it0hlvpqyuiq`, Wren
+  `cmupp1gc40000itk5lmba4cfm`, Murray Park `cmuppc12p0000itioepwxide3`, CBAND `cmuo3evr00000itl06aamfkvz`.
+- Checks: typecheck, lint, **698 tests** (3 obsolete `scopeOnlyLines` tests removed with the function), production build — all green.
+
+### 2026-09-30 — Construction pack reading: Milestones 1 + 2 BUILT (docs/22, docs/23)
+
+A construction enquiry is now a PACK: drop the whole folder (or a zip), the worker sorts it
+into a drawing register, and one button reads every switched-on sheet in the background into
+a per-building MEASUREMENT SHEET. Spec: docs/22 (pipeline) + docs/23 (extraction playbook).
+
+- **M1 · no AI.** Dev picking list (34 items, every rate banded + bracketed + hire terms,
+  badged "DEV placeholder"; `library.ts`, `restore-seed-library.mts`); `params.ts` (P1–P17
+  job settings, placeholders flagged wherever used); rules: lifts = ceil(h ÷ 2.0 m), Haki
+  lifts follow the height, 24–30 m band. Migration `construction_pack_reading` (additive:
+  `ConstructionBuilding`, `ConstructionSheet`, `ConstructionReadRun`, pack fields on quote /
+  attachment / line / measurement). Folder upload (5 at a time, byte progress, retries, batch
+  register, resume). `construction-ingest` job: zips unpacked, junk + duplicates, title-block
+  register (`pack/titleBlock.ts`), latest revision, buildings by drawing code / folder,
+  mode A/B/C. `pack/sheetGeometry.ts`: scale, levels, printed heights, pitch, dimension
+  chains, grid (KE A→F 28,910 measured vs 28,903 printed), room areas, spot levels, legend.
+  `.pptx` mark-ups redrawn to PDF (shapes + theme colours) with a shape-fact summary.
+  Offline runner `scripts/construction-offline.mts` (+ `--ai`).
+- **M2 · AI.** `construction-read` job (`src/server/constructionRead.ts`): typed readers per
+  sheet kind (`readers/`: plan, elevation, section, roof, mark-up; the Wren numbered mark-up
+  keeps the docs/20 reader), plans first then the rest then mark-ups, 3 at a time, reads saved
+  per sheet and reused when unchanged (hash + page + per-reader version), run progress + cost.
+  `model/outline.ts` (the model names the walls, code measures: printed strings verified,
+  grid spacings, closure, one missing wall solved, corners, sides, inset area) and
+  `model/buildingModel.ts` (heights → suggested lifts + band, perimeter + scaffold run, roof,
+  gables main vs porch, internal footprint, clear heights, cores / risers / openings / lift
+  entrances, what a mark-up covers). Status probe `/api/construction/[id]/status` + auto
+  refresh. Enquiry step rebuilt as the PACK view (register by building, switches, mode banner,
+  read panel, measurement sheet, draft-line review).
+- **Two real bugs found and fixed on the way.** (1) Tiling (added 24 Sep) copied pages with
+  `embedPage`, which drops PDF ANNOTATIONS — Wren's Bluebeam mark-up (25 annotations) vanished
+  from every crop and the docs/20 reader returned nothing. `pack/flattenAnnots.ts` draws
+  annotations into the page first; Wren's values are back exactly. (2) On dense A1 plans the
+  model's tool call broke (a list serialised as markup text, the rest of the answer lost):
+  outlines are now one-line strings and every reader detects a broken call and retries once.
+- **Validated on the real packs** (offline + real DB, in-process, cleaned up):
+  CBAND Pavilion 20.793 × 8.965 → 59.516 m, 4 corners, 2 lifts, gables 2 main + 1 porch (quote:
+  apex ×2), internal lift 1 (quote 1), crash deck = whole interior 168.74 m²; CBAND Hall
+  L-shape traced from print (6965 + 1463 on the left) → 62.288 m, 5 + 1 corners, 2 lifts;
+  Hall gables flagged (roof 2 vs elevations 3 — the quote says 3; Colin's P9 call). KE levels
+  exact, 11.925 m to parapet → 6 lifts, 6–12 m band, parapet 1.85 m → temporary edge; rooms,
+  risers, cores, openings, lift entrances. Wren full pipeline → the 9 validated lines.
+  Murray Park degrades to flags (no invented numbers). Cost: CBAND ~$4.6, KE ~$4.7 first read.
+- **Honest limit:** KE's stepped A1 plan outline is NOT traced reliably (3 prompt revisions);
+  the engine refuses or marks it low (floors disagree with each other / the roof plan) — no
+  wrong perimeter is shown as trustworthy. Next: read the wall line from the vector geometry.
+- **Green:** typecheck, lint, **651 tests**, production build. In-browser click-through still
+  needs a logged-in session (a kept CBAND test job exists for it).
 
 ### 2026-09-29 — Review "Summary" replaces AI notes + Review flags
 

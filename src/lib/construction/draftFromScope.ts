@@ -19,10 +19,13 @@ import {
   buildPickingListContext,
   buildScopeUserText,
 } from "./scopePrompt";
-import { reconcileDraftLines, type ReconciledDraftLine } from "./scopeDraft";
+import { attachScopeTables, keepPrintedSections, reconcileDraftLines, type ReconciledDraftLine } from "./scopeDraft";
+import type { ScopeTable } from "./scopeTable";
+import { applyScopeFixes } from "./scopeFixes";
 import type { ConstructionUnit } from "./types";
 
-const DRAFT_MAX_TOKENS = 8192;
+// A 40-row schedule's draft can run past 8k tokens; a cut-off answer is useless.
+const DRAFT_MAX_TOKENS = 20000;
 
 // Generate the tool's JSON schema from the Zod contract so they cannot drift.
 const toolInputSchema = zodToJsonSchema(constructionDraftSchema, {
@@ -41,6 +44,8 @@ export interface DraftElementInput {
 
 export interface DraftFromScopeResult {
   lines: ReconciledDraftLine[];
+  /** Every section heading the reader saw, in order (empty ones included). */
+  sections: string[];
   notes: string;
   meta: {
     model: string;
@@ -61,6 +66,8 @@ export interface DraftFromScopeResult {
 export async function draftFromScope(
   scopeText: string,
   elements: DraftElementInput[],
+  /** Schedule tables behind the text (from `readScopeFile`): rows are tied back to them. */
+  tables: ScopeTable[] = [],
 ): Promise<DraftFromScopeResult> {
   const context = buildPickingListContext(elements);
   const userText = buildScopeUserText(context, scopeText);
@@ -76,13 +83,18 @@ export async function draftFromScope(
     maxTokens: DRAFT_MAX_TOKENS,
   });
 
+  if (res.stopReason === "max_tokens")
+    throw new Error("the scope is too long for one read (the answer was cut off) — split it, or remove rows that are not scaffold");
   const parsed = constructionDraftSchema.parse(res.input);
   const validIds = new Set(elements.map((e) => e.id));
   const unitById = new Map(elements.map((e) => [e.id, String(e.unit)]));
-  const lines = reconcileDraftLines(parsed.lines, validIds, unitById);
+  const lines = attachScopeTables(reconcileDraftLines(parsed.lines, validIds, unitById), tables, unitById);
 
+  // A section is a heading the scope actually prints — never one the model made up.
+  const kept = keepPrintedSections(lines, parsed.sections ?? [], scopeText);
   return {
-    lines,
+    lines: applyScopeFixes(kept.lines, elements.map((e) => ({ id: e.id, name: e.name, aliases: e.aliases, unit: String(e.unit) }))),
+    sections: kept.sections,
     notes: parsed.notes?.trim() ?? "",
     meta: {
       model: res.model,

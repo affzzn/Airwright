@@ -1,6 +1,10 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { setConstructionOutputFormat } from "@/server/actions/constructionReview";
+import type { OutputFormat } from "@/server/construction";
 import { ArrowUpRight, Check, Download, Loader2, Lock, Printer, Unlock } from "lucide-react";
 import type { ConstructionQuoteVM } from "@/server/construction";
 import { issueChecks, type JobFacts, type JobStep } from "@/lib/construction/jobState";
@@ -37,8 +41,25 @@ export function QuoteStep({
   onToggleLock: () => void;
   lockPending: boolean;
 }) {
+  const router = useRouter();
+  const [fmtPending, startFmt] = useTransition();
   const checks = issueChecks(facts);
   const clear = checks.filter((c) => c.done).length;
+  const formats: { key: OutputFormat; label: string; hint: string; disabled?: boolean }[] = [
+    { key: "SECTIONS", label: "Airwright sections", hint: "Lump sums per area with what each includes (Quote-1350)" },
+    { key: "SCHEDULE", label: "Itemised schedule", hint: "One row per item, rate × quantity" },
+    {
+      key: "CLIENT",
+      label: "Client's schedule",
+      hint: quote.clientTemplate ? `${quote.clientTemplate.tables[0].fileName}, filled in` : "Only when the scope was a spreadsheet",
+      disabled: !quote.clientTemplate,
+    },
+  ];
+  const setFormat = (f: OutputFormat) =>
+    startFmt(async () => {
+      await setConstructionOutputFormat(quote.id, f);
+      router.refresh();
+    });
   const bracket = quote.defaultHeightBracket as HeightBracket | null;
 
   const summary: { k: string; v: string }[] = [
@@ -47,7 +68,11 @@ export function QuoteStep({
     { k: "Height band", v: bracket ? BRACKET_LABEL[bracket] : "Not set" },
     {
       k: "Inclusive hire",
-      v: quote.durationWeeks ? `${quote.durationWeeks} weeks` : "Not set",
+      v: quote.lines.some((l) => l.durationWeeks != null) ? "Per line" : quote.durationWeeks ? `${quote.durationWeeks} weeks` : "Not set",
+    },
+    {
+      k: "Hire in the price",
+      v: quote.params.P18_hireInPrice.value === "INCLUDED" ? "Whole stated hire" : "Rates' weeks; rest as terms",
     },
     { k: "Extra hire", v: extraHirePerWeek != null ? `${formatGBP(extraHirePerWeek)} a week` : "—" },
   ];
@@ -94,6 +119,34 @@ export function QuoteStep({
               </li>
             ))}
           </ul>
+        </Panel>
+
+        <Panel title="Output">
+          <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label="Output format">
+            {formats.map((f) => {
+              const on = quote.outputFormat === f.key;
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  disabled={f.disabled || fmtPending}
+                  onClick={() => !on && setFormat(f.key)}
+                  className={cn(
+                    "rounded-xl border px-3.5 py-3 text-left transition-colors disabled:opacity-45",
+                    on ? "border-ink bg-ink text-canvas" : "border-hairline bg-canvas text-ink hover:border-hairline-strong",
+                  )}
+                >
+                  <span className="block text-[13px] font-semibold">{f.label}</span>
+                  <span className={cn("mt-1 block text-[11px] leading-snug", on ? "text-canvas/70" : "text-ink-muted")}>{f.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+          {quote.outputFormat === "CLIENT" && (
+            <p className="mt-2.5 text-[11px] leading-relaxed text-ink-muted">
+              The Excel download is the client&apos;s own workbook with our figures in their rows (and an &quot;Airwright notes&quot; sheet). The printed quotation uses Airwright&apos;s sections.
+            </p>
+          )}
         </Panel>
 
         <Panel
@@ -156,7 +209,7 @@ export function QuoteStep({
             {locked ? "Reopen for editing" : "Confirm and issue"}
           </Button>
           <div className="mt-2.5 flex gap-2">
-            <a href={`/construction/${quote.id}/quote/export`} className="flex-1">
+            <a href={`/construction/${quote.id}/quote/export?format=${quote.outputFormat.toLowerCase()}`} className="flex-1">
               <Button variant="secondary" className="w-full gap-1.5">
                 <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
                 Excel

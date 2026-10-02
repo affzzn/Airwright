@@ -9,7 +9,9 @@ import type {
   ConstructionElementLibVM,
   ConstructionLineVM,
   ConstructionQuoteVM,
+  SheetRef,
 } from "@/server/construction";
+import { paramString } from "@/lib/construction/params";
 import { lineAmount, priceConstructionQuote } from "@/lib/construction/price";
 import {
   factsFromQuote,
@@ -28,6 +30,7 @@ import {
   isPreviewable,
 } from "@/components/construction/construction-reference-viewer";
 import { cn, formatGBP } from "@/lib/utils";
+import { ConstructionAutoRefresh } from "@/components/construction/construction-auto-refresh";
 
 /**
  * One construction job, in four steps (docs/19 §8): read the enquiry, confirm
@@ -101,21 +104,44 @@ export function ConstructionJob({
           baseHireWeeks: l.baseHireWeeks,
           extraHirePerWeek: l.extraHirePerWeek,
           extraHireChargePct: l.extraHireChargePct,
+          durationWeeks: l.durationWeeks,
         })),
         durationWeeks: quote.durationWeeks,
+        hireInPrice: paramString(quote.params, "P18_hireInPrice") === "INCLUDED",
       }),
-    [lines, quote.durationWeeks],
+    [lines, quote.durationWeeks, quote.params],
   );
 
   const facts = useMemo(
-    () => factsFromQuote({ ...quote, lines: livePricedLines }),
+    () =>
+      factsFromQuote({
+        ...quote,
+        lines: livePricedLines,
+        paramConfirmed: Object.fromEntries(Object.values(quote.params).map((p) => [p.key, p.confirmed])),
+        emptySections: quote.latestRun?.result?.emptySections ?? [],
+        noneRequired: quote.scopeReview.noneRequired,
+      }),
     [quote, livePricedLines],
   );
   const steps = jobSteps(facts);
 
   /** A step asked to show a file: select it and open the pane. */
+  const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
   const showFile = (id: string) => {
     setSelectedFileId(id);
+    setGoTo(null);
+    setRefOpen(true);
+  };
+  /** A measurement's source: open that sheet at its page (or its own tab on a small screen). */
+  const showSheet = (ref: SheetRef) => {
+    const att = quote.attachments.find((a) => a.id === ref.attachmentId);
+    if (att && !isPreviewable(att)) return;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      window.open(`/construction/attachments/${ref.attachmentId}${ref.page > 1 ? `#page=${ref.page}` : ""}`, "_blank");
+      return;
+    }
+    setSelectedFileId(ref.attachmentId);
+    setGoTo({ page: ref.page, nonce: Date.now() });
     setRefOpen(true);
   };
 
@@ -149,6 +175,7 @@ export function ConstructionJob({
 
   return (
     <div>
+      <ConstructionAutoRefresh quoteId={quote.id} />
       {/* Job header */}
       <div className="mb-5">
         <Link
@@ -284,6 +311,7 @@ export function ConstructionJob({
               aiEnabled={aiEnabled}
               compact={showRef}
               onShowFile={showFile}
+              onShowSheet={showSheet}
               goToStep={goToStep}
             />
           )}
@@ -292,6 +320,7 @@ export function ConstructionJob({
               quote={quote}
               library={library}
               locked={locked}
+              aiEnabled={aiEnabled}
               compact={showRef}
               extraHirePerWeek={priced.extraHirePerWeek}
               extraHireBeyondBase={priced.extraHireBeyondBase}
@@ -306,6 +335,9 @@ export function ConstructionJob({
               setLines={setLines}
               locked={locked}
               compact={showRef}
+              total={priced.total}
+              hireIncluded={priced.hireIncluded}
+              onShowSheet={showSheet}
             />
           )}
           {step === "quote" && (
@@ -335,7 +367,11 @@ export function ConstructionJob({
                 quoteId={quote.id}
                 attachments={previewable}
                 selectedId={selectedFileId}
-                onSelect={setSelectedFileId}
+                onSelect={(id) => {
+                  setSelectedFileId(id);
+                  setGoTo(null);
+                }}
+                goTo={goTo}
               />
             </div>
           </aside>

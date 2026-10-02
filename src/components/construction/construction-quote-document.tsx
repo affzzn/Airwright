@@ -3,6 +3,7 @@ import { AirwrightFooter } from "@/components/brand/airwright-footer";
 import { AIRWRIGHT } from "@/lib/brand";
 import { UNIT_LABEL, type ConstructionUnit } from "@/lib/construction/types";
 import type { ConstructionPricing, ConstructionQuoteVM } from "@/server/construction";
+import { buildQuoteSections, type QuoteSection } from "@/lib/construction/sections";
 import { formatDate, formatGBP } from "@/lib/utils";
 
 const { navy, blue } = AIRWRIGHT.color;
@@ -89,88 +90,11 @@ export function ConstructionQuoteDocument({
         </p>
       </div>
 
-      {/* Specification */}
-      <div className="aw-keep mt-8">
-        <h2 className="mb-1 text-base font-semibold" style={{ color: navy }}>
-          Specification of quotation
-        </h2>
-        <p className="mb-3 text-[12px] text-[#666]">
-          The quoted works, priced per lift where applicable. Rates exclude VAT.
-        </p>
-      </div>
-      <table className="w-full border-collapse text-[12px]">
-        <thead>
-          <tr style={{ background: navy, color: "#fff" }}>
-            <th className="px-2 py-2 text-left font-semibold">Item</th>
-            <th className="px-2 py-2 text-left font-semibold">Specification &amp; description</th>
-            <th className="px-2 py-2 text-right font-semibold">Rate (£)</th>
-            <th className="px-2 py-2 text-right font-semibold">Qty</th>
-            <th className="px-2 py-2 text-center font-semibold">Lifts</th>
-            <th className="px-2 py-2 text-center font-semibold">Hire&nbsp;(wks)</th>
-            <th className="px-2 py-2 text-right font-semibold">Amount (£)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {quote.lines.length === 0 && (
-            <tr>
-              <td colSpan={7} className="px-2 py-4 text-center text-[#888]">
-                No items.
-              </td>
-            </tr>
-          )}
-          {quote.lines.map((l, i) => (
-            <tr key={l.id} className="aw-row border-b border-[#e6e6e6] align-top">
-              <td className="px-2 py-2 text-[#666]">{i + 1}</td>
-              <td className="px-2 py-2 text-[#222]">
-                <span className="font-medium">{l.description}</span>
-                <span className="ml-1 text-[11px] text-[#888]">
-                  · {UNIT_LABEL[l.unit as ConstructionUnit] ?? l.unit}
-                </span>
-                {l.note && <span className="block text-[11px] text-[#888]">{l.note}</span>}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{formatGBP(l.rate)}</td>
-              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{l.quantity}</td>
-              <td className="px-2 py-2 text-center tabular-nums text-[#666]">{l.lifts ?? "—"}</td>
-              <td className="px-2 py-2 text-center tabular-nums text-[#666]">
-                {quote.durationWeeks ?? "—"}
-              </td>
-              <td className="px-2 py-2 text-right font-medium tabular-nums text-[#111]">
-                {formatGBP(l.amount)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="aw-row" style={{ borderTop: `2px solid ${navy}` }}>
-            <td colSpan={6} className="px-2 py-2.5 text-right text-[13px] font-semibold" style={{ color: navy }}>
-              Grand total (excl. VAT)
-            </td>
-            <td
-              className="px-2 py-2.5 text-right text-[15px] font-bold tabular-nums"
-              style={{ color: navy }}
-            >
-              {formatGBP(pricing.total)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-
-      {/* Hire terms */}
-      <div className="aw-keep mt-4 space-y-1.5 text-[12px] text-[#444]">
-        {quote.durationWeeks != null && (
-          <p>
-            <span className="font-semibold text-[#222]">Hire period:</span> {quote.durationWeeks} weeks
-            inclusive from first delivery.
-          </p>
-        )}
-        {pricing.extraHirePerWeek != null && (
-          <p>
-            <span className="font-semibold text-[#222]">Extra hire:</span>{" "}
-            {formatGBP(pricing.extraHirePerWeek)} per week beyond the hire period included in the
-            rates. A part-week is charged as a full week.
-          </p>
-        )}
-      </div>
+      {quote.outputFormat === "SCHEDULE" ? (
+        <ScheduleSpec quote={quote} pricing={pricing} />
+      ) : (
+        <SectionsSpec quote={quote} pricing={pricing} />
+      )}
 
       {/* Terms & conditions */}
       <div className="aw-keep mt-8">
@@ -261,6 +185,210 @@ export function ConstructionQuoteDocument({
         <AirwrightFooter />
       </div>
     </div>
+  );
+}
+
+/** Airwright's itemised schedule: one row per priced line. */
+function ScheduleSpec({ quote, pricing }: { quote: ConstructionQuoteVM; pricing: ConstructionPricing }) {
+  return (
+    <>
+
+      <div className="aw-keep mt-8">
+        <h2 className="mb-1 text-base font-semibold" style={{ color: navy }}>
+          Specification of quotation
+        </h2>
+        <p className="mb-3 text-[12px] text-[#666]">
+          The quoted works, priced per lift where applicable. Rates exclude VAT.
+        </p>
+      </div>
+      <table className="w-full border-collapse text-[12px]">
+        <thead>
+          <tr style={{ background: navy, color: "#fff" }}>
+            <th className="px-2 py-2 text-left font-semibold">Item</th>
+            <th className="px-2 py-2 text-left font-semibold">Specification &amp; description</th>
+            <th className="px-2 py-2 text-right font-semibold">Rate (£)</th>
+            <th className="px-2 py-2 text-right font-semibold">Qty</th>
+            <th className="px-2 py-2 text-center font-semibold">Lifts</th>
+            <th className="px-2 py-2 text-center font-semibold">Hire&nbsp;(wks)</th>
+            <th className="px-2 py-2 text-right font-semibold">Amount (£)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {quote.lines.length === 0 && (
+            <tr>
+              <td colSpan={7} className="px-2 py-4 text-center text-[#888]">
+                No items.
+              </td>
+            </tr>
+          )}
+          {quote.lines.map((l, i) => (
+            <tr key={l.id} className="aw-row border-b border-[#e6e6e6] align-top">
+              <td className="px-2 py-2 text-[#666]">{i + 1}</td>
+              <td className="px-2 py-2 text-[#222]">
+                <span className="font-medium">{l.description}</span>
+                <span className="ml-1 text-[11px] text-[#888]">
+                  · {UNIT_LABEL[l.unit as ConstructionUnit] ?? l.unit}
+                </span>
+                {l.note && <span className="block text-[11px] text-[#888]">{l.note}</span>}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{formatGBP(l.rate)}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{l.quantity}</td>
+              <td className="px-2 py-2 text-center tabular-nums text-[#666]">{l.lifts ?? "—"}</td>
+              <td className="px-2 py-2 text-center tabular-nums text-[#666]">
+                {l.durationWeeks ?? quote.durationWeeks ?? "—"}
+              </td>
+              <td className="px-2 py-2 text-right font-medium tabular-nums text-[#111]">
+                {formatGBP(l.amount)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="aw-row" style={{ borderTop: `2px solid ${navy}` }}>
+            <td colSpan={6} className="px-2 py-2.5 text-right text-[13px] font-semibold" style={{ color: navy }}>
+              Grand total (excl. VAT)
+            </td>
+            <td
+              className="px-2 py-2.5 text-right text-[15px] font-bold tabular-nums"
+              style={{ color: navy }}
+            >
+              {formatGBP(pricing.total)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* Hire terms */}
+      <div className="aw-keep mt-4 space-y-1.5 text-[12px] text-[#444]">
+        {quote.durationWeeks != null && (
+          <p>
+            <span className="font-semibold text-[#222]">Hire period:</span> {quote.durationWeeks} weeks
+            inclusive from first delivery.
+          </p>
+        )}
+        {pricing.extraHirePerWeek != null && (
+          <p>
+            <span className="font-semibold text-[#222]">Extra hire:</span>{" "}
+            {formatGBP(pricing.extraHirePerWeek)} per week beyond the hire period included in the
+            rates. A part-week is charged as a full week.
+          </p>
+        )}
+      </div>
+
+    </>
+  );
+}
+
+/** The standard specification Airwright prints under a scaffold section (Quote-1350). */
+const SCAFFOLD_SPEC =
+  "Supply, erect and dismantle a TG20 compliant independent tube & fit general purpose scaffold, with a 4+2 board configuration including double handrail, toe boards and staircase access. Erected in one operation and dismantled in one operation. 2.0kN/m2 maximum loading on main platform and 0.75kN/m2 on inside boards.";
+
+/** Airwright's real layout: lump-sum sections per area, each with what it includes (Quote-1350 / 1375). */
+function SectionsSpec({ quote, pricing }: { quote: ConstructionQuoteVM; pricing: ConstructionPricing }) {
+  const sections = buildQuoteSections(
+    quote.lines.map((l) => ({ ...l, unit: l.unit as ConstructionUnit })),
+    { buildings: quote.buildings, jobWeeks: quote.durationWeeks, hireInPrice: pricing.hireIncluded },
+  );
+  const covered = (s: QuoteSection) => (pricing.hireIncluded ? s.hireWeeks : (s.baseWeeks ?? s.hireWeeks));
+  const shortHire = !pricing.hireIncluded && sections.some((s) => s.hireWeeks != null && s.baseWeeks != null && s.hireWeeks > s.baseWeeks);
+  return (
+    <>
+      <div className="aw-keep mt-8">
+        <h2 className="mb-1 text-base font-semibold" style={{ color: navy }}>
+          Summary of quotation
+        </h2>
+        <p className="mb-3 text-[12px] text-[#666]">Further detail of each item is on the specification below. Prices exclude VAT.</p>
+      </div>
+      <table className="w-full border-collapse text-[12px]">
+        <thead>
+          <tr style={{ background: navy, color: "#fff" }}>
+            <th className="px-2 py-2 text-left font-semibold">Item</th>
+            <th className="px-2 py-2 text-left font-semibold">Item title</th>
+            <th className="px-2 py-2 text-center font-semibold">Hire period (wks)</th>
+            <th className="px-2 py-2 text-right font-semibold">Extra hire / wk</th>
+            <th className="px-2 py-2 text-right font-semibold">Qty</th>
+            <th className="px-2 py-2 text-right font-semibold">Rate</th>
+            <th className="px-2 py-2 text-right font-semibold">Price excl VAT</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sections.length === 0 && (
+            <tr>
+              <td colSpan={7} className="px-2 py-4 text-center text-[#888]">
+                No items.
+              </td>
+            </tr>
+          )}
+          {sections.map((s, i) => (
+            <tr key={s.key} className="aw-row border-b border-[#e6e6e6] align-top">
+              <td className="px-2 py-2 text-[#666]">{i + 1}</td>
+              <td className="px-2 py-2 font-medium text-[#222]">{s.title}</td>
+              <td className="px-2 py-2 text-center tabular-nums text-[#666]">{covered(s) ?? "—"}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{s.extraHirePerWeek != null ? formatGBP(s.extraHirePerWeek) : "—"}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{s.qty}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-[#444]">{formatGBP(s.rate)}</td>
+              <td className="px-2 py-2 text-right font-medium tabular-nums text-[#111]">{formatGBP(s.price)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="aw-row" style={{ borderTop: `2px solid ${navy}` }}>
+            <td colSpan={6} className="px-2 py-2.5 text-right text-[13px] font-semibold" style={{ color: navy }}>
+              Grand total (excl. VAT)
+            </td>
+            <td className="px-2 py-2.5 text-right text-[15px] font-bold tabular-nums" style={{ color: navy }}>
+              {formatGBP(pricing.total)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div className="aw-keep mt-8">
+        <h2 className="mb-1 text-base font-semibold" style={{ color: navy }}>
+          Specification of quotation
+        </h2>
+      </div>
+      <div className="flex flex-col gap-4">
+        {sections.map((s, i) => (
+          <div key={s.key} className="aw-keep rounded-md border border-[#e6e6e6] p-3">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="text-[13px] font-semibold" style={{ color: navy }}>
+                Item {i + 1} · {s.title}
+              </p>
+              <p className="text-[13px] font-semibold tabular-nums text-[#111]">{formatGBP(s.price)}</p>
+            </div>
+            {s.hasScaffold && <p className="mt-1.5 text-[11.5px] leading-5 text-[#444]">{SCAFFOLD_SPEC}</p>}
+            <p className="mt-1.5 text-[11.5px] leading-5 text-[#222]">
+              <span className="font-semibold">Includes for; </span>
+              {s.includes.join(". ")}.
+            </p>
+            <p className="mt-1.5 text-[11px] text-[#666]">
+              {s.isInspection
+                ? `${s.qty} weeks at ${formatGBP(s.rate)} per week.`
+                : [
+                    covered(s) != null ? `Hire period ${covered(s)} weeks` : null,
+                    !pricing.hireIncluded && s.hireWeeks != null && s.baseWeeks != null && s.hireWeeks > s.baseWeeks
+                      ? `${s.hireWeeks} weeks requested — ${s.hireWeeks - s.baseWeeks} further weeks at the extra-hire rate`
+                      : null,
+                    s.extraHirePerWeek != null ? `extra hire ${formatGBP(s.extraHirePerWeek)} per week` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="aw-keep mt-4 space-y-1.5 text-[12px] text-[#444]">
+        <p>
+          <span className="font-semibold text-[#222]">Hire:</span>{" "}
+          Each price includes the hire period shown. Extra hire beyond it is charged per week at the rate shown; a part-week is charged as a full week.
+          {shortHire && pricing.extraHireBeyondBase > 0
+            ? ` The requested hire runs past the included period: ${formatGBP(pricing.extraHireBeyondBase)} of extra hire at the rates shown.`
+            : ""}
+        </p>
+      </div>
+    </>
   );
 }
 

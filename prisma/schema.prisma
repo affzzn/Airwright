@@ -888,54 +888,182 @@ model ConstructionQuote {
   enquiryText           String?
   draftRawOutput        Json?
   confirmedAt           DateTime?
+  // Pack reading (docs/22, docs/23). mode = A (scope) · B (measure) · C (manual),
+  // detected on ingest and switchable; jobParams = the ⚠ PARAM overrides
+  // (src/lib/construction/params.ts); clientTemplate = the client's own schedule
+  // layout, captured from their scope for template output.
+  mode                  String?
+  jobParams             Json?
+  clientTemplate        Json?
+  ingestStatus          String?                   @default("NONE") // NONE | QUEUED | RUNNING | DONE | FAILED
+  ingestError           String?
+  ingestedAt            DateTime?
+  // Scope mode (docs/23 §11): the estimator's answers on the scope review —
+  // empty sections confirmed "none required" — and the chosen output format
+  // (SECTIONS = Airwright's lump-sum sections, SCHEDULE = itemised, CLIENT = the
+  // client's own workbook filled in).
+  scopeReview           Json?
+  outputFormat          String?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   measurements          ConstructionMeasurement[]
   lines                 ConstructionQuoteLine[]
   attachments           ConstructionAttachment[]
+  buildings             ConstructionBuilding[]
+  sheets                ConstructionSheet[]
+  readRuns              ConstructionReadRun[]
+}
+
+/// A building (or area) within one construction job — CBAND has two (Community
+/// Hall, Sports Pavilion). Sheets, measurements and lines are grouped by it.
+model ConstructionBuilding {
+  id           String                    @id @default(cuid())
+  quoteId      String
+  quote        ConstructionQuote         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  name         String
+  code         String? // the drawing-number code that identified it, e.g. "CCH01"
+  sortOrder    Int                       @default(0)
+  createdAt    DateTime                  @default(now())
+  sheets       ConstructionSheet[]
+  measurements ConstructionMeasurement[]
+  lines        ConstructionQuoteLine[]
+
+  @@index([quoteId])
+}
+
+/// One page of an enquiry file, in the drawing register (docs/23 §5.4): what it
+/// is, where it belongs, whether it is read, and what was read off it.
+model ConstructionSheet {
+  id            String                 @id @default(cuid())
+  quoteId       String
+  quote         ConstructionQuote      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  attachmentId  String
+  attachment    ConstructionAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  page          Int // 1-based
+  buildingId    String?
+  building      ConstructionBuilding?  @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  drawingNo     String?
+  title         String?
+  revision      String?
+  kind          String // PLAN | ROOF_PLAN | ELEVATION | SECTION | SITE_PLAN | LOGISTICS_PLAN | SURVEY | MARKUP | SCHEDULE | DETAIL | FINISHES | FURNITURE | SPEC | REGISTER | OTHER
+  level         String? // GF | 1F | 2F … (plans)
+  face          String? // NORTH | FRONT … (elevations)
+  scale         String? // "1:50"
+  paper         String? // A1 | A2 | A3 | A4
+  widthPt       Float
+  heightPt      Float
+  hasText       Boolean
+  bucket        String // CORE | CONTEXT | REGISTER | NOT_RELEVANT
+  reason        String?
+  included      Boolean                @default(true) // the estimator's override
+  superseded    Boolean                @default(false) // an older revision of a drawing number
+  geometry      Json? // the deterministic text-layer extraction (sheetGeometry)
+  readStatus    String                 @default("NONE") // NONE | QUEUED | READING | READ | FAILED | SKIPPED
+  readKind      String? // which reader: PLAN | ELEVATION | SECTION | ROOF | MARKUP | MARKUP_NUMBERS
+  readRawOutput Json?
+  readMeta      Json? // model, promptVersion, tokens, costUsd, latencyMs
+  readKey       String? // contentHash + promptVersion — an unchanged sheet is not re-read
+  readError     String?
+  readAt        DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@unique([attachmentId, page])
+  @@index([quoteId])
+}
+
+/// One background read of a job's pack (docs/22 §4.9): status, cost, progress
+/// and the assembled result, so it survives a reload and a retry costs nothing.
+model ConstructionReadRun {
+  id         String            @id @default(cuid())
+  quoteId    String
+  quote      ConstructionQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  status     String            @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED
+  mode       String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  costUsd    Decimal           @default(0) @db.Decimal(10, 4)
+  progress   Json? // { total, done, failed, current }
+  result     Json? // the building model + draft (docs/23)
+  error      String?
+  createdAt  DateTime          @default(now())
+
+  @@index([quoteId])
 }
 
 /// A measurement Colin entered by hand — kept SEPARATE from the priced lines (docs/19 §3).
 model ConstructionMeasurement {
-  id            String            @id @default(cuid())
+  id            String                @id @default(cuid())
   quoteId       String
-  quote         ConstructionQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote         ConstructionQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   label         String
   kind          String // PERIMETER_LM | BIRDCAGE_M2 | HANDRAIL_LM | HEIGHT_M | LIFTS | AREA_LM
-  valueNumber   Decimal           @db.Decimal(10, 3)
+  valueNumber   Decimal               @db.Decimal(10, 3)
   lifts         Int?
   heightBracket HeightBracket?
   source        String? // GOOGLE_EARTH | DRAWING | CLIENT_SCOPE | MANUAL
   note          String?
-  sortOrder     Int               @default(0)
-  createdAt     DateTime          @default(now())
+  sortOrder     Int                   @default(0)
+  // Pack reading (docs/23): which building, how sure, where it came from, which
+  // ⚠ params it used, and the read run that wrote it (null = entered by hand).
+  buildingId    String?
+  building      ConstructionBuilding? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  unit          String?
+  confidence    String?
+  provenance    Json?
+  paramsUsed    Json?
+  runId         String?
+  /// The engine's stable key for this measurement (e.g. "scaffold-run"), and the
+  /// sheets it came from — { sheetId, attachmentId, page, title }[] — so a source
+  /// opens the drawing it was read from.
+  key           String?
+  sheetRefs     Json?
+  createdAt     DateTime              @default(now())
 
   @@index([quoteId])
 }
 
 /// One priced line in the picking-list quote builder.
 model ConstructionQuoteLine {
-  id                 String               @id @default(cuid())
+  id                 String                @id @default(cuid())
   quoteId            String
-  quote              ConstructionQuote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote              ConstructionQuote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   elementId          String? // the library item (null = a one-off manual add)
-  element            ConstructionElement? @relation(fields: [elementId], references: [id], onDelete: SetNull)
+  element            ConstructionElement?  @relation(fields: [elementId], references: [id], onDelete: SetNull)
   description        String // the item name as it prints (editable)
   lifts              Int? // "Nr of Lifts"
   unit               ConstructionUnit
-  quantity           Decimal              @db.Decimal(10, 3)
+  quantity           Decimal               @db.Decimal(10, 3)
   heightBracket      HeightBracket?
-  rate               Decimal              @db.Decimal(10, 2)
+  rate               Decimal               @db.Decimal(10, 2)
   durationWeeks      Int?
   /// Hire terms snapshotted from the rate when the line was added (docs/19 §7).
   baseHireWeeks      Int?
-  extraHirePerWeek   Decimal?             @db.Decimal(10, 2)
-  extraHireChargePct Decimal?             @db.Decimal(5, 2)
-  amount             Decimal              @db.Decimal(12, 2) // computed, frozen on confirm
-  isAuto             Boolean              @default(false) // rule-suggested vs hand-added (all editable)
-  sortOrder          Int                  @default(0)
+  extraHirePerWeek   Decimal?              @db.Decimal(10, 2)
+  extraHireChargePct Decimal?              @db.Decimal(5, 2)
+  amount             Decimal               @db.Decimal(12, 2) // computed, frozen on confirm
+  isAuto             Boolean               @default(false) // rule-suggested vs hand-added (all editable)
+  sortOrder          Int                   @default(0)
   note               String?
-  createdAt          DateTime             @default(now())
+  // Pack reading (docs/23 §11): the building/section it belongs to and the
+  // traceable working behind a drafted quantity.
+  buildingId         String?
+  building           ConstructionBuilding? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  section            String?
+  formula            String?
+  confidence         String?
+  provenance         Json?
+  paramsUsed         Json?
+  /// What the client asked for on this line (docs/23 §11): their wording, their
+  /// stated numbers and, for a spreadsheet scope, the sheet + row it sits on (the
+  /// client-template export writes back into that row).
+  clientRef          Json?
+  /// Review flags on this line (cross-check differences, "measure by hand"…).
+  flags              Json?
+  /// The section card that owns this line ("ext:run", "ext:haki", "job:inspections"…),
+  /// per building — the card keeps it in step with its numbers (docs/22 §M5).
+  cardKey            String?
+  createdAt          DateTime              @default(now())
 
   @@index([quoteId])
   @@index([elementId])
@@ -943,24 +1071,33 @@ model ConstructionQuoteLine {
 
 /// A reference file (email, drawing, site plan, photo) — stored + displayed, NEVER parsed.
 model ConstructionAttachment {
-  id             String            @id @default(cuid())
-  quoteId        String
-  quote          ConstructionQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  fileName       String
-  storageBucket  String            @default("tender-packs")
-  storagePath    String
-  mimeType       String
-  sizeBytes      Int?
-  kind           String? // EMAIL | DRAWING | SITE_PLAN | ROOF_PLAN | LOGISTICS_PLAN | PHOTO | SCOPE | OTHER
+  id              String              @id @default(cuid())
+  quoteId         String
+  quote           ConstructionQuote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  fileName        String
+  storageBucket   String              @default("tender-packs")
+  storagePath     String
+  mimeType        String
+  sizeBytes       Int?
+  kind            String? // EMAIL | DRAWING | SITE_PLAN | ROOF_PLAN | LOGISTICS_PLAN | PHOTO | SCOPE | OTHER
   // Enquiry reading (docs/20): the estimator ticks which files the AI reads; the
   // drawing reader's output is stored per file for audit + re-assembly. The internal
   // answer files (schedule/quote) are never eligible (guarded in the server action).
-  useForDrafting Boolean           @default(false)
-  drawingKind    String? // ELEVATION | FLOOR_PLAN | ROOF_PLAN | SITE_PLAN | SECTION | MARKED_UP | OTHER
-  readStatus     String?           @default("NONE") // NONE | PENDING | READ | FAILED
-  readRawOutput  Json? // the DrawingObservations (docs/20 §5) for audit + re-assembly
-  readMeta       Json? // model, promptVersion, tokens, costUsd
-  createdAt      DateTime          @default(now())
+  useForDrafting  Boolean             @default(false)
+  drawingKind     String? // ELEVATION | FLOOR_PLAN | ROOF_PLAN | SITE_PLAN | SECTION | MARKED_UP | OTHER
+  readStatus      String?             @default("NONE") // NONE | PENDING | READ | FAILED
+  readRawOutput   Json? // the DrawingObservations (docs/20 §5) for audit + re-assembly
+  readMeta        Json? // model, promptVersion, tokens, costUsd
+  // Pack ingest (docs/23 §5): the folder path it was uploaded under, a content
+  // hash (duplicates), and the register bucket the file landed in.
+  relativePath    String?
+  contentHash     String?
+  bucket          String? // CORE | CONTEXT | SCOPE | REFERENCE | NOT_RELEVANT | JUNK | DUPLICATE | ARCHIVE
+  bucketReason    String?
+  pageCount       Int?
+  sourceArchiveId String? // set on files unpacked from an uploaded zip
+  sheets          ConstructionSheet[]
+  createdAt       DateTime            @default(now())
 
   @@index([quoteId])
 }

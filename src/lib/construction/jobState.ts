@@ -53,6 +53,12 @@ export interface JobFacts {
   /** True when a foam line is already on the quote. */
   hasFoamLine: boolean;
   total: number;
+  /** Lines with no quantity yet (a scope line to measure by hand, a blank basis). */
+  blankLineCount: number;
+  /** ⚠ settings the lines use that are still placeholders (P-codes). */
+  placeholdersInUse: string[];
+  /** Sections the client listed empty and the estimator has not yet confirmed. */
+  openEmptySections: string[];
 }
 
 const plural = (n: number, one: string, many = `${one}s`) =>
@@ -77,8 +83,14 @@ export interface QuoteShapeForFacts {
     rate: number;
     amount: number;
     description: string;
+    paramsUsed?: string[];
   }[];
   measurements: unknown[];
+  /** Placeholder state per ⚠ param key (true = confirmed), when the job has settings. */
+  paramConfirmed?: Record<string, boolean>;
+  /** Empty sections from the latest read, and those confirmed "none required". */
+  emptySections?: string[];
+  noneRequired?: string[];
   attachments: {
     fileName: string;
     mimeType: string;
@@ -111,6 +123,12 @@ export function factsFromQuote(q: QuoteShapeForFacts): JobFacts {
       (q.doorwayCount ?? 0) + (q.fireExitCount ?? 0) + (q.pedestrianAccessCount ?? 0),
     hasFoamLine: q.lines.some((l) => /foam/i.test(l.description)),
     total: q.lines.reduce((a, l) => a + l.amount, 0),
+    blankLineCount: q.lines.filter((l) => !(l.quantity > 0)).length,
+    placeholdersInUse: [...new Set(q.lines.flatMap((l) => l.paramsUsed ?? []))]
+      .filter((k) => q.paramConfirmed && q.paramConfirmed[k] === false)
+      .map((k) => k.split("_")[0])
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    openEmptySections: (q.emptySections ?? []).filter((s) => !(q.noneRequired ?? []).includes(s)),
   };
 }
 
@@ -272,6 +290,34 @@ export function issueChecks(f: JobFacts): IssueCheck[] {
     },
   ];
 
+  if (f.blankLineCount > 0)
+    checks.push({
+      key: "blank",
+      title: "Every line measured",
+      detail: `${plural(f.blankLineCount, "line")} with no quantity`,
+      done: false,
+      step: "items",
+      action: "Measure",
+    });
+  if (f.placeholdersInUse.length > 0)
+    checks.push({
+      key: "placeholders",
+      title: "Placeholder settings",
+      detail: `${f.placeholdersInUse.join(", ")} not confirmed`,
+      done: false,
+      step: "facts",
+      action: "Review",
+    });
+  if (f.openEmptySections.length > 0)
+    checks.push({
+      key: "sections",
+      title: "Empty sections confirmed",
+      detail: `${f.openEmptySections.join(", ")} — none required?`,
+      done: false,
+      step: "items",
+      action: "Confirm",
+    });
+
   // Foam is never priced automatically (docs/20). If the drawings counted access
   // points and no foam line exists, the estimator has to make that call.
   if (f.accessPointCount > 0) {
@@ -327,6 +373,7 @@ const BRACKET_SHORT: Record<string, string> = {
   H6_12M: "6 to 12 m",
   H12_18M: "12 to 18 m",
   H18_24M: "18 to 24 m",
+  H24_30M: "24 to 30 m",
   ANY: "any height",
 };
 function bracketShort(b: string | null): string {

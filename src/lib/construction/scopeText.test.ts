@@ -100,3 +100,23 @@ describe("extractScopeText — dispatch by type", () => {
     ).rejects.toThrow(/Unsupported/i);
   });
 });
+
+describe("emlToText — base64 bodies (Outlook)", () => {
+  it("decodes a base64 text/plain part", () => {
+    const body = Buffer.from("Morning Colin,\nNew enquiry below: scaffold to Block F.", "utf8").toString("base64");
+    const eml = [
+      "From: a@b.com",
+      "Content-Type: multipart/alternative; boundary=\"XX\"",
+      "",
+      "--XX",
+      'Content-Type: text/plain; charset="utf-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      body.match(/.{1,76}/g)!.join("\r\n"),
+      "--XX--",
+    ].join("\r\n");
+    const text = emlToText(Buffer.from(eml, "utf8"));
+    expect(text).toContain("New enquiry below: scaffold to Block F.");
+    expect(text).not.toMatch(/TW9ybmluZy/);
+  });
+});

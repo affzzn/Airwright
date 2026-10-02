@@ -52,6 +52,8 @@ export interface LinePriceInput {
   extraHirePerWeek?: number | null;
   /** Percentage of `extraHirePerWeek` actually charged (25 / 50 / 75 / 100). */
   extraHireChargePct?: number | null;
+  /** Weeks of hire THIS line is quoted for (a scope states hire per line); falls back to the job's. */
+  durationWeeks?: number | null;
 }
 
 /** One line's £ amount (2 dp). Missing/zero rate → £0 (surfaced as unpriced upstream). */
@@ -73,8 +75,9 @@ export function lineExtraHirePerWeek(line: LinePriceInput): number {
   return penceOf(qty * perWeek * (pct / 100)) / 100;
 }
 
-/** How many weeks of the quoted hire fall beyond this line's base period. */
-export function weeksBeyondBase(line: LinePriceInput, quotedWeeks: number | null): number {
+/** How many weeks of the quoted hire fall beyond this line's base period (its own weeks first). */
+export function weeksBeyondBase(line: LinePriceInput, jobWeeks: number | null): number {
+  const quotedWeeks = line.durationWeeks != null && line.durationWeeks > 0 ? line.durationWeeks : jobWeeks;
   if (quotedWeeks == null || !Number.isFinite(quotedWeeks) || quotedWeeks <= 0) return 0;
   const base = clean(line.baseHireWeeks, 0);
   return Math.max(0, Math.ceil(quotedWeeks) - Math.trunc(base));
@@ -95,12 +98,20 @@ export interface QuotePriceResult {
   extraHireBeyondBase: number;
   /** The largest number of weeks any line runs beyond its base period. */
   maxWeeksBeyondBase: number;
+  /** True when `total` includes the hire beyond each rate's base weeks (P18 = INCLUDED). */
+  hireIncluded: boolean;
 }
 
 export interface QuotePriceInput {
   lines: LinePriceInput[];
-  /** The hire period being quoted, in weeks. */
+  /** The hire period being quoted, in weeks (a line's own weeks win). */
   durationWeeks?: number | null;
+  /**
+   * ⚠ P18: does the price cover the WHOLE stated hire? false (default) = the
+   * total covers the rates' base weeks and longer hire is quoted as terms;
+   * true = each line's hire beyond its base weeks is added into the total.
+   */
+  hireInPrice?: boolean;
 }
 
 /**
@@ -127,13 +138,20 @@ export function priceConstructionQuote(input: QuotePriceInput): QuotePriceResult
     beyondPence += penceOf(weekly) * weeks;
   }
 
+  if (input.hireInPrice) totalPence += beyondPence;
   return {
     lineAmounts,
     total: totalPence / 100,
     extraHirePerWeek: weeklyPence > 0 ? weeklyPence / 100 : null,
     extraHireBeyondBase: beyondPence / 100,
     maxWeeksBeyondBase: maxWeeks,
+    hireIncluded: Boolean(input.hireInPrice),
   };
+}
+
+/** One line's hire beyond its base weeks, in £ (what P18 = INCLUDED adds to it). */
+export function lineHireBeyondBase(line: LinePriceInput, jobWeeks: number | null): number {
+  return (penceOf(lineExtraHirePerWeek(line)) * weeksBeyondBase(line, jobWeeks)) / 100;
 }
 
 /** A rate with the hire terms that come with it. */

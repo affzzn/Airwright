@@ -22,6 +22,7 @@ import {
   type RateBand,
 } from "@/lib/construction/types";
 import { cn, formatGBP } from "@/lib/utils";
+import { isDevPlaceholder } from "@/lib/construction/devPlaceholder";
 
 /**
  * The item library, as a MATRIX (docs/19 §9). Airwright price one item at a rate
@@ -309,6 +310,14 @@ function ElementRow({
           {!element.isActive && (
             <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted">
               retired
+            </span>
+          )}
+          {isDevPlaceholder(element.defaultRuleNote) && (
+            <span
+              className="rounded border border-hairline-strong px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted"
+              title="A development placeholder rate, not Airwright's confirmed price"
+            >
+              DEV placeholder
             </span>
           )}
         </span>

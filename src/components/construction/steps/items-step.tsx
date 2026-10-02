@@ -16,9 +16,14 @@ import type {
   ConstructionElementLibVM,
   ConstructionLineVM,
   ConstructionQuoteVM,
+  SheetRef,
 } from "@/server/construction";
+import { ConfidenceDot } from "@/components/ui/badge";
+import { MeasurementSheet, CONF_VALUE } from "@/components/construction/measurement-sheet";
+import { ScopeReviewPanel } from "@/components/construction/scope-review";
+import { SectionCards } from "@/components/construction/section-cards";
 import { lineAmount, resolveConstructionRate } from "@/lib/construction/price";
-import { HAKI_LIFTS, inspectionWeeks, needsScaffoldMat } from "@/lib/construction/rules";
+import { inspectionWeeks, needsScaffoldMat, suggestedHakiLifts } from "@/lib/construction/rules";
 import {
   PER_LIFT_UNITS,
   UNIT_LABEL,
@@ -99,6 +104,9 @@ export function ItemsStep({
   setLines,
   locked,
   compact,
+  total,
+  hireIncluded,
+  onShowSheet,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
@@ -107,6 +115,10 @@ export function ItemsStep({
   locked: boolean;
   /** True when the drawing pane is open: stack instead of squeezing. */
   compact: boolean;
+  /** The quote total (Σ lines, plus hire beyond the base weeks when P18 includes it). */
+  total: number;
+  hireIncluded: boolean;
+  onShowSheet: (ref: SheetRef) => void;
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -114,29 +126,27 @@ export function ItemsStep({
   const byId = useMemo(() => new Map(library.map((e) => [e.id, e])), [library]);
   const bracket = (quote.defaultHeightBracket as HeightBracket | null) ?? null;
 
-  const total = useMemo(
-    () =>
-      lines.reduce(
-        (a, l) =>
-          a + lineAmount({ unit: l.unit as ConstructionUnit, quantity: l.quantity, lifts: l.lifts, rate: l.rate }),
-        0,
-      ),
-    [lines],
-  );
-
+  // A scope / pack job groups by building, then section (the order the quote
+  // prints in); a hand-built job keeps the picking-list categories.
   const groups = useMemo(() => {
+    const traced = lines.some((l) => l.section || l.buildingId);
+    const bName = (id: string | null) => (id ? quote.buildings.find((b) => b.id === id)?.name : null);
     const map = new Map<string, ConstructionLineVM[]>();
     for (const l of lines) {
       const cat = (l.elementId && byId.get(l.elementId)?.category) || "Other";
-      const list = map.get(cat) ?? [];
+      const key = traced
+        ? [quote.buildings.length > 1 ? (bName(l.buildingId) ?? "Whole job") : null, l.section ?? cat].filter(Boolean).join(" · ")
+        : cat;
+      const list = map.get(key) ?? [];
       list.push(l);
-      map.set(cat, list);
+      map.set(key, list);
     }
-    return [...map.entries()].sort(
-      (a, b) =>
-        (CATEGORY_ORDER.indexOf(a[0]) + 1 || 99) - (CATEGORY_ORDER.indexOf(b[0]) + 1 || 99),
-    );
-  }, [lines, byId]);
+    const entries = [...map.entries()];
+    return traced
+      ? entries
+      : entries.sort((a, b) => (CATEGORY_ORDER.indexOf(a[0]) + 1 || 99) - (CATEGORY_ORDER.indexOf(b[0]) + 1 || 99));
+  }, [lines, byId, quote.buildings]);
+  const result = quote.latestRun?.status === "DONE" ? quote.latestRun.result : null;
 
   const addElement = (elementId: string, quantity: number, lifts: number | null) =>
     start(async () => {
@@ -167,6 +177,11 @@ export function ItemsStep({
   return (
     <div className={cn("grid gap-4", !compact && "xl:grid-cols-[minmax(0,1fr)_336px]")}>
       <div className="flex min-w-0 flex-col gap-3">
+        {/* Scenario 1 prices the client's own lines: no cards (they hold drawing numbers). */}
+        {quote.mode !== "A" && <SectionCards quote={quote} library={library} lines={lines} locked={locked} onShowSheet={onShowSheet} />}
+        {result && ((result.emptySections?.length ?? 0) > 0 || (result.info?.length ?? 0) > 0) && (
+          <ScopeReviewPanel quote={quote} result={{ ...result, account: null }} locked={locked} />
+        )}
         {suggestions.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-ink-muted">Suggested</span>
@@ -196,17 +211,18 @@ export function ItemsStep({
                   // Tighten the fixed columns so the table always fits beside
                   // the drawing instead of scrolling sideways.
                   compact &&
-                    "[&_.act-col]:w-[44px] [&_.amt-col]:w-[104px] [&_.lifts-col]:w-[56px] [&_.qty-col]:w-[84px] [&_.rate-col]:w-[80px] [&_.unit-col]:hidden [&_table]:table-fixed [&_td]:pr-2 [&_th]:px-2",
+                    "[&_.act-col]:w-[44px] [&_.amt-col]:w-[104px] [&_.hire-col]:w-[52px] [&_.lifts-col]:w-[56px] [&_.qty-col]:w-[84px] [&_.rate-col]:w-[80px] [&_.unit-col]:hidden [&_table]:table-fixed [&_td]:pr-2 [&_th]:px-2",
                 )}
               >
               <table className="w-full">
                 <thead>
                   <tr className="text-left">
                     <Th className="pl-5">Item</Th>
-                    <Th className="lifts-col w-[62px] text-right">Lifts</Th>
-                    <Th className="qty-col w-[92px] text-right">Quantity</Th>
-                    <Th className="unit-col w-[74px]">Unit</Th>
-                    <Th className="rate-col w-[86px] text-right">Rate</Th>
+                    <Th className="lifts-col w-[58px] text-right">Lifts</Th>
+                    <Th className="qty-col w-[104px] text-right">Quantity</Th>
+                    <Th className="unit-col w-[66px]">Unit</Th>
+                    <Th className="hire-col w-[58px] text-right">Hire</Th>
+                    <Th className="rate-col w-[92px] text-right">Rate</Th>
                     <Th className="amt-col w-[108px] text-right">Amount</Th>
                     <Th className="act-col w-[56px] pr-5" />
                   </tr>
@@ -217,7 +233,7 @@ export function ItemsStep({
                       key={category}
                       category={category}
                       rows={rows}
-                      quoteId={quote.id}
+                      quote={quote}
                       locked={locked}
                       setLines={setLines}
                     />
@@ -235,9 +251,9 @@ export function ItemsStep({
 
               <div className="flex flex-wrap items-end justify-between gap-4 border-t border-hairline-strong px-5 py-4">
                 <p className="max-w-sm text-xs text-ink-muted">
-                  {quote.durationWeeks
-                    ? `Extra hire beyond week ${quote.durationWeeks} is quoted as terms.`
-                    : "Set a hire duration on the site facts step."}
+                  {hireIncluded
+                    ? "The total includes each line's hire beyond the weeks its rate covers (setting P18)."
+                    : "Rates cover their included weeks; longer hire is quoted as terms (setting P18)."}
                 </p>
                 <div className="text-right">
                   <p className="eyebrow mb-1">Total excluding VAT</p>
@@ -278,6 +294,7 @@ export function ItemsStep({
         busy={busy}
         compact={compact}
         onAddElement={addElement}
+        onShowSheet={onShowSheet}
       />
     </div>
   );
@@ -299,41 +316,79 @@ function Th({ children, className }: { children?: React.ReactNode; className?: s
 function GroupRows({
   category,
   rows,
-  quoteId,
+  quote,
   locked,
   setLines,
 }: {
   category: string;
   rows: ConstructionLineVM[];
-  quoteId: string;
+  quote: ConstructionQuoteVM;
   locked: boolean;
   setLines: React.Dispatch<React.SetStateAction<ConstructionLineVM[]>>;
 }) {
   return (
     <>
       <tr>
-        <td colSpan={7} className="px-5 pb-1.5 pt-4">
+        <td colSpan={8} className="px-5 pb-1.5 pt-4">
           <span className="eyebrow">{category}</span>
         </td>
       </tr>
       {rows.map((l) => (
-        <LineRow key={l.id} line={l} quoteId={quoteId} locked={locked} setLines={setLines} />
+        <LineRow key={l.id} line={l} quote={quote} locked={locked} setLines={setLines} />
       ))}
     </>
   );
 }
 
+/** The working behind a drafted line: its formula, status flags, the client's number, live placeholders. */
+function LineTrace({ line, quote }: { line: ConstructionLineVM; quote: ConstructionQuoteVM }) {
+  const placeholders = line.paramsUsed
+    .filter((k) => quote.params[k as keyof typeof quote.params] && !quote.params[k as keyof typeof quote.params].confirmed)
+    .map((k) => k.split("_")[0]);
+  const flags = line.flags.filter((f) => !/is a placeholder/.test(f));
+  const client = line.clientRef;
+  const stated = client ? (client.statedQuantity ?? client.statedCount) : null;
+  if (!line.formula && !client && flags.length === 0 && placeholders.length === 0) return null;
+  return (
+    <div className="mt-0.5 px-1.5 text-[11px] leading-relaxed" title={line.provenance.join("\n")}>
+      {line.formula && (
+        <p className="flex items-start gap-1.5 text-ink-muted">
+          {line.confidence && (
+            <span className="mt-[5px]">
+              <ConfidenceDot value={CONF_VALUE[line.confidence] ?? 0} />
+            </span>
+          )}
+          <span className="min-w-0">{line.formula}</span>
+        </p>
+      )}
+      {client && (
+        <p className="truncate text-ink-subtle">
+          Client: “{client.text}”{stated != null ? ` · their figure ${stated}` : ""}
+          {client.hireWeeks != null ? ` · ${client.hireWeeks} wk` : ""}
+        </p>
+      )}
+      {flags.map((f, i) => (
+        <p key={i} className="text-ink">
+          · {f}
+        </p>
+      ))}
+      {placeholders.length > 0 && <p className="text-ink-subtle">⚠ uses placeholder settings {placeholders.join(", ")}</p>}
+    </div>
+  );
+}
+
 function LineRow({
   line,
-  quoteId,
+  quote,
   locked,
   setLines,
 }: {
   line: ConstructionLineVM;
-  quoteId: string;
+  quote: ConstructionQuoteVM;
   locked: boolean;
   setLines: React.Dispatch<React.SetStateAction<ConstructionLineVM[]>>;
 }) {
+  const quoteId = quote.id;
   const router = useRouter();
   const [pending, start] = useTransition();
   const perLift = isPerLift(line.unit);
@@ -347,7 +402,7 @@ function LineRow({
 
   const patch = (p: Partial<ConstructionLineVM>) =>
     setLines((prev) => prev.map((x) => (x.id === line.id ? { ...x, ...p } : x)));
-  const save = (p: { quantity?: number; lifts?: number | null; rate?: number; description?: string }) =>
+  const save = (p: { quantity?: number; lifts?: number | null; rate?: number; description?: string; durationWeeks?: number | null }) =>
     updateConstructionLine(line.id, quoteId, p);
 
   return (
@@ -368,7 +423,8 @@ function LineRow({
             {formulaFor(line)}
             {line.isAuto && <span className="ml-2 text-ink-subtle">from enquiry</span>}
           </p>
-          {line.note && (
+          <LineTrace line={line} quote={quote} />
+          {line.note && !line.clientRef && (
             <p className="truncate px-1.5 text-[11px] text-ink-subtle" title={line.note}>
               {line.note}
             </p>
@@ -403,6 +459,19 @@ function LineRow({
         </td>
         <td className="unit-col py-2.5 pr-3 text-xs text-ink-muted">
           {UNIT_LABEL[line.unit as ConstructionUnit]}
+        </td>
+        <td className="py-2.5 pr-3">
+          <CellInput
+            inputMode="numeric"
+            aria-label="Hire weeks"
+            title="Weeks of hire for this line (blank = the job's)"
+            value={line.durationWeeks ?? ""}
+            placeholder={quote.durationWeeks != null ? String(quote.durationWeeks) : "—"}
+            disabled={locked}
+            onChange={(e) => patch({ durationWeeks: e.target.value === "" ? null : Math.trunc(num(e.target.value)) })}
+            onBlur={(e) => save({ durationWeeks: e.target.value === "" ? null : Math.trunc(num(e.target.value)) })}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          />
         </td>
         <td className="py-2.5 pr-3">
           <CellInput
@@ -452,7 +521,7 @@ function LineRow({
       </tr>
       {unpriced && (
         <tr>
-          <td colSpan={7} className="px-5 pb-2.5">
+          <td colSpan={8} className="px-5 pb-2.5">
             <RowNotice
               action={
                 <a href="/rates" className="text-xs font-semibold text-ink">
@@ -501,6 +570,7 @@ function MobileLine({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-ink">{line.description}</p>
           <p className="mt-0.5 text-[11px] tabular-nums text-ink-muted">{formulaFor(line)}</p>
+          {line.formula && <p className="mt-0.5 text-[11px] text-ink-muted">{line.formula}</p>}
         </div>
         <p className="shrink-0 text-base font-semibold tabular-nums text-ink">{formatGBP(amount)}</p>
       </div>
@@ -596,6 +666,7 @@ function SidePane({
   busy,
   compact,
   onAddElement,
+  onShowSheet,
 }: {
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
@@ -606,6 +677,7 @@ function SidePane({
   busy: boolean;
   compact: boolean;
   onAddElement: (elementId: string, quantity: number, lifts: number | null) => void;
+  onShowSheet: (ref: SheetRef) => void;
 }) {
   const [tab, setTab] = useState<Tab>("picking");
 
@@ -651,9 +723,10 @@ function SidePane({
             busy={busy}
             onAdd={onAddElement}
             quoteId={quote.id}
+            buildingHeightM={quote.buildingHeightM}
           />
         )}
-        {tab === "measurements" && <Measurements quote={quote} locked={locked} />}
+        {tab === "measurements" && <Measurements quote={quote} library={library} locked={locked} onShowSheet={onShowSheet} />}
       </div>
     </aside>
   );
@@ -668,6 +741,7 @@ function PickingList({
   busy,
   onAdd,
   quoteId,
+  buildingHeightM,
 }: {
   library: ConstructionElementLibVM[];
   lines: ConstructionLineVM[];
@@ -677,6 +751,8 @@ function PickingList({
   busy: boolean;
   onAdd: (elementId: string, quantity: number, lifts: number | null) => void;
   quoteId: string;
+  /** Drives the Haki lift suggestion (it follows the scaffold it serves). */
+  buildingHeightM: number | null;
 }) {
   const [query, setQuery] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
@@ -759,7 +835,7 @@ function PickingList({
                 <IconButton
                   label={`Add ${e.name}`}
                   disabled={locked || busy}
-                  onClick={() => onAdd(e.id, 0, e.usesLifts && /haki/i.test(e.name) ? HAKI_LIFTS : null)}
+                  onClick={() => onAdd(e.id, 0, e.usesLifts && /haki/i.test(e.name) ? suggestedHakiLifts(buildingHeightM) : null)}
                   className="h-7 w-7 border border-hairline-strong"
                 >
                   <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -863,20 +939,43 @@ function CustomItemForm({ quoteId, onDone }: { quoteId: string; onDone: () => vo
   );
 }
 
-function Measurements({ quote, locked }: { quote: ConstructionQuoteVM; locked: boolean }) {
+function Measurements({
+  quote,
+  library,
+  locked,
+  onShowSheet,
+}: {
+  quote: ConstructionQuoteVM;
+  library: ConstructionElementLibVM[];
+  locked: boolean;
+  onShowSheet: (ref: SheetRef) => void;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
+  const read = quote.measurements.some((m) => m.runId);
 
   return (
     <div className="p-4">
-      {quote.measurements.length === 0 ? (
+      {read && (
+        <div className="mb-3">
+          <MeasurementSheet
+            quote={{ ...quote, measurements: quote.measurements.filter((m) => m.runId) }}
+            library={library}
+            locked={locked}
+            onShowSheet={onShowSheet}
+            compact
+          />
+          <p className="eyebrow mb-1 mt-4">Entered by hand</p>
+        </div>
+      )}
+      {quote.measurements.filter((m) => !read || !m.runId).length === 0 ? (
         <EmptyHint title="No measurements">
           Record what you measured, so every quantity on the quote is traceable.
         </EmptyHint>
       ) : (
         <ul className="flex flex-col">
-          {quote.measurements.map((m) => (
+          {quote.measurements.filter((m) => !read || !m.runId).map((m) => (
             <li key={m.id} className="group flex items-center gap-3 border-b border-hairline py-2.5 last:border-0">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium text-ink">{m.label}</span>

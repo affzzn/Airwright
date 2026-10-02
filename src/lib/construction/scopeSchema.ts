@@ -20,6 +20,12 @@ export type DraftConfidence = z.infer<typeof draftConfidence>;
 export const draftLineSchema = z.object({
   /** The scope's original wording for this item — kept verbatim for traceability. */
   clientText: z.string(),
+  /** For a SCHEDULE given row by row, the row's tag exactly as shown (e.g. "R12"); null for free text. */
+  rowRef: z.string().nullable().catch(null),
+  /** The section heading the line sits under, copied exactly (e.g. "Perimeter Scaffolding"); null if none. */
+  section: z.string().nullable().catch(null),
+  /** The lifts cell / wording VERBATIM (e.g. "2", "at each level"), when the scope states one. */
+  liftsText: z.string().nullable().catch(null),
   /** The scope's own reference for the row, e.g. "1.2", when it numbers them. */
   itemRef: z.string().nullable(),
   /** Where on the job it is, e.g. "Stair 01", "North courtyard", "Block F roof". */
@@ -48,6 +54,8 @@ export const draftLineSchema = z.object({
 export type DraftLine = z.infer<typeof draftLineSchema>;
 
 export const constructionDraftSchema = z.object({
+  /** Every section heading of the scope, in order, INCLUDING headings with nothing under them. */
+  sections: z.array(z.string()).catch([]),
   lines: z.array(draftLineSchema),
   /** Anything the estimator should know about the scope as a whole. */
   notes: z.string(),

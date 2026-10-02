@@ -26,6 +26,9 @@ const base: JobFacts = {
   accessPointCount: 0,
   hasFoamLine: false,
   total: 0,
+  blankLineCount: 0,
+  placeholdersInUse: [],
+  openEmptySections: [],
 };
 const f = (over: Partial<JobFacts> = {}): JobFacts => ({ ...base, ...over });
 

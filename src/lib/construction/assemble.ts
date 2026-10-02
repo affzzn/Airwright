@@ -10,7 +10,7 @@
 
 import type { DrawingConfidence, DrawingObservations, NumberField } from "./drawingSchema";
 import type { ConstructionUnit, HeightBracket } from "./types";
-import { HAKI_LIFTS, heightBracketFor } from "./rules";
+import { heightBracketFor, suggestedHakiLifts } from "./rules";
 
 /** The minimal library shape assemble needs (from `loadConstructionLibrary`). */
 export interface AssembleLibEl {
@@ -34,7 +34,48 @@ export interface DrawingDraftLine {
   needsItem: boolean; // true when nothing in the library matched
   /** Weeks of hire this line asks for, when the scope stated one per line. */
   hireWeeks?: number | null;
+  // --- Scope mode (docs/23 §11): the traceable working behind the line. ---
+  /** The client's section (or the area section, e.g. "External"). */
+  section?: string | null;
+  /** The building it belongs to (DB building id, or the offline key). */
+  buildingId?: string | null;
+  /** The visible sum: "59.516 m perimeter + 1.0 m × 4 corners = 63.516 m". */
+  formula?: string | null;
+  /** Where every number came from (sheet + printed string). */
+  provenance?: string[];
+  /** The ⚠ params the line used (flagged while unconfirmed). */
+  paramsUsed?: string[];
+  /** Review flags on this line (cross-check differences, measure by hand…). */
+  flags?: string[];
+  /** What the client asked for on this line. */
+  clientRef?: ClientRef | null;
+  /** How the quantity was arrived at. */
+  status?: LineStatus;
+  /** The item the reader proposed — a different final choice is a correction (alias learning). */
+  suggestedElementId?: string | null;
 }
+
+/** What the client asked for on a line (docs/23 §11.1). */
+export interface ClientRef {
+  text: string;
+  rowRef: string | null;
+  sheet: string | null;
+  section: string | null;
+  itemRef: string | null;
+  location: string | null;
+  statedQuantity: number | null;
+  statedLifts: number | null;
+  statedCount: number | null;
+  hireWeeks: number | null;
+}
+
+/**
+ * MEASURED — the drawings gave the quantity · STATED — only the client's number ·
+ * AGREES / DIFFERS — both, cross-checked (D6, drawing kept) · MEASURE_BY_HAND —
+ * nothing measurable · UNKNOWN_BASIS — an open ⚠ param (P5b, P14) · NEEDS_ITEM —
+ * no picking-list item matched.
+ */
+export type LineStatus = "MEASURED" | "STATED" | "AGREES" | "DIFFERS" | "MEASURE_BY_HAND" | "UNKNOWN_BASIS" | "NEEDS_ITEM";
 
 /** A traceable measurement (kept separate from the priced lines, docs/19 §3). */
 export interface DrawingDraftMeasurement {
@@ -65,12 +106,23 @@ export interface CallOff {
 
 const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 
-/** Find the library element whose name or aliases contain any of the keywords. */
+/**
+ * Find the library element for a feature. Keywords are tried IN ORDER (the first
+ * is the most specific), each preferring an exact name / alias match over a
+ * partial one — so "roof edge" finds a dedicated Roof Edge Protection item before
+ * a Triple Handrail that merely mentions roofs, and the scope and the drawing land
+ * on the same item (and merge) instead of producing two lines.
+ */
 function matchEl(library: AssembleLibEl[], keywords: string[]): AssembleLibEl | null {
-  const keys = keywords.map(norm);
-  for (const el of library) {
-    const hay = [norm(el.name), ...el.aliases.map(norm)];
-    if (keys.some((k) => hay.some((h) => h.includes(k)))) return el;
+  for (const raw of keywords) {
+    const k = norm(raw);
+    // Tiers: exact name, exact alias, name containing it, alias containing it.
+    const hit =
+      library.find((el) => norm(el.name) === k) ??
+      library.find((el) => el.aliases.some((a) => norm(a) === k)) ??
+      library.find((el) => norm(el.name).includes(k)) ??
+      library.find((el) => el.aliases.some((a) => norm(a).includes(k)));
+    if (hit) return hit;
   }
   return null;
 }
@@ -196,7 +248,7 @@ export function assembleDrawingDraft(
   }
 
   // --- Roof edge protection (triple handrail) -------------------------------
-  const tripleEl = matchEl(library, ["triple handrail", "roof edge"]);
+  const tripleEl = matchEl(library, ["roof edge protection", "roof edge", "triple handrail"]);
   for (const o of observations) {
     const q = val(o.roofEdgePerimeterM);
     if (q == null) continue;
@@ -222,11 +274,11 @@ export function assembleDrawingDraft(
     });
   }
 
-  // --- Haki stair towers (per lift, normally 3) ------------------------------
+  // --- Haki stair towers (per lift; lifts follow the height it serves) ----------
   const hakiEl = matchEl(library, ["haki", "hacky"]);
   for (const o of observations) {
     for (const h of o.hakiStairs) {
-      const lifts = posInt(h.liftsMarked) ?? HAKI_LIFTS;
+      const lifts = posInt(h.liftsMarked) ?? suggestedHakiLifts(val(h.heightM) ?? buildingHeightM);
       add({
         elementId: hakiEl?.id ?? null,
         description: hakiEl?.name ?? "Haki stair tower",
@@ -235,7 +287,7 @@ export function assembleDrawingDraft(
         lifts,
         heightBracket: suggestedHeightBracket,
         confidence: "high",
-        note: `${h.label}${h.liftsMarked == null ? " (Haki = 3 lifts)" : ""}`,
+        note: `${h.label}${h.liftsMarked == null ? " (lifts follow the scaffold height — a suggestion)" : ""}`,
       });
     }
   }
@@ -419,48 +471,4 @@ export function callOffsFromScope(scopeItems: ScopeItem[], library: AssembleLibE
     if (el) out.push({ keyword: el.name, quantity: s.quantity, lifts: s.lifts });
   }
   return out;
-}
-
-/**
- * Fuse the client's scope with the drawing draft: an item the scope ASKS FOR but
- * no drawing produced is appended as a flagged line (Ben: price exactly the scope).
- * Items already covered by a drawing line are skipped (the drawing holds the real
- * quantity); a null-mapped scope item is left to the scope reader's own review.
- * Returns ONLY the extra scope-only lines, deduped by element.
- */
-export function scopeOnlyLines(
-  drawingLines: DrawingDraftLine[],
-  scopeItems: ScopeItem[],
-  library: AssembleLibEl[],
-): DrawingDraftLine[] {
-  const covered = new Set(drawingLines.map((l) => l.elementId).filter(Boolean) as string[]);
-  const seen = new Set<string>();
-  const extra: DrawingDraftLine[] = [];
-  for (const s of scopeItems) {
-    if (!s.elementId || covered.has(s.elementId) || seen.has(s.elementId)) continue;
-    const el = library.find((e) => e.id === s.elementId);
-    if (!el) continue;
-    seen.add(s.elementId);
-    extra.push({
-      elementId: el.id,
-      description: el.name,
-      unit: el.unit,
-      quantity: s.quantity,
-      lifts: el.usesLifts ? s.lifts : null,
-      heightBracket: null,
-      confidence: "low",
-      hireWeeks: s.hireWeeks ?? null,
-      note: [
-        `From scope · "${s.clientText.trim()}"`,
-        s.location ? `at ${s.location}` : null,
-        s.quantityBasis,
-        s.hireWeeks ? `${s.hireWeeks} week hire` : null,
-        "not on a drawing, verify quantity",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      needsItem: false,
-    });
-  }
-  return extra;
 }

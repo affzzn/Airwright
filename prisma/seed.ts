@@ -3,52 +3,18 @@ loadEnv({ path: ".env.local" });
 loadEnv();
 
 import { PrismaClient } from "@prisma/client";
-import { CONSTRUCTION_ELEMENT_SEED } from "../src/lib/construction/library";
+import { writeDevLibrary } from "../src/server/constructionLibrarySeed";
 
 const prisma = new PrismaClient();
 
 /**
- * Seed the global construction scaffold-element library (docs/19 §5) — the
- * "picking list" Colin builds a construction quote from. Idempotent (deterministic
- * ids + upsert). Rates are PLACEHOLDERS, editable on the Rates → Construction tab.
+ * Seed the construction picking list (docs/22 §4.0 — the DEV placeholder list).
+ * Idempotent; shared with `scripts/restore-seed-library.mts`. Other library
+ * items are left as they are here (the restore script is the one that retires).
  */
 async function seedConstructionLibrary() {
-  for (const el of CONSTRUCTION_ELEMENT_SEED) {
-    await prisma.constructionElement.upsert({
-      where: { id: el.id },
-      update: {
-        name: el.name,
-        aliases: el.aliases,
-        category: el.category,
-        unit: el.unit,
-        usesLifts: el.usesLifts,
-        usesHeightBracket: el.usesHeightBracket,
-        defaultRuleNote: el.defaultRuleNote ?? null,
-        sortOrder: el.sortOrder,
-      },
-      create: {
-        id: el.id,
-        name: el.name,
-        aliases: el.aliases,
-        category: el.category,
-        unit: el.unit,
-        usesLifts: el.usesLifts,
-        usesHeightBracket: el.usesHeightBracket,
-        defaultRuleNote: el.defaultRuleNote ?? null,
-        sortOrder: el.sortOrder,
-      },
-    });
-    for (const r of el.rates) {
-      await prisma.constructionRate.upsert({
-        where: {
-          elementId_band_bracket: { elementId: el.id, band: r.band, bracket: r.bracket },
-        },
-        update: { rate: r.rate },
-        create: { elementId: el.id, band: r.band, bracket: r.bracket, rate: r.rate },
-      });
-    }
-  }
-  console.log(`Seeded ${CONSTRUCTION_ELEMENT_SEED.length} construction elements.`);
+  const { written } = await writeDevLibrary(prisma, { retireOthers: false });
+  console.log(`Seeded ${written} construction elements.`);
 }
 
 /**

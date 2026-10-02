@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   assembleDrawingDraft,
-  scopeOnlyLines,
   callOffsFromScope,
   type AssembleLibEl,
   type CallOff,
@@ -156,23 +155,7 @@ describe("de-dup — a feature reported by two drawings collapses to one line", 
   });
 });
 
-describe("scope × drawing fusion (docs/20 §7)", () => {
-  const drawingLines: DrawingDraftLine[] = [
-    { elementId: "ce-birdcage", description: "Internal Birdcage (crash deck)", unit: "M2_PER_LIFT", quantity: 203.34, lifts: 2, heightBracket: null, confidence: "high", note: null, needsItem: false },
-  ];
-  it("skips a scope item already covered by a drawing line (no double-count)", () => {
-    const extra = scopeOnlyLines(drawingLines, [{ elementId: "ce-birdcage", quantity: null, lifts: null, clientText: "crash decks in each classroom" }], LIB);
-    expect(extra).toHaveLength(0);
-  });
-  it("appends a scope item NOT on any drawing, flagged for manual quantity", () => {
-    const extra = scopeOnlyLines(drawingLines, [{ elementId: "ce-lift-gate", quantity: 6, lifts: null, clientText: "Safegates all floors" }], LIB);
-    expect(extra).toHaveLength(1);
-    expect(extra[0].elementId).toBe("ce-lift-gate");
-    expect(extra[0].note).toMatch(/from scope/i);
-  });
-  it("ignores an unmatched (null) scope item", () => {
-    expect(scopeOnlyLines(drawingLines, [{ elementId: null, quantity: 1, lifts: null, clientText: "obscure thing" }], LIB)).toHaveLength(0);
-  });
+describe("call-offs from the scope (docs/20 §7)", () => {
   it("callOffsFromScope maps scope items to cross-check call-offs", () => {
     const cos = callOffsFromScope([{ elementId: "ce-lift-gate", quantity: 4, lifts: null, clientText: "x" }], LIB);
     expect(cos).toEqual([{ keyword: "Lift Gate (Safegate)", quantity: 4, lifts: null }]);
@@ -192,5 +175,18 @@ describe("graceful degradation + no-invention", () => {
     expect(line).toBeTruthy();
     expect(line?.elementId).toBeNull();
     expect(line?.note).toMatch(/needs a picking-list item|measure by hand/i);
+  });
+});
+
+describe("matching prefers the specific item (scope and drawing merge)", () => {
+  it("a roof edge goes to a dedicated Roof Edge Protection item when the list has one", () => {
+    const lib = [
+      ...LIB,
+      { id: "ce-roof-edge", name: "Roof Edge Protection", aliases: ["roof edge"], unit: "LM" as const, usesLifts: false },
+    ];
+    const obs = [emptyObs({ roofEdgePerimeterM: nf(77.357, "high", "77,357.25 mm") })];
+    const r = assembleDrawingDraft(obs, lib, []);
+    const roof = r.lines.find((l) => l.quantity === 77.357)!;
+    expect(roof.elementId).toBe("ce-roof-edge");
   });
 });

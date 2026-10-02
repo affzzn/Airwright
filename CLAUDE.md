@@ -128,6 +128,52 @@ npm run setup:bucket   # create the private Storage bucket
   Dekker semi 20.56 / mid 10.66 (his 20.5 / 10.6), Rosewood 48.5 exact.
   Offline runner: `npx tsx scripts/offline-extract.mts <NAME>`.
 
+## Construction pack reading (BUILT 2026-09-30 — docs/22 + docs/23)
+
+A SEPARATE path from house-build. An enquiry is a folder: `construction-ingest` (worker,
+`src/server/constructionPack.ts`) unzips, drops junk / duplicates, builds the drawing
+register (`src/lib/construction/pack/`), groups by building; the SCENARIO comes from the three
+upload boxes (below); `construction-read` (`src/server/constructionRead.ts`) reads every
+switched-on sheet with the typed readers (`src/lib/construction/readers/`) and writes the
+per-building measurement sheet (`src/lib/construction/model/`). Doctrine: the model names
+the shape, code measures it; placeholders (`params.ts`) are flagged wherever used.
+- Test offline (no DB, no queue): `npx tsx scripts/construction-offline.mts "<folder>" [--ai]`.
+  Real-DB e2e in-process: `npx tsx scripts/e2e-construction.mts "<folder>" [--cache …]`.
+- **Local worker: `WORKER_QUEUES=construction`** — never run a full local worker (it would take
+  live house-build jobs). The deployed worker only knows the new queues once pushed.
+- Bluebeam / Acrobat mark-ups are PDF ANNOTATIONS — flatten (`pack/flattenAnnots.ts`) before
+  tiling or they vanish. Keep model outputs as flat string lists on dense sheets (a long list of
+  objects breaks the tool call); readers retry a malformed call once.
+
+**Simplified 2026-10-02 — reliable numbers only.** Automatic = printed + read by code, and for
+shape-dependent values TWO drawings must agree (heights → lifts; a rectangle's perimeter the roof
+plan confirms; gables roof plan = elevations). Everything else is the estimator's, on the SECTION
+CARDS (`cards.ts`, `section-cards.tsx`, `constructionCards.ts`; lines carry `cardKey`) with the
+MEASURING TOOL (`measure-dialog.tsx`) and ticked ADD-ONS. Trust levels + plain-words hover cards
+(`trust-badge.tsx`). Never re-add an extraction that cannot be confirmed by a second source.
+
+**Three upload boxes → three scenarios (2026-10-02, docs/22 "As built 2026-10-02 b").** Scope ·
+Drawings · Email, all optional; the box IS the file's label (`ConstructionAttachment.kind` =
+SCOPE | DRAWINGS | EMAIL; zip contents inherit it; files without one get it from their type —
+`boxOf` in `pack/files.ts`). Scenario from the boxes only (`scenarioFromBoxes`, stored as
+`mode`): a scope → **A = Scenario 1** — read the scope (+ email for EXTRA lines) ONLY, the client's
+numbers as given (`scopeOnly.ts`), no drawing reads / buildings / cards / cross-checks /
+confidence; drawings, no scope → **B = Scenario 2** — drawings for the sure things, cards, email
+reference only; else **C = Scenario 3** — nothing read, cards by hand. No auto-detect, no switch.
+
+**Scope mode + output (BUILT 2026-10-01, docs/22 "As built — M3 + M4"):** a spreadsheet scope's
+structure is read by CODE (`scopeTable.ts`); the scope reader maps rows (`rowRef`) and the row's
+cells win (`attachScopeTables`); `bindScope.ts` (pure) binds each item ROLE to the building model
+→ draft lines with formula / provenance / status (MEASURED · STATED · AGREES · DIFFERS ·
+MEASURE_BY_HAND · UNKNOWN_BASIS · NEEDS_ITEM), the INFORMATION list, empty sections, accounting.
+Output: `sections.ts` (Airwright's lump-sum sections) · itemised schedule · `clientTemplateExcel.ts`
+(the client's own workbook). Job settings P1–P19 (`params.ts`; P18 = hire in the price, P19 =
+"lifts at each level"). Test: `npx tsx scripts/e2e-scope.mts --job <id>` (re-runs a kept job for
+$0) · `scripts/scope-offline.mts "<scope file>"` · `scripts/construction-eval.mts --job <id> --key
+cband|ke|wren|murray`. A scope prompt change = bump `SCOPE_PROMPT_VERSION` (the cached scope read
+is keyed on it). A server action called from a script throws "static generation store missing"
+AFTER its writes (revalidatePath) — the e2e script tolerates exactly that.
+
 ## The pricing & quote layer (BUILT — full detail in `docs/14-pricing-and-quote.md`)
 
 Layer 3, after Colin **confirms** a take-off (`Takeoff.status = CONFIRMED`, locks the

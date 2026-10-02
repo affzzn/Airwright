@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db";
 import { lineAmount, resolveConstructionRateRow, type RateRow } from "@/lib/construction/price";
 import { createSignedUploadUrl, createSignedUrl } from "@/lib/supabase/storage";
 import { isDraftableFile, looksLikeOurOwnQuote } from "@/lib/construction/fileKinds";
+import { ENQUIRY_BOXES, mimeTypeFor } from "@/lib/construction/pack/files";
 
 /**
  * Server actions for the construction estimator (docs/19). Everything is MANUAL —
@@ -23,7 +24,7 @@ import { isDraftableFile, looksLikeOurOwnQuote } from "@/lib/construction/fileKi
 const UNITS = new Set<ConstructionUnit>([
   "LM_PER_LIFT", "M2_PER_LIFT", "NR_PER_LIFT", "NR", "LM", "M2", "PER_WEEK", "FIXED",
 ]);
-const BRACKETS = new Set<HeightBracket>(["UP_TO_6M", "H6_12M", "H12_18M", "H18_24M", "ANY"]);
+const BRACKETS = new Set<HeightBracket>(["UP_TO_6M", "H6_12M", "H12_18M", "H18_24M", "H24_30M", "ANY"]);
 const BANDS = new Set<RateBand>(["SUPER_COMPETITIVE", "COMPETITIVE", "MEDIUM", "HIGH", "CUSTOM"]);
 const SITE_TYPES = new Set<SiteType>([
   "SCHOOL", "PUBLIC_STREET", "CONSTRUCTION_SITE", "COMMERCIAL", "OTHER",
@@ -344,6 +345,9 @@ export async function updateConstructionLine(
     rate?: number;
     heightBracket?: string | null;
     note?: string | null;
+    /** Weeks of hire this line is quoted for (null = the job's). */
+    durationWeeks?: number | null;
+    section?: string | null;
   },
 ): Promise<{ ok: boolean; error?: string }> {
   const line = await prisma.constructionQuoteLine.findUnique({ where: { id } });
@@ -356,6 +360,8 @@ export async function updateConstructionLine(
   const heightBracket =
     patch.heightBracket !== undefined ? asBracket(patch.heightBracket) : line.heightBracket;
   const note = patch.note !== undefined ? patch.note?.trim() || null : line.note;
+  const durationWeeks = patch.durationWeeks !== undefined ? intOrNull(patch.durationWeeks) || null : line.durationWeeks;
+  const section = patch.section !== undefined ? patch.section?.trim() || null : line.section;
 
   await prisma.constructionQuoteLine.update({
     where: { id },
@@ -366,6 +372,10 @@ export async function updateConstructionLine(
       rate,
       heightBracket,
       note,
+      durationWeeks,
+      section,
+      // A card line edited by hand stops following its card ("pinned").
+      ...(line.cardKey && (patch.quantity !== undefined || patch.lifts !== undefined) ? { isAuto: false } : {}),
       amount: lineAmount({ unit: line.unit, quantity, lifts, rate }),
     },
   });
@@ -399,6 +409,13 @@ export async function duplicateConstructionLine(
       amount: line.amount,
       isAuto: false,
       note: line.note,
+      durationWeeks: line.durationWeeks,
+      buildingId: line.buildingId,
+      section: line.section,
+      formula: line.formula,
+      confidence: line.confidence,
+      provenance: line.provenance ?? undefined,
+      paramsUsed: line.paramsUsed ?? undefined,
       sortOrder: (max._max.sortOrder ?? 0) + 10,
     },
   });
@@ -444,42 +461,75 @@ async function repriceQuoteLines(quoteId: string): Promise<void> {
   }
 }
 
-// --- Attachments (upload + register + delete — files are stored & shown, NEVER parsed) ---
+// --- Attachments (folder upload + register; sorting runs in the worker) -------
 
+/**
+ * Step 1 of an upload (docs/22 Step 3): a signed URL per file still to upload.
+ * Files already registered on this job under the same folder path are SKIPPED, so
+ * dropping the same folder again after an interruption resumes instead of
+ * duplicating. Any file type is accepted — a construction enquiry carries emails,
+ * spreadsheets, slides and photos as well as drawings; the worker sorts them.
+ */
 export async function createSignedConstructionUploads(
   quoteId: string,
-  files: { name: string; type: string; size: number }[],
-): Promise<{ targets: { index: number; path: string; signedUrl: string; name: string; type: string; size: number }[] }> {
+  files: { name: string; type: string; size: number; relativePath?: string }[],
+): Promise<{
+  targets: { index: number; path: string; signedUrl: string; name: string; relativePath: string; type: string; size: number }[];
+  alreadyDone: number;
+}> {
+  const existing = await prisma.constructionAttachment.findMany({
+    where: { quoteId },
+    select: { relativePath: true, fileName: true },
+  });
+  const done = new Set(existing.map((a) => a.relativePath ?? a.fileName));
   const targets = [];
+  let alreadyDone = 0;
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
-    const path = `construction/${quoteId}/${randomUUID()}-${f.name}`;
+    const relativePath = (f.relativePath || f.name).replace(/\\/g, "/").replace(/^\.?\//, "");
+    if (done.has(relativePath)) {
+      alreadyDone++;
+      continue;
+    }
+    const safe = f.name.replace(/[^A-Za-z0-9._ ()-]/g, "_").slice(0, 180);
+    const path = `construction/${quoteId}/${randomUUID()}-${safe}`;
     const { signedUrl } = await createSignedUploadUrl(path);
-    targets.push({ index: i, path, signedUrl, name: f.name, type: f.type, size: f.size });
+    targets.push({ index: i, path, signedUrl, name: f.name, relativePath, type: f.type, size: f.size });
   }
-  return { targets };
+  return { targets, alreadyDone };
 }
 
+/**
+ * Step 2: register files the moment they finish uploading (in batches, so an
+ * interrupted upload keeps what it managed). Idempotent on the folder path.
+ */
 export async function registerConstructionAttachments(
   quoteId: string,
-  uploaded: { path: string; name: string; type: string; size: number; kind?: string }[],
+  uploaded: { path: string; name: string; type: string; size: number; kind?: string; relativePath?: string }[],
 ): Promise<void> {
   if (uploaded.length === 0) return;
+  const existing = await prisma.constructionAttachment.findMany({
+    where: { quoteId },
+    select: { relativePath: true, fileName: true },
+  });
+  const done = new Set(existing.map((a) => a.relativePath ?? a.fileName));
+  const fresh = uploaded.filter((u) => !done.has(u.relativePath || u.name));
+  if (fresh.length === 0) return;
   await prisma.constructionAttachment.createMany({
-    data: uploaded.map((u) => {
-      const mimeType = u.type || "application/octet-stream";
+    data: fresh.map((u) => {
+      const mimeType = u.type || mimeTypeFor(u.name);
       return {
         quoteId,
         fileName: u.name,
+        relativePath: u.relativePath || u.name,
         storagePath: u.path,
         mimeType,
         sizeBytes: u.size,
-        kind: u.kind ?? null,
-        // Anything the readers understand (drawing, email, scope spreadsheet) is
-        // read by default, so dropping the enquiry in is all the estimator does.
-        // Our own priced quote, re-uploaded, starts off; the toggle overrides it.
-        useForDrafting:
-          isDraftableFile(mimeType, u.name) && !looksLikeOurOwnQuote(u.name),
+        // The upload box (Scope / Drawings / Email) — the file's label from now on.
+        kind: u.kind && (ENQUIRY_BOXES as string[]).includes(u.kind) ? u.kind : null,
+        // A provisional tick; the pack sort (worker) sets the real one from the
+        // register on the file's first sort, and the estimator can override it.
+        useForDrafting: isDraftableFile(mimeType, u.name) && !looksLikeOurOwnQuote(u.name),
       };
     }),
   });
@@ -490,6 +540,8 @@ export async function deleteConstructionAttachment(
   id: string,
   quoteId: string,
 ): Promise<{ ok: boolean }> {
+  // A zip takes the files unpacked from it with it.
+  await prisma.constructionAttachment.deleteMany({ where: { quoteId, sourceArchiveId: id } });
   await prisma.constructionAttachment.delete({ where: { id } });
   revalidatePath(`/construction/${quoteId}`);
   return { ok: true };

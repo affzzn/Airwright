@@ -7,22 +7,57 @@
 
 import type { HeightBracket, SiteType } from "./types";
 
-/** A Haki stair tower normally counts as 3 lifts (kicker + to-1st + to-2nd). ✅ */
-export const HAKI_LIFTS = 3;
+/**
+ * Lift height for construction external scaffold (docs/23 §15.1, ⚠ PARAM P1):
+ * 2.0 m reproduces the lifts Airwright actually quoted on all four real jobs
+ * (Murray Park 4 m → 2, Wren 4.955 m → 3, CBAND hall 3.3 m → 2, pavilion
+ * 2.85 m → 2), where the house-build 1.5 m rule misfits three of them. Still a
+ * placeholder until Colin confirms; job settings can override it.
+ */
+export const DEFAULT_LIFT_HEIGHT_M = 2.0;
 
-/** Height (m) → the rate bracket. ≤6 → up-to-6m, ≤12 → 6–12, ≤18 → 12–18, else 18–24. */
+/**
+ * Fallback Haki lift count when nothing tells us the height. The calls' "a Haki is
+ * 3 lifts" was one example (a two-storey building); the real quotes show a Haki
+ * follows the scaffold it serves (CBAND: 2 lifts on 2-lift buildings; Wren ×3 and
+ * ×2), so this is only a starting SUGGESTION — see `suggestedHakiLifts`.
+ */
+export const HAKI_LIFTS_FALLBACK = 3;
+
+/** Height (m) → the rate bracket: ≤6 · ≤12 · ≤18 · ≤24 · above → 24–30 m. */
 export function heightBracketFor(heightM: number | null | undefined): HeightBracket | null {
   if (heightM == null || !Number.isFinite(heightM) || heightM <= 0) return null;
   if (heightM <= 6) return "UP_TO_6M";
   if (heightM <= 12) return "H6_12M";
   if (heightM <= 18) return "H12_18M";
-  return "H18_24M";
+  if (heightM <= 24) return "H18_24M";
+  return "H24_30M";
 }
 
-/** A rough lift-count hint from the height (~2 m/lift): ~4 m → 2 lifts. Editable. */
-export function suggestedLiftsFor(heightM: number | null | undefined): number | null {
+/**
+ * A lift-count SUGGESTION from the height: ceil(height ÷ lift height). With the
+ * 2.0 m default, 4 m → 2 lifts and 4.955 m → 3. Always editable.
+ */
+export function suggestedLiftsFor(
+  heightM: number | null | undefined,
+  liftHeightM: number = DEFAULT_LIFT_HEIGHT_M,
+): number | null {
   if (heightM == null || !Number.isFinite(heightM) || heightM <= 0) return null;
-  return Math.max(1, Math.round(heightM / 2));
+  if (!Number.isFinite(liftHeightM) || liftHeightM <= 0) return null;
+  // Guard float noise (4.000000001 m must not become 3 lifts at 2 m).
+  return Math.max(1, Math.ceil(heightM / liftHeightM - 1e-9));
+}
+
+/**
+ * Suggested lifts for a Haki stair tower (or a loading bay): it follows the
+ * external scaffold it serves, so the height decides; with no height we fall back
+ * to 3. A suggestion only — the estimator sets the final number.
+ */
+export function suggestedHakiLifts(
+  heightM: number | null | undefined,
+  liftHeightM: number = DEFAULT_LIFT_HEIGHT_M,
+): number {
+  return suggestedLiftsFor(heightM, liftHeightM) ?? HAKI_LIFTS_FALLBACK;
 }
 
 /** A scaffold mat (2.7 m first walking lift) applies at schools + public streets. ✅ */

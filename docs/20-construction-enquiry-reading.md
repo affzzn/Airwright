@@ -12,6 +12,12 @@ this mirrors) and `docs/03` (glossary) first. **Nothing in the house-build take-
 engine is touched.** Sources: the 9 Sep "Construction Walkthrough" + 16 Sep "Strike
 Construction Walkthrough" calls, and the two real fixtures in `data/construction/` (gitignored PII).
 
+> **UPDATE (2026-10-01):** the numbered-mark-up reader here still reads Wren-style sheets inside
+> the pack pipeline (docs/22). The scope side moved on: schedules are read as TABLES by code
+> (`scopeTable.ts`) and bound to the building model by `bindScope.ts` (docs/23 §11), which also
+> pairs each Wren schedule row with one mark-up line (no duplicates). `scopeOnlyLines` is no
+> longer used by the read; alias learning lives in `applyDrawingDraft`.
+>
 > **STATUS (2026-09-23): ✅ BUILT (Tracks A–E).** The drawing-reading layer is wired end to end:
 > the Opus 4.8 multimodal reader (`readDrawing.ts` + `drawingSchema/Prompt/Text.ts`), the pure
 > tested assemble+verify core (`assemble.ts`, 12 tests reproducing the Wren draft), the data

@@ -122,3 +122,63 @@ export async function buildConstructionWorkbook(
 
   return wb.xlsx.writeBuffer();
 }
+
+// --- Airwright's lump-sum sections (Quote-1350 layout) ------------------------------------
+
+export interface SectionsWorkbookInput {
+  reference: string | null;
+  customerName: string | null;
+  siteAddress: string | null;
+  band: string;
+  sections: {
+    title: string;
+    hireWeeks: number | null;
+    extraHirePerWeek: number | null;
+    qty: number;
+    rate: number;
+    price: number;
+    includes: string[];
+  }[];
+  total: number;
+  hireNote: string;
+  assumptions: string[] | null;
+}
+
+/** The section summary Airwright sends: Item · Title · Hire · Extra hire / wk · Qty · Rate · Price, then what each includes. */
+export async function buildConstructionSectionsWorkbook(q: SectionsWorkbookInput): Promise<ExcelJS.Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Airwright";
+  const ws = wb.addWorksheet("Quotation");
+  const bold = { bold: true } as const;
+  ws.addRow([safe("Summary of quotation")]).font = { bold: true, size: 13 };
+  for (const [k, v] of [
+    ["Project", q.reference],
+    ["Customer", q.customerName],
+    ["Site", q.siteAddress],
+    ["Rate band", BAND_LABEL[q.band as RateBand] ?? q.band],
+  ] as const)
+    if (v) {
+      const r = ws.addRow([safe(k), safe(v)]);
+      r.getCell(1).font = { color: { argb: "FF666666" } };
+    }
+  ws.addRow([]);
+  const header = ws.addRow(["Item", "Item title", "Hire period (wks)", "Extra hire / wk (£)", "Qty", "Rate (£)", "Price excl VAT (£)", "Includes for"]);
+  header.font = bold;
+  q.sections.forEach((s, i) =>
+    ws.addRow([i + 1, safe(s.title), s.hireWeeks ?? "", s.extraHirePerWeek != null ? round2(s.extraHirePerWeek) : "", s.qty, round2(s.rate), round2(s.price), safe(s.includes.join(". "))]),
+  );
+  ws.addRow([]);
+  const t = ws.addRow(["", "", "", "", "", "Total", round2(q.total), ""]);
+  t.getCell(6).font = bold;
+  t.getCell(7).font = bold;
+  ws.addRow([]);
+  ws.addRow([safe(q.hireNote)]);
+  ["D", "F", "G"].forEach((c) => (ws.getColumn(c).numFmt = "£#,##0.00"));
+  ws.columns.forEach((c, i) => (c.width = i === 1 ? 42 : i === 7 ? 70 : 14));
+  if (q.assumptions?.length) {
+    ws.addRow([]);
+    ws.addRow(["Assumptions & exclusions"]).font = bold;
+    for (const a of q.assumptions) ws.addRow([safe(a)]);
+  }
+  return wb.xlsx.writeBuffer();
+}

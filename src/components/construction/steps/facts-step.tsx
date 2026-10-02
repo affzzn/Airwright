@@ -9,11 +9,11 @@ import {
 } from "@/server/actions/construction";
 import type { ConstructionElementLibVM, ConstructionQuoteVM } from "@/server/construction";
 import {
-  HAKI_LIFTS,
   foamCount,
   heightBracketFor,
   inspectionWeeks,
   needsScaffoldMat,
+  suggestedHakiLifts,
   suggestedLiftsFor,
 } from "@/lib/construction/rules";
 import {
@@ -27,6 +27,7 @@ import {
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Field, Panel } from "@/components/construction/parts";
+import { DrawingFactsPanel, JobSettingsPanel } from "@/components/construction/job-settings";
 import { cn, formatGBP } from "@/lib/utils";
 
 /**
@@ -49,6 +50,7 @@ export function FactsStep({
   quote,
   library,
   locked,
+  aiEnabled,
   compact,
   extraHirePerWeek,
   extraHireBeyondBase,
@@ -57,6 +59,7 @@ export function FactsStep({
   quote: ConstructionQuoteVM;
   library: ConstructionElementLibVM[];
   locked: boolean;
+  aiEnabled: boolean;
   /** True when the drawing pane is open: stack instead of squeezing. */
   compact: boolean;
   extraHirePerWeek: number | null;
@@ -94,7 +97,11 @@ export function FactsStep({
 
   const rules: string[] = [];
   if (bracket) rules.push(`Bracketed rates price in the ${BRACKET_LABEL[bracket]} band`);
-  rules.push(`A Haki stair tower counts as ${HAKI_LIFTS} lifts`);
+  rules.push(
+    quote.buildingHeightM != null
+      ? `A Haki stair tower follows the scaffold height, about ${suggestedHakiLifts(quote.buildingHeightM)} lifts here`
+      : "A Haki stair tower follows the scaffold height (3 lifts until a height is set)",
+  );
   rules.push("Roof and building edges default to a triple handrail");
   rules.push("Loading bays, Haki towers and chutes price per lift");
   if (needsScaffoldMat(quote.siteType as SiteType | null))
@@ -175,6 +182,8 @@ export function FactsStep({
           </div>
         </Panel>
 
+        <DrawingFactsPanel quote={quote} locked={locked} />
+
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Height and band">
             <div className="grid grid-cols-2 gap-3">
@@ -233,6 +242,9 @@ export function FactsStep({
                 onSave={(v) => save({ durationWeeks: v })}
               />
             </Field>
+            {quote.lines.some((l) => l.durationWeeks != null) && (
+              <p className="mt-2 text-[11px] text-ink-muted">Lines with their own hire weeks (from the scope) use those; this is the default for the rest.</p>
+            )}
             <Readout>
               {weeks > 0 ? `${weeks} weekly inspection${weeks === 1 ? "" : "s"}` : "No hire period set"}
               {extraHirePerWeek != null
@@ -285,6 +297,9 @@ export function FactsStep({
             </Field>
           </div>
         </Panel>
+
+        {/* The job settings are the drawing / card rules — Scenario 1 uses the client's numbers instead. */}
+        {quote.mode !== "A" && (quote.sheets.length > 0 || quote.mode) && <JobSettingsPanel quote={quote} locked={locked} aiEnabled={aiEnabled} />}
       </div>
 
       <Panel

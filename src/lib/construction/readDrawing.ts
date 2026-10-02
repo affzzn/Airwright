@@ -14,6 +14,7 @@ import { drawingObservationsSchema, DRAWING_TOOL_NAME, type DrawingObservations 
 import { DRAWING_PROMPT_VERSION, DRAWING_SYSTEM_PROMPT, buildDrawingUserText } from "./drawingPrompt";
 import { extractDrawingText } from "./drawingText";
 import { buildTiledPdf } from "./drawingTiles";
+import { flattenAnnotations } from "./pack/flattenAnnots";
 
 const DRAWING_MAX_TOKENS = 16384;
 
@@ -43,7 +44,10 @@ export interface ReadDrawingResult {
  * Read one construction drawing into observations (docs/20 §5). The caller confirms
  * the CONSTRUCTION_AI flag and that the file is an enquiry drawing (never an answer).
  */
-export async function readDrawing(pdf: Buffer): Promise<ReadDrawingResult> {
+export async function readDrawing(source: Buffer): Promise<ReadDrawingResult> {
+  // A Bluebeam / Acrobat mark-up lives in ANNOTATIONS, which `buildTiledPdf`'s
+  // embedPage does not copy: flatten them into the page first (a no-op otherwise).
+  const pdf = (await flattenAnnotations(source)).bytes;
   // Read the text layer first — labels + dimensions become the model's candidates.
   const text = await extractDrawingText(pdf).catch(() => ({
     hasText: false,

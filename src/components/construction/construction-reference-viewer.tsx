@@ -34,10 +34,13 @@ export function ReferenceViewerBody({
   attachments,
   selectedId,
   onSelect,
+  goTo,
 }: {
   attachments: RefAttachment[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Jump to a page of the selected PDF (a measurement's source sheet). */
+  goTo?: { page: number; nonce: number } | null;
 }) {
   const previewable = attachments.filter(isPreviewable);
   const selected = previewable.find((a) => a.id === selectedId) ?? previewable[0] ?? null;
@@ -109,7 +112,7 @@ export function ReferenceViewerBody({
           </div>
         ) : urls[selected.id] ? (
           kindOf(selected) === "pdf" ? (
-            <PdfViewerClient url={urls[selected.id]} fit="width" />
+            <PdfViewerClient url={urls[selected.id]} fit="width" goTo={goTo ?? null} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -142,12 +145,14 @@ export function ReferencePane({
   attachments,
   selectedId,
   onSelect,
+  goTo,
 }: {
   onClose: () => void;
   quoteId: string;
   attachments: RefAttachment[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  goTo?: { page: number; nonce: number } | null;
 }) {
   const popOut = () => {
     const q = selectedId ? `?file=${selectedId}` : "";
@@ -190,7 +195,7 @@ export function ReferencePane({
         </div>
       </div>
       <div className="min-h-0 flex-1">
-        <ReferenceViewerBody attachments={attachments} selectedId={selectedId} onSelect={onSelect} />
+        <ReferenceViewerBody attachments={attachments} selectedId={selectedId} onSelect={onSelect} goTo={goTo} />
       </div>
     </div>
   );

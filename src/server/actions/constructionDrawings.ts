@@ -1,34 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
-import { downloadFromStorage } from "@/lib/supabase/storage";
-import { readDrawing } from "@/lib/construction/readDrawing";
-import { extractScopeText } from "@/lib/construction/scopeText";
-import { draftFromScope } from "@/lib/construction/draftFromScope";
-import {
-  assembleDrawingDraft,
-  callOffsFromScope,
-  scopeOnlyLines,
-  type AssembleLibEl,
-  type DrawingDraftLine,
-  type DrawingDraftMeasurement,
-  type ScopeItem,
-} from "@/lib/construction/assemble";
-import type { DrawingObservations } from "@/lib/construction/drawingSchema";
+import type { ClientRef, DrawingDraftMeasurement } from "@/lib/construction/assemble";
+import { aliasToLearn } from "@/lib/construction/scopeDraft";
 import { lineAmount, resolveConstructionRateRow, type RateRow } from "@/lib/construction/price";
-import { isDrawingFile, isScopeTextFile } from "@/lib/construction/fileKinds";
 import { loadConstructionLibrary } from "@/server/construction";
+import { startConstructionRead } from "@/server/actions/constructionPack";
 import type { ConstructionUnit, HeightBracket, RateBand } from "@/lib/construction/types";
 
 /**
- * Construction enquiry reading (docs/20) — reads the estimator's ticked enquiry
- * files: DRAWINGS (PDF → Opus 4.8 vision) and SCOPE text (email / spreadsheet →
- * the text reader), fuses them (drawing quantities are primary; a scope item with
- * no drawing is added flagged), and returns a draft to confirm. NEVER reads an
- * answer file; never prices without the estimator.
+ * Construction enquiry reading (docs/20, docs/22): the file switch, the (now
+ * background) read, and applying the draft the estimator confirmed. The reading
+ * itself runs in the worker — `src/server/constructionRead.ts`.
  */
 
 // --- 1. Tick which files the AI reads --------------------------------------
@@ -48,150 +33,16 @@ export async function setConstructionAttachmentDrafting(
   return { ok: true };
 }
 
-// --- 2. Read the ticked drawings → an assembled draft (AI proposes) --------
+// --- 2. Read the enquiry (queues a background run) --------------------------
 
-export interface DrawingDraftResult {
-  ok: boolean;
-  error?: string;
-  lines?: DrawingDraftLine[];
-  measurements?: DrawingDraftMeasurement[];
-  flags?: string[];
-  suggestedHeightBracket?: HeightBracket | null;
-  buildingHeightM?: number | null;
-  accessPoints?: { doorways: number; fireExits: number };
-  read?: { fileName: string; ok: boolean; costUsd?: number; error?: string }[];
-}
-
-export async function readConstructionEnquiry(
-  quoteId: string,
-  extraScopeText?: string,
-): Promise<DrawingDraftResult> {
-  if (!env.constructionAI) return { ok: false, error: "AI reading is turned off." };
-  const quote = await prisma.constructionQuote.findUnique({ where: { id: quoteId } });
-  if (!quote) return { ok: false, error: "Quote not found." };
-
-  const pasted = extraScopeText?.trim() || "";
-  // Whatever the estimator ticked: PDFs go to the vision reader, emails and
-  // spreadsheets (a client's scope of works or scaffolding schedule) to the text
-  // reader. Nothing is excluded by name — the tick is the decision.
-  const atts = await prisma.constructionAttachment.findMany({ where: { quoteId, useForDrafting: true } });
-  const drawings = atts.filter((a) => isDrawingFile(a.mimeType, a.fileName));
-  const scopeFiles = atts.filter(
-    (a) => !isDrawingFile(a.mimeType, a.fileName) && isScopeTextFile(a.mimeType, a.fileName),
-  );
-  if (drawings.length === 0 && scopeFiles.length === 0 && !pasted)
-    return { ok: false, error: "Turn on at least one file to read." };
-
-  const library = await loadConstructionLibrary();
-  if (library.length === 0)
-    return { ok: false, error: "The picking list is empty — add elements on the Rates → Construction tab." };
-  const libAssemble: AssembleLibEl[] = library.map((e) => ({
-    id: e.id,
-    name: e.name,
-    aliases: e.aliases,
-    unit: e.unit as ConstructionUnit,
-    usesLifts: e.usesLifts,
-  }));
-
-  const read: NonNullable<DrawingDraftResult["read"]> = [];
-
-  // --- Drawings (vision) — bounded parallelism -------------------------------
-  const observations: DrawingObservations[] = [];
-  const results = await Promise.allSettled(
-    drawings.map(async (a) => ({ att: a, result: await readDrawing(await downloadFromStorage(a.storagePath)) })),
-  );
-  for (let i = 0; i < results.length; i++) {
-    const a = drawings[i];
-    const r = results[i];
-    if (r.status === "fulfilled") {
-      observations.push(r.value.result.observations);
-      read.push({ fileName: a.fileName, ok: true, costUsd: r.value.result.meta.costUsd });
-      await prisma.constructionAttachment.update({
-        where: { id: a.id },
-        data: {
-          readStatus: "READ",
-          drawingKind: r.value.result.observations.sheet.kind,
-          readRawOutput: r.value.result.meta.raw as Prisma.InputJsonValue,
-          readMeta: {
-            model: r.value.result.meta.model,
-            promptVersion: r.value.result.meta.promptVersion,
-            inputTokens: r.value.result.meta.inputTokens,
-            outputTokens: r.value.result.meta.outputTokens,
-            costUsd: r.value.result.meta.costUsd,
-          } as Prisma.InputJsonValue,
-        },
-      });
-    } else {
-      read.push({ fileName: a.fileName, ok: false, error: r.reason instanceof Error ? r.reason.message : "read failed" });
-      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
-    }
-  }
-
-  // --- Scope text (email / spreadsheet / txt) → the text reader --------------
-  const scopeTexts: string[] = [];
-  for (const a of scopeFiles) {
-    try {
-      const text = await extractScopeText({ name: a.fileName, mimeType: a.mimeType, bytes: await downloadFromStorage(a.storagePath) });
-      if (text.trim()) scopeTexts.push(text);
-      read.push({ fileName: a.fileName, ok: true });
-      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "READ" } });
-    } catch (e) {
-      read.push({ fileName: a.fileName, ok: false, error: e instanceof Error ? e.message : "read failed" });
-      await prisma.constructionAttachment.update({ where: { id: a.id }, data: { readStatus: "FAILED" } });
-    }
-  }
-  if (pasted) scopeTexts.push(pasted);
-
-  // Keep what the scope actually said, for the audit trail and the quote's
-  // "scope added" state.
-  if (scopeTexts.length > 0) {
-    await prisma.constructionQuote.update({
-      where: { id: quoteId },
-      data: { enquiryText: scopeTexts.join("\n\n---\n\n").slice(0, 200_000) },
-    });
-  }
-
-  let scopeItems: ScopeItem[] = [];
-  if (scopeTexts.length > 0) {
-    try {
-      const scopeDraft = await draftFromScope(
-        scopeTexts.join("\n\n---\n\n"),
-        library.map((e) => ({ id: e.id, name: e.name, aliases: e.aliases, unit: e.unit, usesLifts: e.usesLifts, category: e.category })),
-      );
-      scopeItems = scopeDraft.lines.map((l) => ({
-        elementId: l.elementId,
-        quantity: l.quantity,
-        lifts: l.lifts,
-        clientText: l.clientText,
-        hireWeeks: l.hireWeeks,
-        location: l.location,
-        quantityBasis: l.quantityBasis,
-      }));
-    } catch {
-      /* scope reader failed — proceed with the drawings alone */
-    }
-  }
-
-  if (observations.length === 0 && scopeItems.length === 0)
-    return { ok: false, error: "Couldn’t read any enquiry file.", read };
-
-  // Layer 2: fuse. Drawing quantities are primary; the scope cross-checks the
-  // call-off (docs/20 §7) and adds any item asked-for but not on a drawing.
-  const callOffs = callOffsFromScope(scopeItems, libAssemble);
-  const draft = assembleDrawingDraft(observations, libAssemble, callOffs);
-  const extra = scopeOnlyLines(draft.lines, scopeItems, libAssemble);
-
-  revalidatePath(`/construction/${quoteId}`);
-  return {
-    ok: true,
-    lines: [...draft.lines, ...extra],
-    measurements: draft.measurements,
-    flags: draft.flags,
-    suggestedHeightBracket: draft.suggestedHeightBracket,
-    buildingHeightM: draft.buildingHeightM,
-    accessPoints: draft.accessPoints,
-    read,
-  };
+/**
+ * Read the enquiry — now a BACKGROUND run (docs/22 Step 7): this only queues it
+ * and returns; the worker reads every switched-on sheet and scope file, saves the
+ * measurements and the draft, and the page follows along. Kept under this name
+ * for existing callers; new code calls `startConstructionRead` directly.
+ */
+export async function readConstructionEnquiry(quoteId: string): Promise<{ ok: boolean; runId?: string; error?: string }> {
+  return startConstructionRead(quoteId);
 }
 
 // --- 3. Apply the confirmed draft (measurements + lines) -------------------
@@ -206,6 +57,17 @@ export interface ApplyDrawingLine {
   note: string | null;
   /** Weeks of hire this line asks for, when the scope stated one. */
   hireWeeks?: number | null;
+  // The traceable working (docs/23 §11) — carried onto the saved line.
+  section?: string | null;
+  buildingId?: string | null;
+  formula?: string | null;
+  provenance?: string[];
+  paramsUsed?: string[];
+  flags?: string[];
+  confidence?: string | null;
+  clientRef?: ClientRef | null;
+  /** The item the reader proposed: a different final choice is a correction → learn the client's wording. */
+  suggestedElementId?: string | null;
 }
 
 const cleanQty = (n: number | null): number => (n != null && Number.isFinite(n) && n >= 0 ? n : 0);
@@ -222,8 +84,10 @@ export async function applyDrawingDraft(
     measurements: DrawingDraftMeasurement[];
     setHeightBracket?: HeightBracket | null;
     accessPoints?: { doorways: number; fireExits: number };
+    /** Replace the lines a previous draft added (drafted = carries a formula or a client row). */
+    replaceDrafted?: boolean;
   },
-): Promise<{ ok: boolean; added?: number; error?: string }> {
+): Promise<{ ok: boolean; added?: number; learned?: number; error?: string }> {
   const quote = await prisma.constructionQuote.findUnique({ where: { id: quoteId } });
   if (!quote) return { ok: false, error: "Quote not found." };
   if (quote.status !== "DRAFT") return { ok: false, error: "Reopen the quote to add lines." };
@@ -232,7 +96,19 @@ export async function applyDrawingDraft(
 
   const library = await loadConstructionLibrary();
   const byId = new Map(library.map((e) => [e.id, e]));
+  const buildingIds = new Set((await prisma.constructionBuilding.findMany({ where: { quoteId }, select: { id: true } })).map((b) => b.id));
   const band = quote.band as RateBand;
+  const aliasAdds = new Map<string, string[]>();
+  const trace = (l: ApplyDrawingLine) => ({
+    section: l.section?.trim() || null,
+    buildingId: l.buildingId && buildingIds.has(l.buildingId) ? l.buildingId : null,
+    formula: l.formula ?? null,
+    confidence: l.confidence ?? null,
+    provenance: (l.provenance?.length ? l.provenance : undefined) as Prisma.InputJsonValue | undefined,
+    paramsUsed: (l.paramsUsed?.length ? l.paramsUsed : undefined) as Prisma.InputJsonValue | undefined,
+    flags: (l.flags?.length ? l.flags : undefined) as Prisma.InputJsonValue | undefined,
+    clientRef: (l.clientRef ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
+  });
   // Prefer an explicit bracket set from this draft, else the quote's default.
   const defaultBracket =
     input.setHeightBracket ?? (quote.defaultHeightBracket as HeightBracket | null) ?? null;
@@ -284,7 +160,18 @@ export async function applyDrawingDraft(
         isAuto: true,
         note: l.note,
         sortOrder: lineSort,
+        ...trace(l),
       });
+      // Learn the client's wording as an alias — ONLY on a genuine correction (docs/19 §15).
+      const clientText = l.clientRef?.text?.trim();
+      if (clientText && l.suggestedElementId !== undefined && l.suggestedElementId !== el.id) {
+        const alias = aliasToLearn(clientText, { name: el.name, aliases: el.aliases });
+        if (alias) {
+          const list = aliasAdds.get(el.id) ?? [];
+          if (!list.some((x) => x.toLowerCase() === alias.toLowerCase())) list.push(alias);
+          aliasAdds.set(el.id, list);
+        }
+      }
     } else {
       // Unmatched feature → a one-off custom line for the estimator to finish.
       lineData.push({
@@ -300,6 +187,7 @@ export async function applyDrawingDraft(
         isAuto: true,
         note: l.note,
         sortOrder: lineSort,
+        ...trace(l),
       });
     }
     lineSort += 10;
@@ -317,7 +205,15 @@ export async function applyDrawingDraft(
   }));
 
   const ops: Prisma.PrismaPromise<unknown>[] = [];
+  if (input.replaceDrafted)
+    ops.push(
+      prisma.constructionQuoteLine.deleteMany({
+        where: { quoteId, isAuto: true, OR: [{ formula: { not: null } }, { clientRef: { not: Prisma.AnyNull } }] },
+      }),
+    );
   if (lineData.length) ops.push(prisma.constructionQuoteLine.createMany({ data: lineData }));
+  for (const [elementId, aliases] of aliasAdds)
+    ops.push(prisma.constructionElement.update({ where: { id: elementId }, data: { aliases: { push: aliases } } }));
   if (measData.length) ops.push(prisma.constructionMeasurement.createMany({ data: measData }));
   // On the quote itself: adopt the drawing's height bracket if it had none (so bracketed
   // rates resolve), and store the door/exit counts (so the builder can offer a foam chip) —
@@ -334,5 +230,5 @@ export async function applyDrawingDraft(
   await prisma.$transaction(ops);
 
   revalidatePath(`/construction/${quoteId}`);
-  return { ok: true, added: lineData.length };
+  return { ok: true, added: lineData.length, learned: [...aliasAdds.values()].reduce((a, x) => a + x.length, 0) };
 }

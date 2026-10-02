@@ -105,6 +105,12 @@ The 0.05%-of-job rule recorded here from the call was **wrong**. The real model,
   Competitive, £1.20/m/week at 50% = **£39.60 a week**. The old placeholder would have quoted
   £1.18 — out by a factor of 33.
 - **Inspections** — charged **per hire week**.
+- **Hire is per LINE (built 2026-10-01).** A scope states hire per line (KE 30/16/8/10 wk), so
+  `ConstructionQuoteLine.durationWeeks` now drives pricing (`weeksBeyondBase` uses the line's
+  own weeks, else the job's). Whether a price covers the WHOLE stated hire or only the rates'
+  4 weeks (extra quoted as terms) is ⚠ **P18** (`params.ts`, default TERMS = today's
+  behaviour, flagged; INCLUDED adds each line's hire beyond its base into the total). Colin to
+  confirm — the real quotes print a hire period per section.
 - ⚠️ Still open: the `%age to charge` mostly tracks the band but not always (a Competitive
   loading bay at ≤6 m is 25% while its High twin is 75%). Deliberate, or a sheet slip?
 
@@ -460,7 +466,7 @@ A top-level section, its own nav entry, never mixed with the tender/house-build 
 | Route | Screen | Does |
 |---|---|---|
 | `/construction` | **Jobs** | the job list: pipeline strip, search, stage filter, and a **next step** per row (`nextAction`, docs/19 §8a) |
-| `/construction/new` | **Start a job** | job details AND the enquiry-file drop zone together, so a new job is never empty. Creates the quote, uploads the files to it, opens step 1 |
+| `/construction/new` | **Start a job** | job details AND three upload boxes — **Scope · Drawings · Email**, all optional (2026-10-02) — so a new job is never empty. The box a file goes in is its label and sets the scenario (docs/22 "As built 2026-10-02 b"). Creates the quote, uploads the files to it, opens step 1 |
 | `/construction/[id]?step=…` | **The job, in four steps** | a persistent step rail over one workspace: **1 Enquiry** · **2 Site facts** · **3 Scaffold items** · **4 Quote** (§8a) |
 | `/construction/[id]/quote` | **Quote output** | print-ready client quote + Excel export (Wren schedule layout) |
 
@@ -537,6 +543,22 @@ separate construction library. No change to the house-build rate model.)
 ---
 
 ## 10. Quote output (`lib/construction/quoteExcel.ts` + a print view)
+
+> **Built 2026-10-01 (docs/22 M4): three output formats, chosen on the Quote step**
+> (`ConstructionQuote.outputFormat`):
+> - **SECTIONS** (default for a pack job) — Airwright's REAL layout, decoded from Quote-1350 /
+>   Quote-1375: lump-sum sections per area ("External Works Community Hall"), each with the
+>   TG20 specification (structure sections only), an "Includes for" list, hire period, extra
+>   hire per week; inspections their own line (weeks × £/week). `lib/construction/sections.ts`
+>   (pure, reconciles to the penny with the total); print view + `buildConstructionSectionsWorkbook`.
+>   Lines still to be measured (quantity 0) never appear to the client.
+> - **SCHEDULE** — the itemised Wren-style layout below (unchanged).
+> - **CLIENT** — the client's OWN schedule workbook filled in (`clientTemplateExcel.ts`): the
+>   scope reader records each line's sheet + row and the column roles (w · l · h · Lifts · Hire ·
+>   Weekly rate · Cost); our figures go into their rows, their formulas are left alone, a section
+>   confirmed empty says "None required", blank lines stay blank, and an "Airwright notes" sheet
+>   carries the terms. ⚠ "Weekly Rate" is filled with our extra hire per week (noted on the cell)
+>   until Colin answers docs/22 §13 #4.
 
 - **Print view** (`/construction/[id]/quote`) = the client quotation: header (customer/site/ref),
   **scope of works**, the **itemised lines** (item · lifts · unit · qty · rate · total), **hire

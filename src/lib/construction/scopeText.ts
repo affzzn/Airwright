@@ -9,6 +9,7 @@
  */
 
 import ExcelJS from "exceljs";
+import { parseScopeWorkbook, renderScopeTable, type GridSheet, type ScopeTable } from "./scopeTable";
 
 /** Hard cap so a stray huge file can't blow the model context / payload. */
 const MAX_TEXT_CHARS = 200_000;
@@ -69,6 +70,53 @@ export async function xlsxToText(bytes: Buffer): Promise<string> {
   return clamp(blocks.join("\n\n").trim());
 }
 
+/** Every worksheet as a plain grid (row/column numbers kept) for `scopeTable.ts`. */
+export async function xlsxToGrid(bytes: Buffer): Promise<GridSheet[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+  const sheets: GridSheet[] = [];
+  wb.eachSheet((sheet) => {
+    const rows: GridSheet["rows"] = [];
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      const cells: GridSheet["rows"][number]["cells"] = [];
+      row.eachCell({ includeEmpty: false }, (cell, col) => {
+        // A merged cell repeats its master's value; keep it only on the master.
+        if (cell.isMerged && cell.master && cell.master.address !== cell.address) return;
+        const text = cellToText(cell.value);
+        if (text) cells.push({ col, text, bold: Boolean(cell.font?.bold) });
+      });
+      if (cells.length) rows.push({ row: rowNumber, cells });
+    });
+    sheets.push({ name: sheet.name, rows });
+  });
+  return sheets;
+}
+
+/** A scope file read for the scope reader: its text (tables rendered row by row) and any schedule tables. */
+export interface ScopeRead {
+  text: string;
+  tables: ScopeTable[];
+}
+
+/**
+ * Read a scope file for the reader. A spreadsheet that is a schedule is rendered as
+ * its TABLE (rows tagged "[R12]", sections, empty sections) so the model maps rows
+ * and code keeps the structure; anything else falls back to `extractScopeText`.
+ */
+export async function readScopeFile(file: ScopeFile): Promise<ScopeRead> {
+  const ext = extOf(file.name);
+  const mime = (file.mimeType || "").toLowerCase();
+  if (ext === "xlsx" || mime.includes("spreadsheetml")) {
+    try {
+      const tables = parseScopeWorkbook(await xlsxToGrid(file.bytes));
+      if (tables.length) return { text: clamp(tables.map((t) => renderScopeTable(file.name, t)).join("\n\n")), tables };
+    } catch {
+      // fall through to the flat text
+    }
+  }
+  return { text: await extractScopeText(file), tables: [] };
+}
+
 /** PDF text layer only (server-side). Empty for a scanned/image-only PDF.
  *  pdfjs is imported lazily so the non-PDF paths (and unit tests) never load it. */
 export async function pdfToText(bytes: Buffer): Promise<string> {
@@ -124,15 +172,23 @@ const stripHtml = (s: string): string =>
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"');
 
-/** Pull one MIME part's body (text/plain preferred) out of a raw .eml. */
+/**
+ * Pull one MIME part's body (text/plain preferred) out of a raw .eml, decoded by
+ * its own Content-Transfer-Encoding. Outlook often sends the body BASE64-encoded
+ * (Murray Park's enquiry); quoted-printable and plain bodies are handled too.
+ */
 function mimePart(raw: string, type: "plain" | "html"): string | null {
   const m = new RegExp(`content-type:\\s*text/${type}`, "i").exec(raw);
   if (!m) return null;
   const afterHdr = raw.indexOf("\n\n", m.index);
   if (afterHdr < 0) return null;
+  const headers = raw.slice(m.index, afterHdr);
   let body = raw.slice(afterHdr + 2);
   const b = body.search(/\n--[^\n]+\n/); // next MIME boundary
   if (b >= 0) body = body.slice(0, b);
+  const enc = /content-transfer-encoding:\s*([\w-]+)/i.exec(headers)?.[1]?.toLowerCase();
+  if (enc === "base64") return Buffer.from(body.replace(/\s+/g, ""), "base64").toString("utf8");
+  if (enc === "quoted-printable") return decodeQP(body);
   return body;
 }
 
@@ -148,6 +204,7 @@ export function emlToText(bytes: Buffer): string {
   }
   // Drop long base64-ish lines (inline attachments) + collapse whitespace.
   body = body
+    .replace(/\r\n/g, "\n")
     .split("\n")
     .filter((l) => !/^[A-Za-z0-9+/=]{120,}$/.test(l.trim()))
     .join("\n")

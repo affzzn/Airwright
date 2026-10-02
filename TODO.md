@@ -160,14 +160,34 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 
 ## Construction — follow-ups
 
-- [ ] **The picking list is back on the 13-item placeholder seed** (reverted
-      2026-09-24 on request). Airwright's real 165-item sheet is imported and
+- [ ] **Pack reading + scope mode (docs/22 M1–M4 built 2026-09-30 / 10-01) — next:**
+      - Deploy: commit + push → Render runs the `construction-*` queues. Until then a "Read" /
+        "Re-measure" click queues a job only a local `WORKER_QUEUES=construction` worker takes.
+      - Delete the kept test jobs (KE `cmupoijhb0000it0hlvpqyuiq`, Wren `cmupp1gc40000itk5lmba4cfm`,
+        Murray Park `cmuppc12p0000itioepwxide3`, CBAND `cmuo3evr00000itl06aamfkvz`).
+      - KE outline: the stored GF plan traced NO walls; 1F works (96.036 m, low). A vector
+        wall-hatch reader (or an occupancy grid) would make it high — still the open M2 item.
+      - CBAND Hall: one stored read misreads a wall (outline off by 3.61 m — never priced; the
+        flag says so). Hall gables roof 2 vs elevations 3 → Colin's P9.
+      - Riser platforms count every "Riser" label per level (KE 6 + 11 + 15 = 32) — ⚠ P13b; check
+        the basis with Colin before trusting the number.
+      - Internal runs on mark-ups are flagged, not measured; birdcage rooms from scope wording are
+        not matched to printed room areas yet (flagged "take the room areas by hand").
+      - Client-template "Weekly Rate" = our extra hire per week (noted on the cell) until §13 #4.
+      - Site-type flags from context sheets (public road / school in operation) are not read yet.
+- [x] ~~The picking list is back on the 13-item placeholder seed~~ — replaced 2026-09-30 by
+      the 34-item DEV placeholder list (`library.ts`, badged on Rates). (Reverted
+      2026-09-24 on request.) Airwright's real 165-item sheet is imported and
       RETIRED in the database, not deleted. To switch back:
       `npx tsx scripts/import-rate-sheet.mts "cons-data/picking list.xlsm"`.
       To go the other way: `npx tsx scripts/restore-seed-library.mts`.
       While on the seed, extra hire computes as £0 because the placeholder rates
       carry no E/H value.
 
+- [ ] **Confirm with Colin: P18** — now INCLUDED by default on scope jobs (Ben, 9 Sep: "40 weeks
+      asked = install + dismantle + weekly hire on top"), TERMS elsewhere. Confirm both defaults. Also:
+      is "20 m × 2 pits" always per pit? **P19** — does "lifts at each level" mean one boarded lift per floor level? Both are
+      flagged placeholders on the job settings panel.
 - [ ] **Ask Colin: is `%age to charge` band variation deliberate?** Most items track the band
       (H 100 / M 75 / C 50), but e.g. `Con Loading bay (per lift)` is H 75 / M 50 / C 25 at
       <=6 m. It changes every extra-hire figure we quote.
@@ -182,10 +202,8 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 - [ ] **Wren hire duration: 7 or 10 weeks?** The client's schedule
       (`data/construction/eg-01`) says 7 weeks; docs/19 §2 records 10. Confirm before
       the example is relied on as a pricing fixture.
-- [ ] **Alias learning is dormant.** The scope-draft apply path
-      (`applyConstructionDraftLines`) learned a client's wording as an alias on a
-      genuine correction (docs/19 §15). The UI now goes through `applyDrawingDraft`
-      instead, which does not. Port it over when Laura's terminology list lands.
+- [x] ~~Alias learning is dormant~~ — restored 2026-10-01 in `applyDrawingDraft` (a genuine
+      correction in the draft review learns the client's wording as an alias).
 - [ ] **Rate sheet** — swap the placeholder construction rates on Rates → Construction,
       then re-check a real priced job end to end.
 - [ ] Confirm the extra-hire rule (0.05% of job cost per week) with Laura; the UI states
