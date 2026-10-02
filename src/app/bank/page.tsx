@@ -45,9 +45,9 @@ export default async function BankPage({
         <p className="eyebrow mb-2">House Building</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">House-Type Bank</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-subtle">
-          Confirmed take-offs, owned by the company and reused across tenders. When a repeat
-          arrives it is matched on its measurements — not just its name — and any drawing change
-          is flagged for a sense-check.
+          Confirmed take-offs saved with “Save to house bank”, owned by the company. When a tender
+          is uploaded, every house type is checked against this whole bank (any builder) before
+          it is read — pick a version and it is used without re-measuring.
         </p>
       </div>
 
@@ -126,7 +126,7 @@ export default async function BankPage({
                           <p className="mt-0.5 text-xs text-ink-subtle">
                             {e.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional"}
                             {e.storeys != null && ` · ${e.storeys}-storey`}
-                            {e.perimeter != null && ` · ${e.perimeter} m perimeter`}
+                            {e.perimeter != null && ` · ${e.perimeter} m${e.lifts != null ? ` × ${e.lifts} lifts` : ""}`}
                             {e.aliases.length > 0 && ` · also: ${e.aliases.slice(0, 3).join(", ")}`}
                           </p>
                         </div>

@@ -45,6 +45,8 @@ export interface BankVersionOption {
   savedAt: string | null;
   fromProject: string | null;
   summary: SnapshotSummary | null;
+  /** What changed from the version before it ("Apex count 0 → 2"); empty for v1. */
+  changedFromPrevious: string[];
 }
 
 export interface BankRepeatOffer {
@@ -106,6 +108,16 @@ function safeSummary(raw: unknown): SnapshotSummary | null {
   }
 }
 
+/** The plain-words differences between two stored versions (older → newer). */
+function changesBetween(older: unknown, newer: unknown): string[] {
+  const a = older ? parseSnapshot(older) : null;
+  const b = parseSnapshot(newer);
+  if (!a || !b) return [];
+  const fmt = (x: number | string | null) =>
+    x === null ? "—" : typeof x === "number" ? String(Math.round(x * 100) / 100) : x.toLowerCase().replace(/_/g, " ");
+  return compareGeometry(a, b).diffs.map((d) => `${d.label} ${fmt(d.from)} → ${fmt(d.to)}`);
+}
+
 /** At most this many bank entries are offered for one house type. */
 const MAX_OFFERS = 3;
 
@@ -142,12 +154,14 @@ export async function bankRepeatsFor(
           strength: r.strength,
           reason: r.reason,
           sameBuilder: r.sameBuilder,
-          versions: e.versions.map((v) => ({
+          versions: e.versions.map((v, i) => ({
             versionId: v.id,
             version: v.version,
             savedAt: v.confirmedAt ? v.confirmedAt.toISOString() : null,
             fromProject: v.sourceProjectId ? (names.get(v.sourceProjectId) ?? null) : null,
             summary: safeSummary(v.snapshot),
+            // versions are newest first, so the one before this is the next in the list
+            changedFromPrevious: changesBetween(e.versions[i + 1]?.snapshot, v.snapshot),
           })),
         };
       }),
@@ -338,10 +352,17 @@ function learnAlias(
   code: string | null,
 ): string[] | null {
   const next = [...entry.aliases];
+  // "DENTON (L356)" is just the name with its own code — not a new alias.
+  const codes = new Set([normalizeCode(entry.canonicalCode), normalizeCode(code)].filter((c): c is string => !!c));
+  const stem = (v: string) =>
+    normalizeName(v)
+      .split(" ")
+      .filter((t) => !codes.has(t))
+      .join(" ");
   const has = (v: string) =>
     next.some((a) => normalizeName(a) === normalizeName(v) && (normalizeCode(a) ?? "") === (normalizeCode(v) ?? ""));
   const nm = name.trim();
-  if (nm && normalizeName(nm) && normalizeName(nm) !== normalizeName(entry.canonicalName) && !has(nm)) next.push(nm);
+  if (nm && stem(nm) && stem(nm) !== stem(entry.canonicalName) && !has(nm)) next.push(nm);
   const cd = code?.trim();
   if (cd && normalizeCode(cd) && normalizeCode(cd) !== normalizeCode(entry.canonicalCode) && !next.some((a) => normalizeCode(a) === normalizeCode(cd)))
     next.push(cd);
@@ -431,6 +452,8 @@ export interface SaveCandidate {
   diffs: GeometryComparison["diffs"];
   /** DIFFERENT = the numbers look like another house (storeys/structure/perimeter). */
   verdict: GeometryComparison["verdict"] | null;
+  /** What made it look like a different house, in plain words ("apex count"). */
+  bigChanges: string[];
   latestVersion: number | null;
   nextVersion: number;
 }
@@ -482,6 +505,7 @@ export async function saveOptions(takeoffId: string): Promise<SaveOptions | null
       identicalTo: cmp.identicalTo,
       diffs: cmp.identicalTo ? [] : (cmp.latest?.comparison?.diffs ?? []),
       verdict: cmp.identicalTo ? "IDENTICAL" : (cmp.latest?.comparison?.verdict ?? null),
+      bigChanges: cmp.identicalTo ? [] : (cmp.latest?.comparison?.breakers ?? []).map((b) => BREAKER_LABEL[b] ?? b),
       latestVersion: cmp.latest?.version ?? null,
       nextVersion: cmp.nextVersion,
     };
@@ -512,6 +536,13 @@ export async function saveOptions(takeoffId: string): Promise<SaveOptions | null
     candidates,
   };
 }
+
+const BREAKER_LABEL: Record<string, string> = {
+  storeys: "storeys",
+  structure: "structure",
+  apex: "apex count",
+  perimeter: "overall size (perimeter)",
+};
 
 export type SaveChoice =
   | { kind: "NEW_ENTRY" }
@@ -708,7 +739,7 @@ export async function listBankEntries(filter: { buildType?: BankBuildType; inclu
     orderBy: [{ updatedAt: "desc" }],
   });
   return entries.map((e) => {
-    const snap = e.currentVersion ? parseSnapshot(e.currentVersion.snapshot) : null;
+    const summary = e.currentVersion ? safeSummary(e.currentVersion.snapshot) : null;
     return {
       id: e.id,
       clientName: e.client.name,
@@ -721,8 +752,10 @@ export async function listBankEntries(filter: { buildType?: BankBuildType; inclu
       versions: e._count.versions,
       instances: e._count.houseTypes,
       lastConfirmed: e.currentVersion?.confirmedAt ?? null,
-      storeys: snap?.measurements.STOREYS ?? null,
-      perimeter: snap ? Math.round(snap.walls.reduce((a, w) => a + w.lengthM, 0) * 10) / 10 : null,
+      storeys: summary?.storeys ?? null,
+      // Colin's figure for the latest version: the perimeter per lift × lifts.
+      perimeter: summary?.perLiftM ?? null,
+      lifts: summary?.lifts ?? null,
     };
   });
 }

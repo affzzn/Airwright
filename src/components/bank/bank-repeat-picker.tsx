@@ -118,6 +118,7 @@ function VersionLine({ v }: { v: BankVersionOption }) {
         s.configuration.toLowerCase().replace("_", " "),
         s.lifts != null ? `${s.perLiftM} m × ${s.lifts} lifts` : `${s.perLiftM} m`,
         s.birdcageFloors > 0 ? `birdcage ${s.birdcageM2} m² × ${s.birdcageFloors}` : null,
+        `${s.apexes} apex${s.apexes === 1 ? "" : "es"}`,
       ].filter(Boolean)
     : [];
   return (
@@ -126,6 +127,11 @@ function VersionLine({ v }: { v: BankVersionOption }) {
         <span className="font-medium">v{v.version}</span>
         <span className="ml-2 text-ink-muted">{facts.join(" · ") || "numbers unavailable"}</span>
       </p>
+      {v.changedFromPrevious.length > 0 && (
+        <p className="mt-0.5 text-[11px] text-ink">
+          Changed from v{v.version - 1}: {v.changedFromPrevious.slice(0, 4).join(" · ")}
+        </p>
+      )}
       <p className="mt-0.5 truncate text-[11px] text-ink-subtle">
         Saved{v.savedAt ? ` ${formatDate(v.savedAt)}` : ""}
         {v.fromProject ? ` · from ${v.fromProject}` : ""}

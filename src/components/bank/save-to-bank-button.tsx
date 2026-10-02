@@ -224,7 +224,8 @@ function CandidateCard({
           )}
           {c.verdict === "DIFFERENT" && (
             <p className="mt-1 text-xs text-ink-muted">
-              These look like a different house (storeys, structure or size changed) — check before saving as a version.
+              A big change ({c.bigChanges.join(", ") || "the measurements"}) — make sure it&rsquo;s the same house before
+              saving it as a version.
             </p>
           )}
           <Button

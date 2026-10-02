@@ -14,6 +14,8 @@ export interface SnapshotSummary {
   storeys: number | null;
   birdcageM2: number;
   birdcageFloors: number;
+  /** Apexes on the drawing (GABLE_QTY — the same count the version diff compares). */
+  apexes: number;
   configuration: string;
 }
 
@@ -36,6 +38,7 @@ export function summarizeSnapshot(snapshot: TakeoffSnapshot): SnapshotSummary {
     storeys: snapshot.measurements.STOREYS ?? null,
     birdcageM2: r2(line.birdcage.totalM2),
     birdcageFloors: line.birdcage.floorCount,
+    apexes: snapshot.measurements.GABLE_QTY ?? 0,
     configuration: snapshot.configuration,
   };
 }

@@ -46,6 +46,9 @@ export function HomeHub({
           <Link href="/rates" className="text-sm text-ink-muted transition-colors hover:text-ink">
             Rates
           </Link>
+          <Link href="/bank" className="text-sm text-ink-muted transition-colors hover:text-ink">
+            House bank
+          </Link>
           <Link href="/docs" className="text-sm text-ink-muted transition-colors hover:text-ink">
             Docs
           </Link>
@@ -54,8 +57,6 @@ export function HomeHub({
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <span className="eyebrow">Coming soon</span>
           <span className="text-xs text-ink-subtle">Gang Pay &amp; Viability</span>
-          <span className="text-ink-subtle/50">·</span>
-          <span className="text-xs text-ink-subtle">House-Type Bank</span>
         </div>
       </div>
     </div>
