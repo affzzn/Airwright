@@ -4,34 +4,367 @@ import {
   serializeSnapshot,
   parseSnapshot,
   geometryFingerprint,
+  BANK_MEASUREMENT_KEYS,
   type BankBuildType,
   type BankConfiguration,
+  type BankMeasurementKey,
   type TakeoffSnapshot,
 } from "@/lib/bank/snapshot";
 import {
-  matchAgainstBank,
+  findRepeats,
+  compareWithEntry,
   compareGeometry,
-  nameCodeMatch,
-  type BankCandidateInput,
-  type MatchResult,
+  builderKey,
+  type BankEntryRef,
+  type GeometryComparison,
+  type Repeat,
 } from "@/lib/bank/match";
 import { normalizeName, normalizeCode } from "@/lib/bank/normalize";
+import { summarizeSnapshot, type SnapshotSummary } from "@/lib/bank/summary";
 import { ensureDefaultPlot } from "@/server/plots";
-import type { BankMeasurementKey } from "@/lib/bank/snapshot";
-import { BANK_MEASUREMENT_KEYS } from "@/lib/bank/snapshot";
 
 /**
- * Server-side orchestration for the House-Type Bank (docs/20 §6). The pure matcher
- * (src/lib/bank) does the geometry/name work; this loads/writes Prisma. HOUSE-BUILD
- * ONLY — Construction never calls in here.
+ * House bank v2 (docs/20) — the server side. HOUSE-BUILD ONLY (Traditional +
+ * Timber-Frame); Construction never calls in here.
+ *
+ *  - Nothing is saved automatically. A take-off goes into the bank only when a person
+ *    presses "Save to house bank" (saveToBank), and every save is an explicit choice:
+ *    a new house type, a new version of one, or "already saved as vN".
+ *  - Versions are never edited or replaced; every version stays pickable.
+ *  - On upload, each house type is checked against the WHOLE bank (every builder, same
+ *    build type) BEFORE its drawing is read. A repeat's read is HELD — never queued —
+ *    until a person picks a version (applyBankVersion → no read, no AI cost) or says
+ *    "read the drawing".
  */
 
+// ── Loading the bank ─────────────────────────────────────────────────────────
+
+export interface BankVersionOption {
+  versionId: string;
+  version: number;
+  savedAt: string | null;
+  fromProject: string | null;
+  summary: SnapshotSummary | null;
+}
+
+export interface BankRepeatOffer {
+  entryId: string;
+  name: string;
+  code: string | null;
+  builder: string;
+  strength: Repeat["strength"];
+  reason: Repeat["reason"];
+  sameBuilder: boolean;
+  /** Newest first. */
+  versions: BankVersionOption[];
+}
+
+type LoadedEntry = BankEntryRef & {
+  builder: string;
+  versions: { id: string; version: number; snapshot: unknown; confirmedAt: Date | null; sourceProjectId: string | null }[];
+};
+
+/** Every ACTIVE bank entry of a build type (all builders), with its versions. */
+async function loadBank(buildType: BankBuildType): Promise<LoadedEntry[]> {
+  const entries = await prisma.houseTypeBankEntry.findMany({
+    where: { buildType, status: "ACTIVE" },
+    relationLoadStrategy: "join",
+    include: {
+      client: { select: { name: true } },
+      versions: {
+        select: { id: true, version: true, snapshot: true, confirmedAt: true, sourceProjectId: true },
+        orderBy: { version: "desc" },
+      },
+    },
+  });
+  return entries.map((e) => ({
+    entryId: e.id,
+    buildType: e.buildType as BankBuildType,
+    canonicalName: e.canonicalName,
+    canonicalCode: e.canonicalCode,
+    aliases: e.aliases,
+    builderKey: builderKey(e.client.name),
+    builder: e.client.name,
+    versions: e.versions,
+  }));
+}
+
+async function projectNames(ids: (string | null)[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((x): x is string => !!x))];
+  if (unique.length === 0) return new Map();
+  const rows = await prisma.project.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+function safeSummary(raw: unknown): SnapshotSummary | null {
+  const snap = parseSnapshot(raw);
+  if (!snap) return null;
+  try {
+    return summarizeSnapshot(snap);
+  } catch {
+    return null;
+  }
+}
+
+/** At most this many bank entries are offered for one house type. */
+const MAX_OFFERS = 3;
+
+/**
+ * The bank repeats for a set of house types (one bank load for all of them).
+ * Used by the upload hold and by the project page's version picker.
+ */
+export async function bankRepeatsFor(
+  ctx: { buildType: BankBuildType; builderName: string },
+  types: { houseTypeId: string; name: string; code: string | null }[],
+): Promise<Map<string, BankRepeatOffer[]>> {
+  const out = new Map<string, BankRepeatOffer[]>();
+  if (types.length === 0) return out;
+  const bank = await loadBank(ctx.buildType);
+  if (bank.length === 0) return out;
+  const byId = new Map(bank.map((e) => [e.entryId, e]));
+  const names = await projectNames(bank.flatMap((e) => e.versions.map((v) => v.sourceProjectId)));
+  const inBuilder = builderKey(ctx.builderName);
+
+  for (const t of types) {
+    const hits = findRepeats({ buildType: ctx.buildType, name: t.name, code: t.code, builderKey: inBuilder }, bank)
+      .filter((r) => (byId.get(r.entryId)?.versions.length ?? 0) > 0)
+      .slice(0, MAX_OFFERS);
+    if (hits.length === 0) continue;
+    out.set(
+      t.houseTypeId,
+      hits.map((r) => {
+        const e = byId.get(r.entryId)!;
+        return {
+          entryId: e.entryId,
+          name: e.canonicalName,
+          code: e.canonicalCode,
+          builder: e.builder,
+          strength: r.strength,
+          reason: r.reason,
+          sameBuilder: r.sameBuilder,
+          versions: e.versions.map((v) => ({
+            versionId: v.id,
+            version: v.version,
+            savedAt: v.confirmedAt ? v.confirmedAt.toISOString() : null,
+            fromProject: v.sourceProjectId ? (names.get(v.sourceProjectId) ?? null) : null,
+            summary: safeSummary(v.snapshot),
+          })),
+        };
+      }),
+    );
+  }
+  return out;
+}
+
+// ── Upload: hold the read of a repeat ────────────────────────────────────────
+
+/**
+ * Of these freshly-created PENDING extractions, which belong to a house type that is
+ * already in the bank? Those are set to HELD (and must NOT be queued); the rest are
+ * returned to be queued as normal. House-build only — construction never gets here.
+ * Best-effort: if the bank cannot be checked, nothing is held (the read goes ahead).
+ */
+export async function holdBankRepeats(extractionIds: string[]): Promise<{ held: Set<string> }> {
+  const held = new Set<string>();
+  if (extractionIds.length === 0) return { held };
+  try {
+    const rows = await prisma.extraction.findMany({
+      where: { id: { in: extractionIds }, status: "PENDING" },
+      relationLoadStrategy: "join",
+      select: {
+        id: true,
+        houseType: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            project: { select: { buildType: true, estimatingMode: true, client: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+    const first = rows.find((r) => r.houseType)?.houseType;
+    if (!first || first.project.estimatingMode !== "HOUSE_BUILD") return { held };
+    const ctx = {
+      buildType: (first.project.buildType ?? "TRADITIONAL") as BankBuildType,
+      builderName: first.project.client.name,
+    };
+    const offers = await bankRepeatsFor(
+      ctx,
+      rows.flatMap((r) => (r.houseType ? [{ houseTypeId: r.houseType.id, name: r.houseType.name, code: r.houseType.code }] : [])),
+    );
+    const toHold = rows.filter((r) => r.houseType && offers.has(r.houseType.id)).map((r) => r.id);
+    if (toHold.length > 0) {
+      await prisma.extraction.updateMany({ where: { id: { in: toHold }, status: "PENDING" }, data: { status: "HELD" } });
+      toHold.forEach((id) => held.add(id));
+    }
+  } catch (err) {
+    console.error("[bank] hold check failed — reads go ahead", err);
+  }
+  return { held };
+}
+
+// ── Picking a version ────────────────────────────────────────────────────────
+
+/**
+ * Fill a house type's take-off from one bank version and confirm it — picking the
+ * version IS the person's confirmation. No drawing is read: any held / queued read
+ * for this house type is marked SKIPPED (the row is kept so the review page still
+ * shows the drawing). A read already mid-flight can't be recalled, but it can never
+ * overwrite this (persist bails on a CONFIRMED take-off) — and the worker skips a
+ * SKIPPED read before calling the model.
+ */
+export async function applyBankVersion(
+  houseTypeId: string,
+  versionId: string,
+  opts: { userId?: string | null } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  const [houseType, version] = await Promise.all([
+    prisma.houseType.findUnique({
+      where: { id: houseTypeId },
+      relationLoadStrategy: "join",
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        projectId: true,
+        project: { select: { buildType: true, estimatingMode: true } },
+        takeoff: { select: { id: true } },
+      },
+    }),
+    prisma.houseTypeBankVersion.findUnique({
+      where: { id: versionId },
+      relationLoadStrategy: "join",
+      include: { bankEntry: { select: { id: true, buildType: true, status: true, aliases: true, canonicalName: true, canonicalCode: true } } },
+    }),
+  ]);
+  if (!houseType) return { ok: false, error: "house type not found" };
+  if (houseType.project.estimatingMode !== "HOUSE_BUILD") return { ok: false, error: "the house bank is house-build only" };
+  if (!version) return { ok: false, error: "that bank version no longer exists" };
+  const projectBuild = houseType.project.buildType ?? "TRADITIONAL";
+  if (version.bankEntry.buildType !== projectBuild)
+    return {
+      ok: false,
+      error: `that house type is ${version.bankEntry.buildType === "TIMBER_FRAME" ? "timber frame" : "traditional"} — this tender is ${projectBuild === "TIMBER_FRAME" ? "timber frame" : "traditional"}`,
+    };
+  const snapshot = parseSnapshot(version.snapshot);
+  if (!snapshot) return { ok: false, error: "that bank version can't be read" };
+
+  const measurementsCreate = (Object.keys(snapshot.measurements) as BankMeasurementKey[])
+    .filter((k) => BANK_MEASUREMENT_KEYS.includes(k) && snapshot.measurements[k] != null)
+    .map((k) => ({ key: k, valueNumber: snapshot.measurements[k]!, source: "MANUAL" as const, confidence: null, ambiguous: false }));
+  const wallsCreate = snapshot.walls.map((w) => ({
+    position: w.position,
+    lengthM: w.lengthM,
+    isPartyWall: w.isPartyWall ?? null,
+    source: "MANUAL" as const,
+    confidence: null,
+  }));
+  const takeoffData = {
+    status: "CONFIRMED" as const,
+    configuration: snapshot.configuration,
+    includePartyWall: snapshot.includePartyWall,
+    confirmedById: opts.userId ?? null,
+    confirmedAt: new Date(),
+    // bankPickedAt: when the numbers were put in from the bank — a drawing read that
+    // started before this is no longer what the take-off shows (bankOriginFor).
+    warnings: { ...snapshot.warnings, bankPickedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
+  };
+  const aliases = learnAlias(version.bankEntry, houseType.name, houseType.code);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (houseType.takeoff) {
+        await tx.takeoffMeasurement.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
+        await tx.wallSegment.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
+        await tx.takeoff.update({
+          where: { id: houseType.takeoff.id },
+          data: { ...takeoffData, measurements: { create: measurementsCreate }, wallSegments: { create: wallsCreate } },
+        });
+      } else {
+        await tx.takeoff.create({
+          data: {
+            houseTypeId: houseType.id,
+            ...takeoffData,
+            measurements: { create: measurementsCreate },
+            wallSegments: { create: wallsCreate },
+          },
+        });
+      }
+      // A person said "this IS that house type": take the bank's clean name + code (the
+      // tender's raw title-block text, e.g. "MILLFIELD BUNGALOW", was learned as an alias).
+      // The code is only taken if no other house type in this tender already uses it.
+      const code = version.bankEntry.canonicalCode;
+      const codeClash = code
+        ? await tx.houseType.findFirst({
+            where: { projectId: houseType.projectId, code, NOT: { id: houseType.id } },
+            select: { id: true },
+          })
+        : null;
+      await tx.houseType.update({
+        where: { id: houseType.id },
+        data: {
+          bankEntryId: version.bankEntry.id,
+          bankVersionId: version.id,
+          bankMatchState: "FROM_BANK",
+          name: version.bankEntry.canonicalName,
+          ...(code && !codeClash ? { code } : {}),
+        },
+      });
+      // The read is not needed: never queue / never run it.
+      await tx.extraction.updateMany({
+        where: { houseTypeId: houseType.id, status: { in: ["PENDING", "HELD"] } },
+        data: { status: "SKIPPED", errorMessage: null },
+      });
+      await tx.houseTypeBankEntry.update({
+        where: { id: version.bankEntry.id },
+        data: { timesReused: { increment: 1 }, ...(aliases ? { aliases } : {}) },
+      });
+    });
+    await ensureDefaultPlot(houseType.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "could not use that version" };
+  }
+}
+
+/**
+ * When a person says "this IS that house type", remember the name/code they saw so it
+ * is an exact hit next time. Returns the new alias list, or null if nothing to add.
+ */
+function learnAlias(
+  entry: { aliases: string[]; canonicalName: string; canonicalCode: string | null },
+  name: string,
+  code: string | null,
+): string[] | null {
+  const next = [...entry.aliases];
+  const has = (v: string) =>
+    next.some((a) => normalizeName(a) === normalizeName(v) && (normalizeCode(a) ?? "") === (normalizeCode(v) ?? ""));
+  const nm = name.trim();
+  if (nm && normalizeName(nm) && normalizeName(nm) !== normalizeName(entry.canonicalName) && !has(nm)) next.push(nm);
+  const cd = code?.trim();
+  if (cd && normalizeCode(cd) && normalizeCode(cd) !== normalizeCode(entry.canonicalCode) && !next.some((a) => normalizeCode(a) === normalizeCode(cd)))
+    next.push(cd);
+  return next.length !== entry.aliases.length ? next.slice(0, 50) : null;
+}
+
+// ── Saving to the bank (only on the button) ──────────────────────────────────
+
 /** Build a frozen snapshot from a persisted take-off (+ its project's build type). */
-export async function snapshotFromTakeoff(
-  takeoffId: string,
-): Promise<{
+export async function snapshotFromTakeoff(takeoffId: string): Promise<{
   snapshot: TakeoffSnapshot;
-  houseType: { id: string; name: string; code: string | null; clientId: string; projectId: string };
+  status: string;
+  houseType: {
+    id: string;
+    name: string;
+    code: string | null;
+    clientId: string;
+    builderName: string;
+    projectId: string;
+    bankEntryId: string | null;
+    bankVersionId: string | null;
+    bankMatchState: string | null;
+  };
 } | null> {
   const takeoff = await prisma.takeoff.findUnique({
     where: { id: takeoffId },
@@ -46,14 +379,17 @@ export async function snapshotFromTakeoff(
           code: true,
           clientId: true,
           projectId: true,
+          bankEntryId: true,
+          bankVersionId: true,
+          bankMatchState: true,
+          client: { select: { name: true } },
           project: { select: { buildType: true, estimatingMode: true } },
         },
       },
     },
   });
   if (!takeoff?.houseType) return null;
-  // Bank is house-build only.
-  if (takeoff.houseType.project.estimatingMode === "CONSTRUCTION") return null;
+  if (takeoff.houseType.project.estimatingMode !== "HOUSE_BUILD") return null;
 
   const buildType = (takeoff.houseType.project.buildType ?? "TRADITIONAL") as BankBuildType;
   const snapshot = serializeSnapshot({
@@ -64,201 +400,161 @@ export async function snapshotFromTakeoff(
     walls: takeoff.wallSegments,
     warnings: takeoff.warnings,
   });
+  const h = takeoff.houseType;
   return {
     snapshot,
+    status: takeoff.status,
     houseType: {
-      id: takeoff.houseType.id,
-      name: takeoff.houseType.name,
-      code: takeoff.houseType.code,
-      clientId: takeoff.houseType.clientId,
-      projectId: takeoff.houseType.projectId,
+      id: h.id,
+      name: h.name,
+      code: h.code,
+      clientId: h.clientId,
+      builderName: h.client.name,
+      projectId: h.projectId,
+      bankEntryId: h.bankEntryId,
+      bankVersionId: h.bankVersionId,
+      bankMatchState: h.bankMatchState,
     },
   };
 }
 
-/** Load the client's bank entries (of one build type) as matcher candidates. */
-export async function bankCandidates(
-  clientId: string,
-  buildType: BankBuildType,
-): Promise<BankCandidateInput[]> {
-  const entries = await prisma.houseTypeBankEntry.findMany({
-    where: { clientId, buildType, status: "ACTIVE" },
-    relationLoadStrategy: "join",
-    include: { currentVersion: { select: { snapshot: true } } },
-  });
-  return entries.map((e) => ({
-    entryId: e.id,
-    buildType: e.buildType as BankBuildType,
-    canonicalName: e.canonicalName,
-    canonicalCode: e.canonicalCode,
-    aliases: e.aliases,
-    snapshot: e.currentVersion ? parseSnapshot(e.currentVersion.snapshot) : null,
-  }));
+export interface SaveCandidate {
+  entryId: string;
+  name: string;
+  code: string | null;
+  builder: string;
+  strength: Repeat["strength"] | "LINKED";
+  versionCount: number;
+  /** A stored version with the same numbers — nothing new to save. */
+  identicalTo: { versionId: string; version: number } | null;
+  /** How this take-off differs from the newest version (empty when identical). */
+  diffs: GeometryComparison["diffs"];
+  /** DIFFERENT = the numbers look like another house (storeys/structure/perimeter). */
+  verdict: GeometryComparison["verdict"] | null;
+  latestVersion: number | null;
+  nextVersion: number;
 }
 
-/** Run the matcher for a take-off without writing anything (for the review panel). */
-export async function matchTakeoff(takeoffId: string): Promise<
-  | {
-      match: MatchResult;
-      candidateNames: Record<string, { name: string; code: string | null }>;
-      currentBankEntryId: string | null;
-      houseType: { name: string; code: string | null; clientId: string };
-    }
-  | null
-> {
+export interface SaveOptions {
+  takeoffId: string;
+  confirmed: boolean;
+  houseTypeName: string;
+  houseTypeCode: string | null;
+  builder: string;
+  summary: SnapshotSummary | null;
+  /** Where this house type already sits in the bank (picked from / saved as). */
+  linked: { entryId: string; name: string; version: number | null; state: string } | null;
+  candidates: SaveCandidate[];
+}
+
+/** What "Save to house bank" can do for this take-off (read-only — writes nothing). */
+export async function saveOptions(takeoffId: string): Promise<SaveOptions | null> {
   const s = await snapshotFromTakeoff(takeoffId);
   if (!s) return null;
-  const candidates = await bankCandidates(s.houseType.clientId, s.snapshot.buildType);
-  const match = matchAgainstBank(
-    { buildType: s.snapshot.buildType, name: s.houseType.name, code: s.houseType.code, snapshot: s.snapshot },
-    candidates,
+  const bank = await loadBank(s.snapshot.buildType);
+  const repeats = findRepeats(
+    { buildType: s.snapshot.buildType, name: s.houseType.name, code: s.houseType.code, builderKey: builderKey(s.houseType.builderName) },
+    bank,
   );
-  // Resolve entry ids → display names for the UI.
-  const ids = new Set(match.candidates.map((c) => c.entryId));
-  const names: Record<string, { name: string; code: string | null }> = {};
-  if (ids.size) {
-    const rows = await prisma.houseTypeBankEntry.findMany({
-      where: { id: { in: [...ids] } },
-      select: { id: true, canonicalName: true, canonicalCode: true },
-    });
-    for (const r of rows) names[r.id] = { name: r.canonicalName, code: r.canonicalCode };
+  const ids: { entryId: string; strength: SaveCandidate["strength"] }[] = repeats
+    .slice(0, MAX_OFFERS)
+    .map((r) => ({ entryId: r.entryId, strength: r.strength }));
+  // The entry this house type was picked from / saved to always comes first.
+  if (s.houseType.bankEntryId && bank.some((e) => e.entryId === s.houseType.bankEntryId)) {
+    const i = ids.findIndex((x) => x.entryId === s.houseType.bankEntryId);
+    if (i >= 0) ids.splice(i, 1);
+    ids.unshift({ entryId: s.houseType.bankEntryId, strength: "LINKED" });
   }
-  const ht = await prisma.houseType.findUnique({
-    where: { id: s.houseType.id },
-    select: { bankEntryId: true },
+  const byId = new Map(bank.map((e) => [e.entryId, e]));
+  const candidates: SaveCandidate[] = ids.map(({ entryId, strength }) => {
+    const e = byId.get(entryId)!;
+    const cmp = compareWithEntry(
+      s.snapshot,
+      e.versions.map((v) => ({ versionId: v.id, version: v.version, snapshot: parseSnapshot(v.snapshot) })),
+    );
+    return {
+      entryId,
+      name: e.canonicalName,
+      code: e.canonicalCode,
+      builder: e.builder,
+      strength,
+      versionCount: e.versions.length,
+      identicalTo: cmp.identicalTo,
+      diffs: cmp.identicalTo ? [] : (cmp.latest?.comparison?.diffs ?? []),
+      verdict: cmp.identicalTo ? "IDENTICAL" : (cmp.latest?.comparison?.verdict ?? null),
+      latestVersion: cmp.latest?.version ?? null,
+      nextVersion: cmp.nextVersion,
+    };
   });
+
+  let linked: SaveOptions["linked"] = null;
+  if (s.houseType.bankEntryId) {
+    const e = byId.get(s.houseType.bankEntryId);
+    const v = e?.versions.find((x) => x.id === s.houseType.bankVersionId);
+    if (e) linked = { entryId: e.entryId, name: e.canonicalName, version: v?.version ?? null, state: s.houseType.bankMatchState ?? "" };
+  }
+
+  let summary: SnapshotSummary | null = null;
+  try {
+    summary = summarizeSnapshot(s.snapshot);
+  } catch {
+    summary = null;
+  }
+
   return {
-    match,
-    candidateNames: names,
-    currentBankEntryId: ht?.bankEntryId ?? null,
-    houseType: { name: s.houseType.name, code: s.houseType.code, clientId: s.houseType.clientId },
+    takeoffId,
+    confirmed: s.status === "CONFIRMED",
+    houseTypeName: s.houseType.name,
+    houseTypeCode: s.houseType.code,
+    builder: s.houseType.builderName,
+    summary,
+    linked,
+    candidates,
   };
 }
 
-/** Which existing bank entry (if any) an auto-confirm should attach to. */
-function pickTarget(match: MatchResult): { entryId: string; changed: boolean } | null {
-  const best = match.best;
-  if (!best) return null;
-  // Attach to a strong reuse/changed match, or whenever the code/alias is an exact
-  // hit (the code is authoritative identity — and the unique-code constraint means
-  // we must not spawn a second entry with the same code).
-  if (best.kind === "REUSE" || best.kind === "CHANGED" || best.aliasHit || best.codeEqual) {
-    return { entryId: best.entryId, changed: best.geometry ? best.geometry.verdict !== "IDENTICAL" : false };
-  }
-  return null;
-}
+export type SaveChoice =
+  | { kind: "NEW_ENTRY" }
+  | { kind: "NEW_VERSION"; entryId: string }
+  | { kind: "SAME_AS"; entryId: string };
 
 /**
- * Write a confirmed take-off into the bank (docs/20 §6a — automatic on confirm).
- * Idempotent on the geometry fingerprint: attaching to an entry whose current
- * version is identical creates NO new version (so a reuse/re-confirm never dupes).
- * Best-effort — the caller must not let a bank failure break the confirm.
+ * "Save to house bank" — the ONLY way anything enters the bank. The take-off must be
+ * confirmed. Every choice is re-checked here against the stored versions, so the bank
+ * can never get a duplicate version or a "same as" link whose numbers differ.
  */
-export async function saveTakeoffToBank(
+export async function saveToBank(
   takeoffId: string,
-  opts: {
-    userId?: string | null;
-    note?: string | null;
-    /** Skip matching and attach to this entry (a human's explicit "link to X"). */
-    forceEntryId?: string;
-    /** Skip matching and create a fresh entry (a human's explicit "mark as new"). */
-    markNew?: boolean;
-  } = {},
-): Promise<{ ok: boolean; bankEntryId?: string; created?: boolean; error?: string }> {
+  choice: SaveChoice,
+  opts: { userId?: string | null; note?: string | null } = {},
+): Promise<{ ok: boolean; entryId?: string; version?: number; error?: string }> {
   const s = await snapshotFromTakeoff(takeoffId);
-  if (!s) return { ok: false, error: "not a house-build take-off" };
-
-  const fingerprint = geometryFingerprint(s.snapshot);
-  const candidates = await bankCandidates(s.houseType.clientId, s.snapshot.buildType);
-  const match = matchAgainstBank(
-    { buildType: s.snapshot.buildType, name: s.houseType.name, code: s.houseType.code, snapshot: s.snapshot },
-    candidates,
-  );
-  // Explicit override (from the review panel) wins over the auto-match.
-  const target: { entryId: string; changed: boolean } | null = opts.markNew
-    ? null
-    : opts.forceEntryId
-      ? {
-          entryId: opts.forceEntryId,
-          changed:
-            match.candidates.find((c) => c.entryId === opts.forceEntryId)?.geometry?.verdict !== "IDENTICAL",
-        }
-      : pickTarget(match);
-
+  if (!s) return { ok: false, error: "only a house-build take-off can go in the house bank" };
+  if (s.status !== "CONFIRMED") return { ok: false, error: "confirm the take-off first" };
   const snapshotJson = s.snapshot as unknown as Prisma.InputJsonValue;
-  const inName = normalizeName(s.houseType.name);
-  const inCodeNorm = normalizeCode(s.houseType.code);
+  const fingerprint = geometryFingerprint(s.snapshot);
 
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      if (target) {
-        const entry = await tx.houseTypeBankEntry.findUnique({
-          where: { id: target.entryId },
-          relationLoadStrategy: "join",
-          include: {
-            currentVersion: { select: { geometryFingerprint: true, snapshot: true } },
-            versions: { select: { version: true } },
-          },
-        });
-        if (!entry) return { bankEntryId: null, created: false, identical: false };
+  const createVersion = (tx: Prisma.TransactionClient, bankEntryId: string, version: number) =>
+    tx.houseTypeBankVersion.create({
+      data: {
+        bankEntryId,
+        version,
+        snapshot: snapshotJson,
+        geometryFingerprint: fingerprint,
+        sourceTakeoffId: takeoffId,
+        sourceProjectId: s.houseType.projectId,
+        note: opts.note ?? null,
+        confirmedById: opts.userId ?? null,
+        confirmedAt: new Date(),
+      },
+    });
 
-        // "Identical" is TOLERANCE-aware, not byte-exact: a repeat drawing is never
-        // pixel-identical, so we compare the geometry (compareGeometry) against the
-        // current version. Only a change BEYOND tolerance writes a new version / flags
-        // CHANGED — a within-tolerance re-read is MATCHED and adds no version (docs/20 §4).
-        const currentSnapshot = entry.currentVersion ? parseSnapshot(entry.currentVersion.snapshot) : null;
-        const cmp = currentSnapshot ? compareGeometry(currentSnapshot, s.snapshot) : null;
-        const identical = cmp
-          ? cmp.verdict === "IDENTICAL"
-          : entry.currentVersion?.geometryFingerprint === fingerprint;
-        if (!identical) {
-          const nextVersion = entry.versions.reduce((m, v) => Math.max(m, v.version), 0) + 1;
-          const version = await tx.houseTypeBankVersion.create({
-            data: {
-              bankEntryId: entry.id,
-              version: nextVersion,
-              snapshot: snapshotJson,
-              geometryFingerprint: fingerprint,
-              sourceTakeoffId: takeoffId,
-              sourceProjectId: s.houseType.projectId,
-              note: opts.note ?? null,
-              confirmedById: opts.userId ?? null,
-              confirmedAt: new Date(),
-            },
-          });
-          await tx.houseTypeBankEntry.update({
-            where: { id: entry.id },
-            data: { currentVersionId: version.id },
-          });
-        }
-
-        // Learn the name/code as an alias when it differs from the canonical identity.
-        const aliasSet = new Set(entry.aliases);
-        const canonName = normalizeName(entry.canonicalName);
-        const canonCode = normalizeCode(entry.canonicalCode);
-        if (inName && inName !== canonName && !entry.aliases.some((a) => normalizeName(a) === inName)) {
-          aliasSet.add(s.houseType.name.trim());
-        }
-        if (inCodeNorm && inCodeNorm !== canonCode && !entry.aliases.some((a) => normalizeCode(a) === inCodeNorm)) {
-          if (s.houseType.code) aliasSet.add(s.houseType.code.trim());
-        }
-        if (aliasSet.size !== entry.aliases.length) {
-          await tx.houseTypeBankEntry.update({
-            where: { id: entry.id },
-            data: { aliases: [...aliasSet].slice(0, 50) },
-          });
-        }
-
-        await tx.houseType.update({
-          where: { id: s.houseType.id },
-          data: { bankEntryId: entry.id, bankMatchState: identical ? "MATCHED" : "CHANGED" },
-        });
-        return { bankEntryId: entry.id, created: false, identical };
-      }
-
-      // No suitable match → create a new entry + version 1.
-      // Guard the unique (clientId, canonicalCode, buildType): only keep the code if
-      // no ACTIVE entry already owns it for this client + build type.
+  const writeChoice = async (
+    tx: Prisma.TransactionClient,
+  ): Promise<{ entryId: string; versionId: string; version: number }> => {
+    if (choice.kind === "NEW_ENTRY") {
+      // One entry per builder + code + build type: a clashing code is not kept
+      // (the name still identifies it, and the person chose "a different type").
       let canonicalCode = s.houseType.code?.trim() || null;
       if (canonicalCode) {
         const clash = await tx.houseTypeBankEntry.findFirst({
@@ -273,161 +569,133 @@ export async function saveTakeoffToBank(
           buildType: s.snapshot.buildType,
           canonicalName: s.houseType.name.trim() || "Unnamed",
           canonicalCode,
-          matchKey: inName,
+          matchKey: normalizeName(s.houseType.name),
           createdById: opts.userId ?? null,
         },
       });
-      const version = await tx.houseTypeBankVersion.create({
-        data: {
-          bankEntryId: entry.id,
-          version: 1,
-          snapshot: snapshotJson,
-          geometryFingerprint: fingerprint,
-          sourceTakeoffId: takeoffId,
-          sourceProjectId: s.houseType.projectId,
-          note: opts.note ?? null,
-          confirmedById: opts.userId ?? null,
-          confirmedAt: new Date(),
-        },
-      });
-      await tx.houseTypeBankEntry.update({
-        where: { id: entry.id },
-        data: { currentVersionId: version.id },
-      });
-      await tx.houseType.update({
-        where: { id: s.houseType.id },
-        data: { bankEntryId: entry.id, bankMatchState: "NEW" },
-      });
-      return { bankEntryId: entry.id, created: true, identical: false };
-    });
+      const version = await createVersion(tx, entry.id, 1);
+      await tx.houseTypeBankEntry.update({ where: { id: entry.id }, data: { currentVersionId: version.id } });
+      return { entryId: entry.id, versionId: version.id, version: 1 };
+    }
 
-    return { ok: true, bankEntryId: result.bankEntryId ?? undefined, created: result.created };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "bank write failed" };
-  }
-}
-
-// ── Reuse (docs/20 §6c — skip-read by default) ───────────────────────────────
-
-/**
- * Materialise a bank entry's current version into a project as a fresh, confirmed
- * house type + take-off (skip-read reuse — no drawing is read). The instance is
- * flagged "reused from bank, not yet verified against a drawing" so change-detection
- * can still be run on demand (the "Verify against drawing" safeguard). House-build
- * only; the entry's build type must match the project's.
- */
-export async function materializeBankEntry(
-  projectId: string,
-  bankEntryId: string,
-  opts: { userId?: string | null } = {},
-): Promise<{ ok: boolean; houseTypeId?: string; error?: string }> {
-  const [project, entry] = await Promise.all([
-    prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, clientId: true, buildType: true, estimatingMode: true },
-    }),
-    prisma.houseTypeBankEntry.findUnique({
-      where: { id: bankEntryId },
+    const entry = await tx.houseTypeBankEntry.findUnique({
+      where: { id: choice.entryId },
       relationLoadStrategy: "join",
-      include: { currentVersion: true },
-    }),
-  ]);
-  if (!project) return { ok: false, error: "project not found" };
-  if (project.estimatingMode === "CONSTRUCTION")
-    return { ok: false, error: "the bank is house-build only" };
-  if (!entry || !entry.currentVersion) return { ok: false, error: "bank entry has no confirmed version" };
-  if (entry.clientId !== project.clientId)
-    return { ok: false, error: "that house type belongs to a different client" };
-  if (entry.buildType !== project.buildType)
-    return { ok: false, error: `that house type is ${entry.buildType.toLowerCase()} — this tender is ${String(project.buildType).toLowerCase()}` };
+      include: { versions: { select: { id: true, version: true, snapshot: true } } },
+    });
+    if (!entry || entry.status !== "ACTIVE") throw new Error("that house type is no longer in the bank");
+    if (entry.buildType !== s.snapshot.buildType) throw new Error("that bank house type is a different build type");
+    const cmp = compareWithEntry(
+      s.snapshot,
+      entry.versions.map((v) => ({ versionId: v.id, version: v.version, snapshot: parseSnapshot(v.snapshot) })),
+    );
+    const aliases = learnAlias(entry, s.houseType.name, s.houseType.code);
+    if (aliases) await tx.houseTypeBankEntry.update({ where: { id: entry.id }, data: { aliases } });
 
-  const snapshot = parseSnapshot(entry.currentVersion.snapshot);
-  if (!snapshot) return { ok: false, error: "bank snapshot unreadable" };
+    if (choice.kind === "SAME_AS") {
+      if (!cmp.identicalTo) throw new Error("the numbers differ from every saved version — save it as a new version");
+      return { entryId: entry.id, versionId: cmp.identicalTo.versionId, version: cmp.identicalTo.version };
+    }
+    if (cmp.identicalTo) throw new Error(`already saved as v${cmp.identicalTo.version} — nothing new to save`);
+    const version = await createVersion(tx, entry.id, cmp.nextVersion);
+    await tx.houseTypeBankEntry.update({ where: { id: entry.id }, data: { currentVersionId: version.id } });
+    return { entryId: entry.id, versionId: version.id, version: cmp.nextVersion };
+  };
 
   try {
-    const houseTypeId = await prisma.$transaction(async (tx) => {
-      // Guard @@unique([projectId, code]) — drop the code if the project already uses it.
-      let code = entry.canonicalCode;
-      if (code) {
-        const clash = await tx.houseType.findFirst({
-          where: { projectId, code },
-          select: { id: true },
-        });
-        if (clash) code = null;
-      }
-      const houseType = await tx.houseType.create({
-        data: {
-          projectId,
-          clientId: project.clientId,
-          name: entry.canonicalName,
-          code,
-          buildType: entry.buildType,
-          bankEntryId: entry.id,
-          bankMatchState: "MATCHED",
-        },
+    const result = await prisma.$transaction(async (tx) => {
+      const r = await writeChoice(tx);
+      await tx.houseType.update({
+        where: { id: s.houseType.id },
+        data: { bankEntryId: r.entryId, bankVersionId: r.versionId, bankMatchState: "SAVED" },
       });
-
-      const warnings = {
-        ...snapshot.warnings,
-        bankReused: true,
-        bankReusedFrom: { entryId: entry.id, version: entry.currentVersion!.version },
-        // The safeguard flag: no drawing has been read for this instance yet.
-        bankReusedUnverified: true,
-      } as unknown as Prisma.InputJsonValue;
-
-      await tx.takeoff.create({
-        data: {
-          houseTypeId: houseType.id,
-          status: "CONFIRMED",
-          configuration: snapshot.configuration,
-          includePartyWall: snapshot.includePartyWall,
-          confirmedById: opts.userId ?? null,
-          confirmedAt: new Date(),
-          warnings,
-          measurements: {
-            create: (Object.keys(snapshot.measurements) as BankMeasurementKey[])
-              .filter((k) => BANK_MEASUREMENT_KEYS.includes(k) && snapshot.measurements[k] != null)
-              .map((k) => ({
-                key: k,
-                valueNumber: snapshot.measurements[k]!,
-                source: "MANUAL" as const,
-                confidence: null,
-                ambiguous: false,
-              })),
-          },
-          wallSegments: {
-            create: snapshot.walls.map((w) => ({
-              position: w.position,
-              lengthM: w.lengthM,
-              isPartyWall: w.isPartyWall ?? null,
-              source: "MANUAL" as const,
-              confidence: null,
-            })),
-          },
-        },
-      });
-
-      await tx.houseTypeBankEntry.update({
-        where: { id: entry.id },
-        data: { timesReused: { increment: 1 } },
-      });
-      return houseType.id;
+      return r;
     });
-
-    await ensureDefaultPlot(houseTypeId);
-    return { ok: true, houseTypeId };
+    return { ok: true, entryId: result.entryId, version: result.version };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "reuse failed" };
+    return { ok: false, error: err instanceof Error ? err.message : "could not save to the house bank" };
   }
 }
 
-// ── Entry admin (docs/20 §7) ─────────────────────────────────────────────────
+// ── The review page: how a picked house type compares with its version ──────
 
-/** List a client's bank entries for the reuse picker / browse, of an optional build type. */
-export async function listBankEntries(filter: { clientId?: string; buildType?: BankBuildType; includeArchived?: boolean } = {}) {
+export interface BankOrigin {
+  entryId: string;
+  versionId: string;
+  name: string;
+  code: string | null;
+  builder: string;
+  version: number;
+  savedAt: string | null;
+  fromProject: string | null;
+  /** The drawing was read after picking (Check against this drawing). */
+  drawingRead: boolean;
+  /** That read is queued / running right now. */
+  checking: boolean;
+  /** The drawing was read, but the bank version's numbers were put back afterwards. */
+  restored: boolean;
+  /** This take-off vs the picked version (null if it can't be compared). */
+  comparison: GeometryComparison | null;
+}
+
+/** For a house type picked from the bank: where it came from and whether it still matches. */
+export async function bankOriginFor(houseTypeId: string): Promise<BankOrigin | null> {
+  const ht = await prisma.houseType.findUnique({
+    where: { id: houseTypeId },
+    relationLoadStrategy: "join",
+    select: {
+      bankMatchState: true,
+      takeoff: { select: { id: true, warnings: true } },
+      extractions: { select: { status: true, processingStartedAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      bankVersion: {
+        select: {
+          id: true,
+          version: true,
+          snapshot: true,
+          confirmedAt: true,
+          sourceProjectId: true,
+          bankEntry: { select: { id: true, canonicalName: true, canonicalCode: true, client: { select: { name: true } } } },
+        },
+      },
+    },
+  });
+  if (!ht || ht.bankMatchState !== "FROM_BANK" || !ht.bankVersion) return null;
+  const v = ht.bankVersion;
+  let comparison: GeometryComparison | null = null;
+  if (ht.takeoff) {
+    const s = await snapshotFromTakeoff(ht.takeoff.id);
+    const stored = parseSnapshot(v.snapshot);
+    if (s && stored) comparison = compareGeometry(stored, s.snapshot);
+  }
+  const names = await projectNames([v.sourceProjectId]);
+  const ex = ht.extractions[0];
+  const w = ht.takeoff?.warnings as Record<string, unknown> | null | undefined;
+  const pickedAt = typeof w?.bankPickedAt === "string" ? Date.parse(w.bankPickedAt) : null;
+  const readAt = ex?.processingStartedAt?.getTime() ?? null;
+  const readDone = ex?.status === "COMPLETED";
+  const readIsCurrent = readDone && (pickedAt === null || (readAt !== null && readAt > pickedAt));
+  return {
+    entryId: v.bankEntry.id,
+    versionId: v.id,
+    name: v.bankEntry.canonicalName,
+    code: v.bankEntry.canonicalCode,
+    builder: v.bankEntry.client.name,
+    version: v.version,
+    savedAt: v.confirmedAt ? v.confirmedAt.toISOString() : null,
+    fromProject: v.sourceProjectId ? (names.get(v.sourceProjectId) ?? null) : null,
+    drawingRead: readIsCurrent,
+    checking: ex?.status === "PENDING" || ex?.status === "PROCESSING",
+    restored: readDone && !readIsCurrent,
+    comparison,
+  };
+}
+
+// ── Entry admin (the /bank page) ─────────────────────────────────────────────
+
+/** List bank entries (all builders) for the /bank browse page. */
+export async function listBankEntries(filter: { buildType?: BankBuildType; includeArchived?: boolean } = {}) {
   const entries = await prisma.houseTypeBankEntry.findMany({
     where: {
-      clientId: filter.clientId,
       buildType: filter.buildType,
       status: filter.includeArchived ? undefined : "ACTIVE",
     },
@@ -454,142 +722,7 @@ export async function listBankEntries(filter: { clientId?: string; buildType?: B
       instances: e._count.houseTypes,
       lastConfirmed: e.currentVersion?.confirmedAt ?? null,
       storeys: snap?.measurements.STOREYS ?? null,
-      perimeter: snap ? Math.round((snap.walls.reduce((a, w) => a + w.lengthM, 0)) * 10) / 10 : null,
+      perimeter: snap ? Math.round(snap.walls.reduce((a, w) => a + w.lengthM, 0) * 10) / 10 : null,
     };
   });
-}
-
-// ── Upload-time auto-detect (docs/20 §6c) ────────────────────────────────────
-
-/**
- * Suggest bank repeats for a set of house types by NAME/CODE only (pre-read). Used
- * on the project page the moment a house type is segmented — before/while its
- * drawing is read — so an obvious repeat can be reused without spending the read.
- * One entries load for the whole project; matching is in-memory.
- */
-export async function suggestBankForTypes(
-  clientId: string,
-  buildType: BankBuildType,
-  types: { houseTypeId: string; name: string; code: string | null }[],
-): Promise<Map<string, { entryId: string; name: string; code: string | null }>> {
-  const out = new Map<string, { entryId: string; name: string; code: string | null }>();
-  if (types.length === 0) return out;
-  const candidates = await bankCandidates(clientId, buildType);
-  if (candidates.length === 0) return out;
-  const nameById = new Map(candidates.map((c) => [c.entryId, { name: c.canonicalName, code: c.canonicalCode }]));
-  for (const t of types) {
-    const hits = nameCodeMatch({ buildType, name: t.name, code: t.code }, candidates);
-    const best = hits[0];
-    if (best) {
-      const nm = nameById.get(best.entryId);
-      if (nm) out.set(t.houseTypeId, { entryId: best.entryId, name: nm.name, code: nm.code });
-    }
-  }
-  return out;
-}
-
-/**
- * Reuse a bank entry into an EXISTING house type (skip-read from the upload-time
- * suggestion). Fills that house type's take-off from the bank snapshot, confirms
- * it, links it, and cancels any not-yet-started read so the drawing isn't billed.
- * A late-completing read cannot clobber it (persist bails on a CONFIRMED take-off).
- */
-export async function reuseBankEntryIntoHouseType(
-  houseTypeId: string,
-  bankEntryId: string,
-  opts: { userId?: string | null } = {},
-): Promise<{ ok: boolean; error?: string }> {
-  const [houseType, entry] = await Promise.all([
-    prisma.houseType.findUnique({
-      where: { id: houseTypeId },
-      relationLoadStrategy: "join",
-      select: {
-        id: true,
-        clientId: true,
-        projectId: true,
-        project: { select: { buildType: true, estimatingMode: true } },
-        takeoff: { select: { id: true } },
-      },
-    }),
-    prisma.houseTypeBankEntry.findUnique({
-      where: { id: bankEntryId },
-      relationLoadStrategy: "join",
-      include: { currentVersion: true },
-    }),
-  ]);
-  if (!houseType) return { ok: false, error: "house type not found" };
-  if (houseType.project.estimatingMode === "CONSTRUCTION")
-    return { ok: false, error: "the bank is house-build only" };
-  if (!entry || !entry.currentVersion) return { ok: false, error: "bank entry has no confirmed version" };
-  if (entry.clientId !== houseType.clientId) return { ok: false, error: "different client" };
-  if (entry.buildType !== houseType.project.buildType)
-    return { ok: false, error: `that house type is ${entry.buildType.toLowerCase()}` };
-  const snapshot = parseSnapshot(entry.currentVersion.snapshot);
-  if (!snapshot) return { ok: false, error: "bank snapshot unreadable" };
-
-  const warnings = {
-    ...snapshot.warnings,
-    bankReused: true,
-    bankReusedFrom: { entryId: entry.id, version: entry.currentVersion.version },
-    bankReusedUnverified: true,
-  } as unknown as Prisma.InputJsonValue;
-  const measurementsCreate = (Object.keys(snapshot.measurements) as BankMeasurementKey[])
-    .filter((k) => BANK_MEASUREMENT_KEYS.includes(k) && snapshot.measurements[k] != null)
-    .map((k) => ({ key: k, valueNumber: snapshot.measurements[k]!, source: "MANUAL" as const, confidence: null, ambiguous: false }));
-  const wallsCreate = snapshot.walls.map((w) => ({
-    position: w.position,
-    lengthM: w.lengthM,
-    isPartyWall: w.isPartyWall ?? null,
-    source: "MANUAL" as const,
-    confidence: null,
-  }));
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      if (houseType.takeoff) {
-        // Replace the (possibly AI-seeded) take-off content with the bank values.
-        await tx.takeoffMeasurement.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
-        await tx.wallSegment.deleteMany({ where: { takeoffId: houseType.takeoff.id } });
-        await tx.takeoff.update({
-          where: { id: houseType.takeoff.id },
-          data: {
-            status: "CONFIRMED",
-            configuration: snapshot.configuration,
-            includePartyWall: snapshot.includePartyWall,
-            confirmedById: opts.userId ?? null,
-            confirmedAt: new Date(),
-            warnings,
-            measurements: { create: measurementsCreate },
-            wallSegments: { create: wallsCreate },
-          },
-        });
-      } else {
-        await tx.takeoff.create({
-          data: {
-            houseTypeId: houseType.id,
-            status: "CONFIRMED",
-            configuration: snapshot.configuration,
-            includePartyWall: snapshot.includePartyWall,
-            confirmedById: opts.userId ?? null,
-            confirmedAt: new Date(),
-            warnings,
-            measurements: { create: measurementsCreate },
-            wallSegments: { create: wallsCreate },
-          },
-        });
-      }
-      await tx.houseType.update({
-        where: { id: houseType.id },
-        data: { bankEntryId: entry.id, bankMatchState: "MATCHED" },
-      });
-      await tx.houseTypeBankEntry.update({ where: { id: entry.id }, data: { timesReused: { increment: 1 } } });
-      // Cancel a not-yet-started read for this type (save the drawing bill). A read
-      // already in flight is left to finish — persist won't overwrite a CONFIRMED take-off.
-      await tx.extraction.deleteMany({ where: { houseTypeId: houseType.id, status: "PENDING" } });
-    });
-    await ensureDefaultPlot(houseType.id);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "reuse failed" };
-  }
 }

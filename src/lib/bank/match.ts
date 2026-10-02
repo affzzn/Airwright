@@ -156,149 +156,149 @@ export function compareGeometry(a: TakeoffSnapshot, b: TakeoffSnapshot): Geometr
   return { verdict, diffs, breakers };
 }
 
-// ── Candidate matching ───────────────────────────────────────────────────────
+// ── Finding repeats (docs/20 v2) ─────────────────────────────────────────────
 
-/** A stored bank entry, reduced to what the matcher needs (IO happens in the caller). */
-export interface BankCandidateInput {
+/** A bank entry, reduced to what the repeat finder needs (IO happens in the caller). */
+export interface BankEntryRef {
   entryId: string;
   buildType: BankBuildType;
   canonicalName: string;
   canonicalCode: string | null;
   aliases: string[];
-  /** The current version's snapshot, for the geometry compare. */
-  snapshot: TakeoffSnapshot | null;
+  /** Who the entry came from — a label + ranking hint, never a filter. */
+  builderKey: string;
 }
 
-export interface IncomingType {
+export interface IncomingName {
   buildType: BankBuildType;
   name: string;
   code: string | null;
-  snapshot: TakeoffSnapshot;
+  builderKey: string;
 }
 
-export type ProposalKind = "REUSE" | "CHANGED" | "AMBIGUOUS" | "WEAK";
+export type RepeatStrength = "STRONG" | "POSSIBLE";
+export type RepeatReason = "code" | "alias" | "name" | "similar name";
 
-export interface Candidate {
+export interface Repeat {
   entryId: string;
-  kind: ProposalKind;
-  /** How the name/code matched. */
+  /** STRONG = the same name/code/alias; POSSIBLE = a similar name a person should check. */
+  strength: RepeatStrength;
+  reason: RepeatReason;
+  sameBuilder: boolean;
   nameScore: number;
-  strong: boolean;
-  aliasHit: boolean;
-  codeEqual: boolean;
-  geometry: GeometryComparison | null;
-  /** Overall rank score (higher = better) for ordering the candidate list. */
-  rank: number;
 }
 
-export interface MatchResult {
-  /** Ranked candidates, best first. Empty ⇒ treat the incoming type as NEW. */
-  candidates: Candidate[];
-  best: Candidate | null;
-  /** The proposed decision-table state for the whole match (docs/20 §4). */
-  state: "REUSE" | "CHANGED" | "AMBIGUOUS" | "CHOOSE" | "NEW";
-}
+/** Below this a name is not even offered; at/above STRONG it is "the same name". */
+export const NAME_POSSIBLE_MIN = 0.6;
+export const NAME_STRONG_MIN = 0.85;
 
-const NAME_CANDIDATE_MIN = 0.6;
-const NAME_STRONG_MIN = 0.85;
-
-/**
- * Upload-time (pre-read) match on NAME/CODE only — there is no geometry yet, so
- * this is a weaker signal used to SUGGEST a bank repeat before the drawing is read
- * (docs/20 §6c). Returns strong candidates (alias/code/prefix/high-name), best first.
- * A human still confirms — the geometry check happens if/when the drawing is read.
- */
-export function nameCodeMatch(
-  incoming: { buildType: BankBuildType; name: string; code: string | null },
-  entries: BankCandidateInput[],
-): { entryId: string; strong: boolean; nameScore: number; aliasHit: boolean; codeEqual: boolean }[] {
-  const inName = normalizeName(incoming.name);
-  const inCode = normalizeCode(incoming.code);
-  const out: { entryId: string; strong: boolean; nameScore: number; aliasHit: boolean; codeEqual: boolean }[] = [];
-  for (const e of entries) {
-    if (e.buildType !== incoming.buildType) continue;
-    const aliasNorms = e.aliases.map((a) => normalizeName(a));
-    const aliasCodeNorms = e.aliases.map((a) => normalizeCode(a)).filter((c): c is string => !!c);
-    const entryName = normalizeName(e.canonicalName);
-    const entryCode = normalizeCode(e.canonicalCode);
-    const aliasHit =
-      (inName.length > 0 && aliasNorms.includes(inName)) ||
-      (inCode !== null && aliasCodeNorms.includes(inCode));
-    const codeEqual = inCode !== null && entryCode !== null && inCode === entryCode;
-    const sim = nameSimilarity(inName, entryName);
-    const strong = aliasHit || codeEqual || sim.exact || sim.prefix || sim.score >= NAME_STRONG_MIN;
-    if (!strong) continue; // suggestions are strong-only (name alone is a weak signal)
-    out.push({ entryId: e.entryId, strong, nameScore: sim.score, aliasHit, codeEqual });
-  }
-  const score = (c: { aliasHit: boolean; codeEqual: boolean; nameScore: number }) =>
-    (c.aliasHit ? 3 : 0) + (c.codeEqual ? 2 : 0) + c.nameScore;
-  out.sort((a, b) => score(b) - score(a));
-  return out;
+/** Normalise a builder (client) name so "Bloor", "bloor " and "BLOOR" are one builder. */
+export function builderKey(name: string | null | undefined): string {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 /**
- * Match an incoming house type against the client's bank entries (already scoped
- * to the same client + buildType by the caller). Returns ranked proposals.
+ * Which bank entries could this house type be? Searches the WHOLE bank — every
+ * builder — and only ever keeps the same build type (a timber-frame Denton is priced
+ * differently from a traditional one). It does not decide: a person picks the
+ * version. Deliberately not strict, so a repeat is not missed:
+ *  - a learned alias, or the same name after normalising ("Denton", "DENTON",
+ *    "Denton-XYZ", "The Denton (Semi)", "Denton 2B") → STRONG;
+ *  - the same code from the SAME builder → STRONG; the same code from another
+ *    builder with an unrelated name → POSSIBLE (short codes like "B5" are reused
+ *    across builders);
+ *  - a similar name (a typo, "Milfield") → STRONG at ≥ 0.85, POSSIBLE at ≥ 0.6.
+ * Ranked: STRONG first, then the same builder, then the closer name.
  */
-export function matchAgainstBank(incoming: IncomingType, entries: BankCandidateInput[]): MatchResult {
+export function findRepeats(incoming: IncomingName, entries: BankEntryRef[]): Repeat[] {
   const inName = normalizeName(incoming.name);
   const inCode = normalizeCode(incoming.code);
-  const candidates: Candidate[] = [];
-
+  const out: Repeat[] = [];
   for (const e of entries) {
     if (e.buildType !== incoming.buildType) continue;
-
-    const aliasNorms = e.aliases.map((a) => normalizeName(a));
-    const aliasCodeNorms = e.aliases.map((a) => normalizeCode(a)).filter((c): c is string => !!c);
-    const entryName = normalizeName(e.canonicalName);
+    const sameBuilder = e.builderKey.length > 0 && e.builderKey === incoming.builderKey;
+    const aliasNames = e.aliases.map((a) => normalizeName(a)).filter((a) => a.length > 0);
+    const aliasCodes = e.aliases.map((a) => normalizeCode(a)).filter((c): c is string => !!c);
     const entryCode = normalizeCode(e.canonicalCode);
+    const sim = [normalizeName(e.canonicalName), ...aliasNames]
+      .map((n) => nameSimilarity(inName, n))
+      .reduce((best, s) => (s.score > best.score || (s.prefix && !best.prefix) ? s : best), {
+        score: 0,
+        prefix: false,
+        exact: false,
+      });
 
     const aliasHit =
-      (inName.length > 0 && aliasNorms.includes(inName)) ||
-      (inCode !== null && aliasCodeNorms.includes(inCode));
+      (inName.length > 0 && aliasNames.includes(inName)) || (inCode !== null && aliasCodes.includes(inCode));
     const codeEqual = inCode !== null && entryCode !== null && inCode === entryCode;
-    const sim = nameSimilarity(inName, entryName);
+    const sameName = sim.exact || sim.prefix || sim.score >= NAME_STRONG_MIN;
 
-    const isCandidate = aliasHit || codeEqual || sim.score >= NAME_CANDIDATE_MIN;
-    if (!isCandidate) continue;
-
-    const strong = aliasHit || codeEqual || sim.exact || sim.prefix || sim.score >= NAME_STRONG_MIN;
-    const geometry = e.snapshot ? compareGeometry(e.snapshot, incoming.snapshot) : null;
-
-    // Map (name strength × geometry verdict) → the proposal kind (decision table).
-    let kind: ProposalKind;
-    if (!geometry) {
-      kind = strong ? "REUSE" : "WEAK";
-    } else if (strong) {
-      kind =
-        geometry.verdict === "IDENTICAL"
-          ? "REUSE"
-          : geometry.verdict === "CHANGED"
-            ? "CHANGED"
-            : "AMBIGUOUS";
-    } else {
-      kind = geometry.verdict === "DIFFERENT" ? "WEAK" : "CHANGED";
+    let strength: RepeatStrength | null = null;
+    let reason: RepeatReason = "name";
+    if (aliasHit) {
+      strength = "STRONG";
+      reason = "alias";
+    } else if (codeEqual && (sameBuilder || sim.score >= NAME_POSSIBLE_MIN || sameName)) {
+      strength = "STRONG";
+      reason = "code";
+    } else if (sameName) {
+      strength = "STRONG";
+      reason = "name";
+    } else if (codeEqual) {
+      strength = "POSSIBLE";
+      reason = "code";
+    } else if (sim.score >= NAME_POSSIBLE_MIN) {
+      strength = "POSSIBLE";
+      reason = "similar name";
     }
-
-    // Rank: prefer strong, then closer geometry, then higher name score.
-    const geomBonus =
-      geometry?.verdict === "IDENTICAL" ? 1 : geometry?.verdict === "CHANGED" ? 0.5 : 0;
-    const rank =
-      (aliasHit ? 3 : 0) + (codeEqual ? 2 : 0) + (strong ? 1 : 0) + geomBonus + sim.score;
-
-    candidates.push({ entryId: e.entryId, kind, nameScore: sim.score, strong, aliasHit, codeEqual, geometry, rank });
+    if (!strength) continue;
+    out.push({ entryId: e.entryId, strength, reason, sameBuilder, nameScore: sim.score });
   }
+  const rank = (r: Repeat) => (r.strength === "STRONG" ? 10 : 0) + (r.sameBuilder ? 2 : 0) + r.nameScore;
+  return out.sort((a, b) => rank(b) - rank(a));
+}
 
-  candidates.sort((a, b) => b.rank - a.rank);
-  const best = candidates[0] ?? null;
+// ── Saving: how a take-off compares with an entry's versions ─────────────────
 
-  let state: MatchResult["state"];
-  if (!best) state = "NEW";
-  else if (candidates.length > 1 && candidates[1].rank >= best.rank - 0.05) state = "CHOOSE";
-  else if (best.kind === "REUSE") state = "REUSE";
-  else if (best.kind === "CHANGED") state = "CHANGED";
-  else if (best.kind === "AMBIGUOUS") state = "AMBIGUOUS";
-  else state = "CHOOSE";
+export interface VersionRef {
+  versionId: string;
+  version: number;
+  snapshot: TakeoffSnapshot | null;
+}
 
-  return { candidates, best, state };
+export interface EntryComparison {
+  /** A stored version whose numbers match this take-off (within tolerance), if any. */
+  identicalTo: { versionId: string; version: number } | null;
+  /** The newest version and how this take-off differs from it. */
+  latest: { versionId: string; version: number; comparison: GeometryComparison | null } | null;
+  /** The number the next saved version would get. */
+  nextVersion: number;
+}
+
+/**
+ * Compare a confirmed take-off with every stored version of one entry. Used by
+ * "Save to house bank": an identical version means there is nothing new to save;
+ * otherwise the person chooses "new version" or "a different house type".
+ */
+export function compareWithEntry(snapshot: TakeoffSnapshot, versions: VersionRef[]): EntryComparison {
+  const sorted = [...versions].sort((a, b) => b.version - a.version);
+  let identicalTo: EntryComparison["identicalTo"] = null;
+  for (const v of sorted) {
+    if (v.snapshot && compareGeometry(v.snapshot, snapshot).verdict === "IDENTICAL") {
+      identicalTo = { versionId: v.versionId, version: v.version };
+      break;
+    }
+  }
+  const newest = sorted[0] ?? null;
+  return {
+    identicalTo,
+    latest: newest
+      ? {
+          versionId: newest.versionId,
+          version: newest.version,
+          comparison: newest.snapshot ? compareGeometry(newest.snapshot, snapshot) : null,
+        }
+      : null,
+    nextVersion: (newest?.version ?? 0) + 1,
+  };
 }

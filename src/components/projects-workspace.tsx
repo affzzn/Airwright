@@ -51,7 +51,14 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "ARCHIVED", label: "Archived" },
 ];
 
-export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }) {
+export function ProjectsWorkspace({
+  projects,
+  builderNames = [],
+}: {
+  projects: WorkspaceProject[];
+  /** Existing house builders, offered as suggestions so the same builder is reused. */
+  builderNames?: string[];
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
@@ -223,7 +230,19 @@ export function ProjectsWorkspace({ projects }: { projects: WorkspaceProject[] }
           <div className="space-y-5 px-6 py-5">
             <div>
               <Label htmlFor="clientName">House builder</Label>
-              <Input id="clientName" name="clientName" required placeholder="Miller Homes" />
+              <Input
+                id="clientName"
+                name="clientName"
+                required
+                placeholder="Miller Homes"
+                list="builder-names"
+                autoComplete="off"
+              />
+              <datalist id="builder-names">
+                {builderNames.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
             </div>
             <div>
               <Label htmlFor="projectName">Project / development</Label>

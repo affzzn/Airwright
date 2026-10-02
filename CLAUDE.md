@@ -128,6 +128,17 @@ npm run setup:bucket   # create the private Storage bucket
   Dekker semi 20.56 / mid 10.66 (his 20.5 / 10.6), Rosewood 48.5 exact.
   Offline runner: `npx tsx scripts/offline-extract.mts <NAME>`.
 
+## House bank (v2 BUILT 2026-10-02 — docs/20)
+
+House-build only. Nothing enters the bank on confirm — only the **Save to house bank** button
+(beside Confirm) with an explicit choice (new type / new version / already saved); versions
+are never edited. On upload every house type is checked against the WHOLE bank (any builder,
+same build type, not strict on names) BEFORE reading: a repeat's read is `HELD` (never
+queued) until a person picks a version (**Use vN** → take-off confirmed, read `SKIPPED`, no AI)
+or "Not this house — read the drawing". Labels: "From house bank · Denton v1". Never add a
+path that queues a read without `holdBankRepeats`. Ship new enum values WITH the code that
+reads them — old deployed code crashes on unknown enum values in the shared DB.
+
 ## Construction pack reading (BUILT 2026-09-30 — docs/22 + docs/23)
 
 A SEPARATE path from house-build. An enquiry is a folder: `construction-ingest` (worker,

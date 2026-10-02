@@ -13,6 +13,42 @@ New session: "Read CLAUDE.md and PROGRESS.md before we start."
 
 Last updated: 2026-10-02
 
+### 2026-10-02 (c) — House bank v2: save by button, whole-bank matching, versions, no needless reads
+
+Rebuilt the house bank (docs/20, rewritten) after three problems on the v1 build: matching
+depended on typing the same builder name (every lookup was scoped to one client, and a new
+project found its client by exact text), the drawing kept processing after "reuse" (reads
+were queued before the suggestion appeared; reuse only deleted not-started reads, so the
+queued job errored + retried and a started read was billed), and every confirm silently
+saved to the bank.
+- **Save to house bank** button beside Confirm (greyed until confirmed). The dialog compares
+  with the bank: same numbers as vN → link; differs → the diff + "Save as vN+1" (older
+  versions untouched); or a new house type. Server re-checks every choice. Confirm no longer
+  saves anything.
+- **Whole-bank matching** (`findRepeats`): every builder, same build type only; not strict
+  ("Denton-XYZ", "The Denton (Semi)", "11. 250814 Denton", typos, aliases, codes); same
+  builder ranked first; another builder's bare code match = POSSIBLE.
+- **Reads HELD before queueing** (`holdBankRepeats` in the per-file worker path and Confirm
+  grouping): the project page shows the versions → **Use vN** (fills + confirms, SKIPPED read,
+  no AI cost, takes the bank's name/code, learns the tender's name as an alias) or **Not this
+  house — read the drawing**. Worker never calls the model for a HELD/SKIPPED read or a
+  confirmed take-off.
+- **"From house bank · Denton v1"** badge on the project page; review banner with where it
+  came from + **Check against this drawing** (one read → "matches v1" / the differences) +
+  "Use v1's numbers again". The separate **Reuse from bank** button is removed.
+- Builder field suggests existing builders; builders reused ignoring case/spaces.
+- Migration `20261002180000_house_bank_v2` (additive: `ExtractionStatus` HELD/SKIPPED,
+  `BankMatchState` FROM_BANK/SAVED, `HouseType.bankVersionId`). Old bank emptied with
+  `scripts/bank-empty.mts` (10 entries; 28 confirmed take-offs unchanged).
+- **E2E on the real DB, data kept** (`scripts/e2e-bank.mts`): 11 types saved from the 29 Sep
+  tenders; a Bloor tender with Miller drawings → Denton/Delmont/Millfield held, 0 queue jobs
+  for them, Cherrywood read; a Timber-Frame repeat (grouped path) → B5/Curlew/Jackdaw held;
+  "Denton-XYZ" (no code, Persimmon) held. Clicked through: Confirm → Save → v1, "already in
+  the bank", Use v1, Not this house, review banner, Check against this drawing.
+- ⚠ Learned: new enum values in the shared DB break the OLD deployed code (Prisma can't
+  read them) — deploy the code with the migration, don't leave them apart.
+- 748 tests, typecheck, lint, build green.
+
 ### 2026-10-02 (b) — Construction: three upload boxes, three scenarios, Scenario 1 made simple
 
 Upload is now three boxes — **Scope · Drawings · Email**, all optional (new-job form + step 1,

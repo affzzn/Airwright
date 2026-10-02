@@ -89,7 +89,7 @@ export async function setCustomMeterRate(
 
 /** Create a client + project in one step (Week-1 simple flow). */
 export async function createProject(formData: FormData) {
-  const clientName = String(formData.get("clientName") ?? "").trim();
+  const clientName = String(formData.get("clientName") ?? "").trim().replace(/\s+/g, " ");
   const projectName = String(formData.get("projectName") ?? "").trim();
   // Build system for this tender (docs/18) — selects the take-off + pricing logic.
   // Construction estimating mode has been retired from the create form; every new
@@ -104,10 +104,13 @@ export async function createProject(formData: FormData) {
 
   if (!clientName || !projectName) return;
 
-  // Reuse an existing client of the same name, else create one.
+  // Reuse an existing client of the same name — ignoring case and extra spaces, so
+  // "Bloor Homes", "bloor homes " and "BLOOR HOMES" are one builder — else create one.
   const client =
-    (await prisma.client.findFirst({ where: { name: clientName } })) ??
-    (await prisma.client.create({ data: { name: clientName } }));
+    (await prisma.client.findFirst({
+      where: { name: { equals: clientName, mode: "insensitive" } },
+      orderBy: { createdAt: "asc" },
+    })) ?? (await prisma.client.create({ data: { name: clientName } }));
 
   const project = await prisma.project.create({
     data: {

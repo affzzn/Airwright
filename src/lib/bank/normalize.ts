@@ -17,6 +17,8 @@ const VARIANT_TOKENS = new Set([
   "det", "detached", "semi", "end", "mid", "terrace", "terraced", "link", "linked",
   // garage / extras
   "garage", "garages", "integral", "detachedgarage", "plot", "plots", "affordable", "aff", "social",
+  // filler words that never identify a type ("The Sowe", "Denton House Type")
+  "the", "house", "type", "housetype", "ht",
 ]);
 
 /** Normalise a house-type name to a comparable stem: lower-cased, noise + variant tokens stripped. */
@@ -29,7 +31,10 @@ export function normalizeName(raw: string | null | undefined): string {
     .replace(/[^a-z0-9]+/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 0 && !VARIANT_TOKENS.has(t));
-  return tokens.join(" ").trim();
+  // Bare numbers next to a real name are file/date noise ("11. 250814 Denton"); a
+  // name that is ONLY a number ("341") keeps it — that number is the name.
+  const named = tokens.filter((t) => !/^\d+$/.test(t));
+  return (named.length > 0 ? named : tokens).join(" ").trim();
 }
 
 /** Normalise a code to just the identifier (reuses the shared cleaner), lower-cased. */

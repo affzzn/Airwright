@@ -44,8 +44,10 @@ export function computePackProgress(input: PackProgressInput): {
   const reading = extractions.some(
     (e) => e.status === "PENDING" || e.status === "PROCESSING",
   );
+  // HELD (found in the house bank, waiting on a person) and SKIPPED (a bank version
+  // was picked) are not reading — they count as done.
   const doneExtractions = extractions.filter(
-    (e) => e.status === "COMPLETED" || e.status === "FAILED",
+    (e) => e.status === "COMPLETED" || e.status === "FAILED" || e.status === "HELD" || e.status === "SKIPPED",
   ).length;
 
   const complete = hasUploads && !unpacking && !classifying && !reading;

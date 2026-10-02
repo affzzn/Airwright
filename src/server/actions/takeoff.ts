@@ -5,7 +5,6 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { ensureDefaultPlot } from "@/server/plots";
-import { saveTakeoffToBank } from "@/server/bank";
 import { STRUCTURE_FORMS } from "@/lib/structure";
 
 /**
@@ -225,15 +224,8 @@ export async function confirmTakeoff(
     // Auto-create a plot to price if the house type has none yet (the common
     // no-site-layout case), so pricing needs no manual plot-building.
     await ensureDefaultPlot(tk.houseTypeId);
-    // Save the confirmed take-off into the shared House-Type Bank (docs/20 §6a —
-    // automatic on confirm; idempotent on the geometry fingerprint). Best-effort:
-    // a bank failure must never fail the confirm. House-build only (the helper
-    // no-ops for a construction take-off).
-    try {
-      await saveTakeoffToBank(takeoffId, { userId: user?.id ?? null });
-    } catch {
-      // ignore — the take-off is confirmed regardless
-    }
+    // Confirming does NOT save to the house bank — that is its own button
+    // ("Save to house bank", docs/20 v2), so only what a person chooses is banked.
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Confirm failed" };
   }

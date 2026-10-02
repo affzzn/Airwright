@@ -45,6 +45,7 @@ async function handleExtract(raw: ExtractDrawingJob) {
   const extraction = await prisma.extraction.findUnique({
     where: { id: extractionId },
     include: {
+      houseType: { select: { takeoff: { select: { status: true } } } },
       document: {
         include: {
           pack: {
@@ -57,7 +58,22 @@ async function handleExtract(raw: ExtractDrawingJob) {
       },
     },
   });
-  if (!extraction) throw new Error(`Extraction ${extractionId} not found`);
+  // A read that is no longer wanted must never reach the model (docs/20 v2): its row
+  // was removed (house type deleted), it is HELD / SKIPPED for the house bank, or the
+  // take-off is already confirmed (persist would refuse to overwrite it anyway).
+  if (!extraction) {
+    console.log(`[worker] extraction ${extractionId}: gone — skipped`);
+    return;
+  }
+  if (extraction.status === "HELD" || extraction.status === "SKIPPED") {
+    console.log(`[worker] extraction ${extractionId}: ${extraction.status} (house bank) — not read`);
+    return;
+  }
+  if (extraction.houseType?.takeoff?.status === "CONFIRMED" && !extraction.rawOutput) {
+    await prisma.extraction.update({ where: { id: extractionId }, data: { status: "SKIPPED" } });
+    console.log(`[worker] extraction ${extractionId}: take-off already confirmed — not read`);
+    return;
+  }
 
   // Which LLM reads this project's drawings (null → default: Anthropic Opus 4.8).
   const modelKey = extraction.document.pack.project?.extractionModel ?? null;

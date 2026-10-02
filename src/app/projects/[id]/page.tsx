@@ -15,9 +15,8 @@ import { PlotEditor } from "@/components/plot-editor";
 import { HouseTypeDelete } from "@/components/house-type-delete";
 import { AddAsPlot } from "@/components/add-as-plot";
 import { GroupingConfirm } from "@/components/grouping-confirm";
-import { ReuseFromBank } from "@/components/bank/reuse-from-bank";
-import { ReuseSuggestion } from "@/components/bank/reuse-suggestion";
-import { listBankEntries, suggestBankForTypes } from "@/server/bank";
+import { BankRepeatPicker } from "@/components/bank/bank-repeat-picker";
+import { bankRepeatsFor } from "@/server/bank";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computePackProgress } from "@/lib/pack-progress";
 import { estimateExpectedMs } from "@/lib/extraction-eta";
@@ -53,6 +52,7 @@ export default async function ProjectPage({
         include: {
           takeoff: { select: { status: true } },
           bankEntry: { select: { id: true, canonicalName: true } },
+          bankVersion: { select: { version: true } },
           extractions: {
             orderBy: { createdAt: "asc" },
             include: { document: { select: { included: true } } },
@@ -150,36 +150,22 @@ export default async function ProjectPage({
     includePartyWall: p.includePartyWall,
   }));
 
-  // Shared House-Type Bank (docs/20) — house-build only. The client's confirmed
-  // types, offered for skip-read reuse into this tender.
-  const bankEntries =
+  // House bank (docs/20 v2): a house type whose read is HELD was found in the bank —
+  // offer its versions (whole bank, every builder) so a person picks one or reads.
+  const heldTypes =
     project.estimatingMode === "HOUSE_BUILD"
-      ? await listBankEntries({ clientId: project.clientId, buildType: project.buildType })
+      ? houseTypes.filter((ht) => ht.extractions[ht.extractions.length - 1]?.status === "HELD")
       : [];
-  const reuseEntries = bankEntries.map((e) => ({
-    id: e.id,
-    canonicalName: e.canonicalName,
-    canonicalCode: e.canonicalCode,
-    storeys: e.storeys,
-    perimeter: e.perimeter,
-    versions: e.versions,
-    timesReused: e.timesReused,
-  }));
-  const buildTypeLabel = project.buildType === "TIMBER_FRAME" ? "Timber frame" : "Traditional";
-
-  // Upload-time auto-detect (docs/20 §6c): the moment a house type is segmented we
-  // know its name/code — flag any confident bank repeat so it can be reused without
-  // reading the drawing. Only for unlinked, not-yet-confirmed house-build types.
-  const suggestCandidates =
-    project.estimatingMode === "HOUSE_BUILD" && bankEntries.length > 0
-      ? houseTypes
-          .filter((ht) => !ht.bankEntryId && ht.takeoff?.status !== "CONFIRMED")
-          .map((ht) => ({ houseTypeId: ht.id, name: ht.name, code: ht.code }))
-      : [];
-  const bankSuggestions =
-    suggestCandidates.length > 0
-      ? await suggestBankForTypes(project.clientId, project.buildType, suggestCandidates)
-      : new Map<string, { entryId: string; name: string; code: string | null }>();
+  const bankOffers =
+    heldTypes.length > 0
+      ? await bankRepeatsFor(
+          {
+            buildType: project.buildType === "TIMBER_FRAME" ? "TIMBER_FRAME" : "TRADITIONAL",
+            builderName: project.client.name,
+          },
+          heldTypes.map((ht) => ({ houseTypeId: ht.id, name: ht.name, code: ht.code })),
+        )
+      : new Map();
 
   return (
     <AppShell>
@@ -239,13 +225,6 @@ export default async function ProjectPage({
         <CardHeader className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">House types</h2>
           <div className="flex items-center gap-3">
-            {project.estimatingMode === "HOUSE_BUILD" && (
-              <ReuseFromBank
-                projectId={project.id}
-                buildTypeLabel={buildTypeLabel}
-                entries={reuseEntries}
-              />
-            )}
             <span className="text-xs text-ink-subtle">{houseTypes.length}</span>
           </div>
         </CardHeader>
@@ -277,6 +256,8 @@ export default async function ProjectPage({
                 const ex = ht.extractions[ht.extractions.length - 1];
                 const reading =
                   ex?.status === "PENDING" || ex?.status === "PROCESSING";
+                const held = ex?.status === "HELD";
+                const offers = held ? bankOffers.get(ht.id) : undefined;
                 return (
                   <li key={ht.id} className="px-5 py-4">
                     <div className="flex items-center justify-between">
@@ -294,21 +275,22 @@ export default async function ProjectPage({
                           {ht._count.plots > 0 &&
                             ` · ${ht._count.plots} plot${ht._count.plots === 1 ? "" : "s"}`}
                         </p>
-                        {ht.bankEntryId && ht.bankMatchState !== "DETACHED" && (
-                          <Link
-                            href={`/bank/${ht.bankEntryId}`}
-                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-muted hover:text-ink"
-                            title="This house type is linked to the shared bank"
-                          >
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink/40" aria-hidden />
-                            {ht.bankMatchState === "CHANGED"
-                              ? "Bank: drawing differs — check"
-                              : ht.bankMatchState === "NEW"
-                                ? "Added to bank"
-                                : "In bank"}
-                            {ht.bankEntry?.canonicalName ? ` · ${ht.bankEntry.canonicalName}` : ""}
-                          </Link>
-                        )}
+                        {ht.bankEntryId &&
+                          (ht.bankMatchState === "FROM_BANK" || ht.bankMatchState === "SAVED") && (
+                            <Link
+                              href={`/bank/${ht.bankEntryId}`}
+                              className="mt-1 inline-flex items-center gap-1.5 rounded border border-hairline-strong px-1.5 py-0.5 text-[11px] font-medium text-ink hover:bg-surface"
+                              title={
+                                ht.bankMatchState === "FROM_BANK"
+                                  ? "These numbers were picked from the house bank — this drawing was not read"
+                                  : "This take-off was saved to the house bank"
+                              }
+                            >
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink" aria-hidden />
+                              {ht.bankMatchState === "FROM_BANK" ? "From house bank" : "Saved to house bank"}
+                              {` · ${ht.bankEntry?.canonicalName ?? ""}${ht.bankVersion ? ` v${ht.bankVersion.version}` : ""}`}
+                            </Link>
+                          )}
                         {ex?.status === "FAILED" && ex.errorMessage && (
                           <p className="mt-1 max-w-md text-xs text-ink-muted">
                             {ex.errorMessage}
@@ -320,7 +302,7 @@ export default async function ProjectPage({
                         {ex?.status === "FAILED" && (
                           <RetryExtraction extractionId={ex.id} />
                         )}
-                        {ex?.status === "COMPLETED" && (
+                        {(ex?.status === "COMPLETED" || ex?.status === "SKIPPED") && (
                           <Link
                             href={`/extractions/${ex.id}`}
                             className="text-xs font-medium text-ink hover:underline"
@@ -328,7 +310,7 @@ export default async function ProjectPage({
                             Review →
                           </Link>
                         )}
-                        {!reading && (
+                        {!reading && !held && (
                           <AddAsPlot projectId={project.id} houseTypeId={ht.id} />
                         )}
                         {!reading && <HouseTypeDelete houseTypeId={ht.id} />}
@@ -345,15 +327,7 @@ export default async function ProjectPage({
                         expectedMs={expectedMs}
                       />
                     )}
-                    {bankSuggestions.has(ht.id) && (
-                      <ReuseSuggestion
-                        projectId={project.id}
-                        houseTypeId={ht.id}
-                        entryId={bankSuggestions.get(ht.id)!.entryId}
-                        entryName={bankSuggestions.get(ht.id)!.name}
-                        entryCode={bankSuggestions.get(ht.id)!.code}
-                      />
-                    )}
+                    {held && <BankRepeatPicker houseTypeId={ht.id} offers={offers ?? []} />}
                   </li>
                 );
               })}

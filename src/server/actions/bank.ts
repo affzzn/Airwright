@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/supabase/server";
-import { saveTakeoffToBank, materializeBankEntry, reuseBankEntryIntoHouseType } from "@/server/bank";
+import { getBoss } from "@/lib/queue/boss";
+import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
+import { saveOptions, saveToBank, applyBankVersion, type SaveChoice, type SaveOptions } from "@/server/bank";
 import { normalizeName, normalizeCode } from "@/lib/bank/normalize";
 
 /**
@@ -19,83 +21,107 @@ async function projectIdForTakeoff(takeoffId: string): Promise<string | null> {
   return t?.houseType.projectId ?? null;
 }
 
-/** Explicitly link a take-off to a chosen bank entry (a human override of the match). */
-export async function linkTakeoffToBank(
+async function revalidateHouseType(houseTypeId: string) {
+  const ht = await prisma.houseType.findUnique({
+    where: { id: houseTypeId },
+    select: { projectId: true, extractions: { select: { id: true } } },
+  });
+  if (!ht) return;
+  revalidatePath(`/projects/${ht.projectId}`);
+  for (const e of ht.extractions) revalidatePath(`/extractions/${e.id}`);
+}
+
+/** What "Save to house bank" can do for this take-off (read-only, for the dialog). */
+export async function getSaveToBankOptions(takeoffId: string): Promise<SaveOptions | null> {
+  return saveOptions(takeoffId);
+}
+
+/** "Save to house bank" — the only way a take-off enters the bank (docs/20 v2). */
+export async function saveTakeoffToHouseBank(
   takeoffId: string,
-  entryId: string,
-): Promise<{ ok: boolean; error?: string }> {
+  choice: SaveChoice,
+): Promise<{ ok: boolean; version?: number; entryId?: string; error?: string }> {
   const user = await getCurrentUser();
-  const res = await saveTakeoffToBank(takeoffId, { userId: user?.id ?? null, forceEntryId: entryId });
+  const res = await saveToBank(takeoffId, choice, { userId: user?.id ?? null });
   if (res.ok) {
     const projectId = await projectIdForTakeoff(takeoffId);
     if (projectId) revalidatePath(`/projects/${projectId}`);
     revalidatePath("/bank");
+    if (res.entryId) revalidatePath(`/bank/${res.entryId}`);
   }
-  return { ok: res.ok, error: res.error };
+  return res;
 }
 
-/** Force a new bank entry for a take-off (a human saying "this is not that type"). */
-export async function markTakeoffAsNewBankType(
-  takeoffId: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const user = await getCurrentUser();
-  const res = await saveTakeoffToBank(takeoffId, { userId: user?.id ?? null, markNew: true });
-  if (res.ok) {
-    const projectId = await projectIdForTakeoff(takeoffId);
-    if (projectId) revalidatePath(`/projects/${projectId}`);
-    revalidatePath("/bank");
-  }
-  return { ok: res.ok, error: res.error };
-}
-
-/** Unlink a house type from the bank (does not touch the bank entry itself). */
-export async function detachHouseTypeFromBank(
+/** Pick a bank version for a house type: its take-off is filled + confirmed, no read. */
+export async function pickBankVersion(
   houseTypeId: string,
+  versionId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const ht = await prisma.houseType.update({
-      where: { id: houseTypeId },
-      data: { bankEntryId: null, bankMatchState: "DETACHED" },
-      select: { projectId: true },
-    });
-    revalidatePath(`/projects/${ht.projectId}`);
-    revalidatePath("/bank");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "detach failed" };
-  }
-}
-
-/** Reuse a bank entry into a project — skip-read materialise (docs/20 §6c). */
-export async function reuseBankEntry(
-  projectId: string,
-  entryId: string,
-): Promise<{ ok: boolean; houseTypeId?: string; error?: string }> {
   const user = await getCurrentUser();
-  const res = await materializeBankEntry(projectId, entryId, { userId: user?.id ?? null });
+  const res = await applyBankVersion(houseTypeId, versionId, { userId: user?.id ?? null });
   if (res.ok) {
-    revalidatePath(`/projects/${projectId}`);
+    await revalidateHouseType(houseTypeId);
     revalidatePath("/bank");
   }
   return res;
+}
+
+async function queueRead(extraction: { id: string; documentId: string; pageRange: string | null }) {
+  const boss = await getBoss();
+  await boss.send(EXTRACT_DRAWING_QUEUE, {
+    documentId: extraction.documentId,
+    extractionId: extraction.id,
+    pageRange: extraction.pageRange,
+  });
+}
+
+/** "Not this house — read the drawing": release a HELD read to the queue. */
+export async function readDrawingInsteadOfBank(houseTypeId: string): Promise<{ ok: boolean; error?: string }> {
+  const ex = await prisma.extraction.findFirst({
+    where: { houseTypeId, status: "HELD" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, documentId: true, pageRange: true },
+  });
+  if (!ex) return { ok: false, error: "nothing is waiting to be read" };
+  await prisma.extraction.update({ where: { id: ex.id }, data: { status: "PENDING", errorMessage: null } });
+  await queueRead(ex);
+  await revalidateHouseType(houseTypeId);
+  return { ok: true };
 }
 
 /**
- * Accept the upload-time suggestion: reuse a bank entry into an existing house type
- * (skip-read), so an obvious repeat isn't re-read. Revalidates the project page.
+ * "Check against this drawing" for a house type picked from the bank: read the
+ * drawing now. The take-off is re-opened so the read can fill it, and the review page
+ * then compares it with the picked version (same / what changed). "Use vN again"
+ * puts the bank numbers back.
  */
-export async function reuseBankIntoHouseType(
-  projectId: string,
-  houseTypeId: string,
-  entryId: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const user = await getCurrentUser();
-  const res = await reuseBankEntryIntoHouseType(houseTypeId, entryId, { userId: user?.id ?? null });
-  if (res.ok) {
-    revalidatePath(`/projects/${projectId}`);
-    revalidatePath("/bank");
+export async function checkBankPickAgainstDrawing(houseTypeId: string): Promise<{ ok: boolean; error?: string }> {
+  const ht = await prisma.houseType.findUnique({
+    where: { id: houseTypeId },
+    select: {
+      bankMatchState: true,
+      takeoff: { select: { id: true } },
+      extractions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, status: true, documentId: true, pageRange: true },
+      },
+    },
+  });
+  const ex = ht?.extractions[0];
+  if (!ht || ht.bankMatchState !== "FROM_BANK") return { ok: false, error: "this house type wasn't picked from the bank" };
+  if (!ex) return { ok: false, error: "there is no drawing for this house type" };
+  if (ex.status === "PENDING" || ex.status === "PROCESSING") return { ok: true };
+  if (ht.takeoff) {
+    await prisma.takeoff.update({
+      where: { id: ht.takeoff.id },
+      data: { status: "IN_REVIEW", confirmedAt: null, confirmedById: null },
+    });
   }
-  return res;
+  await prisma.extraction.update({ where: { id: ex.id }, data: { status: "PENDING", errorMessage: null } });
+  await queueRead(ex);
+  await revalidateHouseType(houseTypeId);
+  return { ok: true };
 }
 
 export async function archiveBankEntry(entryId: string, archived: boolean): Promise<{ ok: boolean; error?: string }> {
@@ -170,28 +196,11 @@ export async function updateBankAliases(entryId: string, aliases: string[]): Pro
   }
 }
 
-export async function setBankCurrentVersion(entryId: string, versionId: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const version = await prisma.houseTypeBankVersion.findUnique({
-      where: { id: versionId },
-      select: { bankEntryId: true },
-    });
-    if (!version || version.bankEntryId !== entryId) return { ok: false, error: "version not in this entry" };
-    await prisma.houseTypeBankEntry.update({
-      where: { id: entryId },
-      data: { currentVersionId: versionId },
-    });
-    revalidatePath(`/bank/${entryId}`);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "set-version failed" };
-  }
-}
-
 /**
  * Merge two bank entries that turned out to be the same real type. Moves the
  * merged entry's versions + instances onto the survivor, folds its aliases, then
- * deletes it. Both must be the same client + build type.
+ * deletes it. Both must be the same build type (the builder may differ — the bank is
+ * company-wide).
  */
 export async function mergeBankEntries(
   survivorId: string,
@@ -212,8 +221,8 @@ export async function mergeBankEntries(
         }),
       ]);
       if (!survivor || !merged) throw new Error("entry not found");
-      if (survivor.clientId !== merged.clientId || survivor.buildType !== merged.buildType)
-        throw new Error("entries are different clients or build types");
+      if (survivor.buildType !== merged.buildType)
+        throw new Error("one is timber frame and the other traditional — they can't be merged");
 
       // Move merged's versions onto the survivor, renumbered above its current max.
       let next = survivor.versions.reduce((m, v) => Math.max(m, v.version), 0) + 1;

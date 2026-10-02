@@ -9,10 +9,11 @@ import { resolveModel } from "@/lib/extract/providers/catalog";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ReviewWorkspace } from "@/components/review-workspace";
-import { BankMatchPanel, type BankPanelData } from "@/components/bank/bank-match-panel";
+import { BankOriginStrip } from "@/components/bank/bank-origin-strip";
+import { SaveToBankButton } from "@/components/bank/save-to-bank-button";
 import type { EditorCategoricals } from "@/components/takeoff-editor";
 import { getStoreyLiftTemplate } from "@/server/builderProfile";
-import { matchTakeoff } from "@/server/bank";
+import { bankOriginFor } from "@/server/bank";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export default async function ReviewPage({
     include: {
       document: {
         include: {
-          pack: { include: { project: { select: { extractionModel: true, buildType: true } } } },
+          pack: { include: { project: { select: { extractionModel: true, buildType: true, estimatingMode: true } } } },
           pages: { select: { pageNumber: true, sheetTitle: true } },
         },
       },
@@ -42,6 +43,7 @@ export default async function ReviewPage({
             },
           },
           bankEntry: { select: { id: true, canonicalName: true, canonicalCode: true } },
+          bankVersion: { select: { version: true } },
         },
       },
     },
@@ -121,56 +123,32 @@ export default async function ReviewPage({
     sheetTitle: p.sheetTitle,
   }));
 
-  // Bank strip (docs/20 §6b): how this take-off relates to the shared bank.
+  // House bank (docs/20 v2): the "From house bank" banner for a picked house type,
+  // and the "Save to house bank" button beside Confirm (house-build only).
   let bankPanel: React.ReactNode = null;
+  let bankSave: React.ReactNode = null;
   const ht = extraction.houseType;
-  if (takeoff && ht) {
-    const reusedUnverified = rawWarnings.bankReusedUnverified === true;
-    const linked =
-      ht.bankEntryId && ht.bankMatchState !== "DETACHED"
-        ? {
-            entryId: ht.bankEntryId,
-            name: ht.bankEntry?.canonicalName ?? "—",
-            code: ht.bankEntry?.canonicalCode ?? null,
-            state: ht.bankMatchState ?? "MATCHED",
-          }
-        : null;
-
-    let proposal: BankPanelData["proposal"] = null;
-    if (!linked && !reusedUnverified) {
-      const matchRes = await matchTakeoff(takeoff.id);
-      if (matchRes) {
-        const best = matchRes.match.best;
-        if (best?.entryId) {
-          const nm = matchRes.candidateNames[best.entryId];
-          proposal = {
-            entryId: best.entryId,
-            name: nm ? (nm.code ? `${nm.name} · ${nm.code}` : nm.name) : null,
-            state: matchRes.match.state,
-            diffs: (best.geometry?.diffs ?? []).map(
-              (d) => `${d.label} ${d.from ?? "—"}→${d.to ?? "—"}`,
-            ),
-          };
-        } else {
-          proposal = { entryId: null, name: null, state: "NEW", diffs: [] };
-        }
-      }
-    }
-
-    if (linked || proposal || reusedUnverified) {
-      const panelData: BankPanelData = {
-        takeoffId: takeoff.id,
-        houseTypeId: ht.id,
-        status: takeoff.status,
-        reusedUnverified,
-        linked,
-        proposal,
-      };
-      // Keyed: a server-created element handed to a client component as a prop is
-      // rendered among ReviewWorkspace's children, and React 19 (dev) warns about an
-      // unkeyed child there ("passed a child from ReviewPage").
-      bankPanel = <BankMatchPanel key="bank-panel" data={panelData} />;
-    }
+  const isHouseBuild = extraction.document.pack.project.estimatingMode === "HOUSE_BUILD";
+  if (takeoff && ht && isHouseBuild) {
+    const origin = ht.bankMatchState === "FROM_BANK" ? await bankOriginFor(ht.id) : null;
+    // Keyed: a server-created element handed to a client component as a prop is
+    // rendered among its children, and React 19 (dev) warns about an unkeyed child.
+    if (origin) bankPanel = <BankOriginStrip key="bank-origin" houseTypeId={ht.id} origin={origin} />;
+    const where = `${ht.bankEntry?.canonicalName ?? ""}${ht.bankVersion ? ` v${ht.bankVersion.version}` : ""}`;
+    const linkedLabel =
+      ht.bankEntryId && ht.bankMatchState === "SAVED"
+        ? `In house bank · ${where}`
+        : ht.bankEntryId && ht.bankMatchState === "FROM_BANK"
+          ? `From house bank · ${where}`
+          : null;
+    bankSave = (
+      <SaveToBankButton
+        key="bank-save"
+        takeoffId={takeoff.id}
+        confirmed={takeoff.status === "CONFIRMED"}
+        linkedLabel={linkedLabel}
+      />
+    );
   }
 
   const backHref = `/projects/${extraction.document.pack.projectId}`;
@@ -245,6 +223,7 @@ export default async function ReviewPage({
         storeyLiftTemplate={storeyLiftTemplate}
         buildSystem={extraction.document.pack.project.buildType}
         bankPanel={bankPanel}
+        bankSave={bankSave}
       />
     </AppShell>
   );

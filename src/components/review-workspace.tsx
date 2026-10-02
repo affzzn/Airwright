@@ -52,6 +52,7 @@ export function ReviewWorkspace({
   storeyLiftTemplate,
   buildSystem,
   bankPanel,
+  bankSave,
 }: {
   backHref: string;
   title: string;
@@ -75,6 +76,7 @@ export function ReviewWorkspace({
   storeyLiftTemplate?: Record<string, number>;
   buildSystem?: "TRADITIONAL" | "TIMBER_FRAME";
   bankPanel?: ReactNode;
+  bankSave?: ReactNode;
 }) {
   const [goTo, setGoTo] = useState<{ page: number; nonce: number } | null>(null);
   const onGoToPage = (page: number) =>
@@ -110,7 +112,7 @@ export function ReviewWorkspace({
         </div>
       </div>
 
-      {/* Bank strip (docs/20 §6b) — how this take-off relates to the shared bank */}
+      {/* House bank banner (docs/20 v2) — shown when the numbers came from the bank */}
       {bankPanel}
 
       {/* Two panes */}
@@ -166,6 +168,7 @@ export function ReviewWorkspace({
             onGoToPage={onGoToPage}
             storeyLiftTemplate={storeyLiftTemplate}
             buildSystem={buildSystem}
+            bankSave={bankSave}
           />
         </div>
       </div>

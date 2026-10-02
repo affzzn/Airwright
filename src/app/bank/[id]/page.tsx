@@ -5,7 +5,6 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BankEntryAdmin } from "@/components/bank/bank-entry-admin";
-import { BankVersionActions } from "@/components/bank/bank-version-actions";
 import { parseSnapshot, wallSums, perimeterTotal, type TakeoffSnapshot } from "@/lib/bank/snapshot";
 import { compareGeometry } from "@/lib/bank/match";
 
@@ -84,6 +83,7 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
           code: true,
           projectId: true,
           bankMatchState: true,
+          bankVersion: { select: { version: true } },
           project: { select: { name: true } },
         },
       },
@@ -91,11 +91,17 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
   });
   if (!entry) notFound();
 
+  // The bank is company-wide: any same-build-type entry (any builder) can be merged.
   const mergeable = await prisma.houseTypeBankEntry.findMany({
-    where: { clientId: entry.clientId, buildType: entry.buildType, status: "ACTIVE", NOT: { id: entry.id } },
-    select: { id: true, canonicalName: true, canonicalCode: true },
+    where: { buildType: entry.buildType, status: "ACTIVE", NOT: { id: entry.id } },
+    select: { id: true, canonicalName: true, canonicalCode: true, client: { select: { name: true } } },
     orderBy: { canonicalName: "asc" },
   });
+  const sourceProjects = await prisma.project.findMany({
+    where: { id: { in: entry.versions.map((v) => v.sourceProjectId).filter((x): x is string => !!x) } },
+    select: { id: true, name: true },
+  });
+  const projectName = new Map(sourceProjects.map((p) => [p.id, p.name]));
 
   // Parse each version's snapshot + a diff from the previous (older) version.
   const versionsAsc = [...entry.versions].sort((a, b) => a.version - b.version);
@@ -109,7 +115,9 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
     diffFromPrev.set(versionsAsc[i].id, prev && cur ? compareGeometry(prev, cur) : null);
   }
 
-  const currentSnapshot = entry.currentVersionId ? snapshotById.get(entry.currentVersionId) ?? null : null;
+  // Every version stays pickable; the newest is shown in full.
+  const latest = entry.versions[0] ?? null;
+  const currentSnapshot = latest ? (snapshotById.get(latest.id) ?? null) : null;
 
   return (
     <AppShell>
@@ -140,7 +148,9 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
           {/* Current confirmed take-off */}
           <Card>
             <CardHeader>
-              <h2 className="text-sm font-semibold text-ink">Current take-off</h2>
+              <h2 className="text-sm font-semibold text-ink">
+                Latest version{latest ? ` (v${latest.version})` : ""}
+              </h2>
             </CardHeader>
             <CardBody>
               {currentSnapshot ? (
@@ -161,23 +171,23 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
               <ul className="divide-y divide-hairline">
                 {entry.versions.map((v) => {
                   const diff = diffFromPrev.get(v.id);
-                  const isCurrent = v.id === entry.currentVersionId;
+                  const isLatest = v.id === latest?.id;
                   return (
                     <li key={v.id} className="px-5 py-3.5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="flex items-center gap-2 text-sm font-medium text-ink">
                             v{v.version}
-                            {isCurrent && <Badge variant="solid">Current</Badge>}
+                            {isLatest && <Badge variant="solid">Latest</Badge>}
                           </p>
                           <p className="mt-0.5 text-xs text-ink-subtle">
-                            {v.confirmedAt ? new Date(v.confirmedAt).toLocaleDateString() : "—"}
+                            Saved {v.confirmedAt ? new Date(v.confirmedAt).toLocaleDateString() : "—"}
+                            {v.sourceProjectId && projectName.get(v.sourceProjectId)
+                              ? ` · from ${projectName.get(v.sourceProjectId)}`
+                              : ""}
                             {v.note ? ` · ${v.note}` : ""}
                           </p>
                         </div>
-                        {!isCurrent && (
-                          <BankVersionActions entryId={entry.id} versionId={v.id} />
-                        )}
                       </div>
                       {diff && diff.diffs.length > 0 && (
                         <p className="mt-1.5 text-xs text-ink-muted">
@@ -214,7 +224,13 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
                           {ht.code ? ` · ${ht.code}` : ""}
                         </span>
                       </Link>
-                      {ht.bankMatchState === "CHANGED" && <Badge variant="outline">drawing differs</Badge>}
+                      <Badge variant="outline">
+                        {ht.bankMatchState === "FROM_BANK"
+                          ? `picked v${ht.bankVersion?.version ?? "?"}`
+                          : ht.bankMatchState === "SAVED"
+                            ? `saved as v${ht.bankVersion?.version ?? "?"}`
+                            : "linked"}
+                      </Badge>
                     </li>
                   ))}
                 </ul>
@@ -233,7 +249,7 @@ export default async function BankEntryPage({ params }: { params: Promise<{ id: 
             archived={entry.status === "ARCHIVED"}
             mergeable={mergeable.map((m) => ({
               id: m.id,
-              label: m.canonicalCode ? `${m.canonicalName} (${m.canonicalCode})` : m.canonicalName,
+              label: `${m.canonicalName}${m.canonicalCode ? ` (${m.canonicalCode})` : ""} · ${m.client.name}`,
             }))}
           />
         </div>

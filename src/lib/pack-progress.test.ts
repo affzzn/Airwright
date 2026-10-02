@@ -53,6 +53,16 @@ describe("computePackProgress", () => {
     expect(status(steps, "reading")).toBe("done");
   });
 
+  it("a read held for the house bank, or skipped because a bank version was picked, is not reading", () => {
+    const { steps, complete } = computePackProgress({
+      uploads: [{ status: "PROCESSED" }],
+      documents: [{ classifiedAt: new Date(), isReadable: true }],
+      extractions: [{ status: "HELD" }, { status: "SKIPPED" }, { status: "COMPLETED" }],
+    });
+    expect(complete).toBe(true);
+    expect(status(steps, "reading")).toBe("done");
+  });
+
   it("ignores unreadable (flagged) documents for the classifying step", () => {
     const { complete } = computePackProgress({
       uploads: [{ status: "PROCESSED" }],

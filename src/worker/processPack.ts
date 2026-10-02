@@ -29,6 +29,7 @@ import {
 import type { DrawingKind } from "@/lib/ingest/parsePath";
 import { getBoss } from "@/lib/queue/boss";
 import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
+import { holdBankRepeats } from "@/server/bank";
 
 /**
  * Process a whole tender pack (docs/17 — smart upload & grouping):
@@ -350,6 +351,7 @@ async function segmentPerFileAndQueue(
 ): Promise<void> {
   const boss = await getBoss();
   let houseTypeCount = 0;
+  const created: { id: string; documentId: string; pageRange: string }[] = [];
   for (const doc of docs) {
     if (!doc.isReadable || doc.isRasterOnly) continue;
     const pages: PageClass[] = doc.pages.map((p) => ({
@@ -379,20 +381,27 @@ async function segmentPerFileAndQueue(
           status: "PENDING",
         },
       });
-      await boss.send(EXTRACT_DRAWING_QUEUE, {
-        documentId: doc.id,
-        extractionId: extraction.id,
-        pageRange: group.pageRange,
-      });
+      created.push({ id: extraction.id, documentId: doc.id, pageRange: group.pageRange });
       houseTypeCount++;
     }
+  }
+  // House bank (docs/20 v2): a house type already in the bank is HELD — its read is
+  // never queued until a person picks a version or chooses to read the drawing.
+  const { held } = await holdBankRepeats(created.map((c) => c.id));
+  for (const c of created) {
+    if (held.has(c.id)) continue;
+    await boss.send(EXTRACT_DRAWING_QUEUE, {
+      documentId: c.documentId,
+      extractionId: c.id,
+      pageRange: c.pageRange,
+    });
   }
   await prisma.tenderPack.update({
     where: { id: packId },
     data: { groupingStatus: "FALLBACK", builderProfileId: null },
   });
   console.log(
-    `[process-pack] ${reason} → ${houseTypeCount} house type(s), per-file extraction (auto-queued)`,
+    `[process-pack] ${reason} → ${houseTypeCount} house type(s), per-file extraction (${houseTypeCount - held.size} queued, ${held.size} held: found in the house bank)`,
   );
 }
 

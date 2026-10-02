@@ -1,309 +1,235 @@
-# 20 · House-Type Bank — canonical spec
+# 20 · House-Type Bank — canonical spec (v2)
 
-**Status: BUILT (2026-09-23), on branch `feat/house-type-bank`.** P0–P3 done and
-verified end-to-end (373 tests incl. 18 bank unit tests; typecheck + lint + prod
-build clean; a real-DB round-trip of write → alias-learn → change→new-version →
-match → skip-read reuse → build-type isolation, all asserted + cleaned up). Only
-**P4 (Excel seed of Laura's Excel bank)** remains — gated on her file. The canonical
-design; this section records what shipped against it.
+**Status: v2 BUILT 2026-10-02.** Replaces the v1 design of 2026-09-23 (automatic save on
+confirm, matching scoped to one builder, a separate "Reuse from bank" button, a single
+"current" version). What changed and why is in §10; the v1 notes are kept at the end.
 
 Companion reading: `docs/11` (take-off engine), `docs/13` (extraction playbook),
-`docs/15` (pricing), `ARCHITECTURE.md` (the take-off/pricing seam). The bank plugs
-in at the **take-off layer** and leaves pricing/quotes untouched.
+`docs/15` (pricing), `ARCHITECTURE.md`. The bank plugs in at the **take-off layer** and
+leaves pricing/quotes untouched.
+
+**House-build only (TRADITIONAL + TIMBER_FRAME). Never Construction.**
 
 ---
 
 ## 0. What this is, in one line
 
-Turn Laura's personal Excel "bank" of house types into **shared, company-owned
-software**: every confirmed take-off is saved against the client + house type, and
-when a repeat tender arrives the prior measurements are reused instead of rebuilt by
-hand — with any drawing change flagged for a quick sense-check.
-
-**House-build only (TRADITIONAL + TIMBER_FRAME). Never Construction.** Construction
-is a separate manual island (`docs/19`) with no reusable repeating "type" — the bank
-does not touch it.
-
-### The value case
-Most of Airwright's work is repeat clients using the same standard types (Miller
-Denton, Bloor Aspen…), yet each is re-measured and re-reviewed by hand even when the
-dimensions are already known. This removes that rebuild admin and de-risks a key
-person: the knowledge becomes the company's, not one spreadsheet on one laptop.
+Turn Laura's personal Excel bank into a **shared, company-owned library** of confirmed
+house types, so a repeat house type is **picked, not re-measured**.
 
 ### Acceptance criteria (from the brief)
 1. A repeat house type is **retrieved and applied without a manual rebuild**.
 2. The system **flags when a drawing differs** from the stored version.
-3. The bank is **shared and owned by the company**, not held in one person's spreadsheet.
+3. The bank is **shared and owned by the company**, not one person's spreadsheet.
 
 ---
 
-## 1. The one principle that makes it correct
+## 1. The rules (simple, and all human-in-the-loop)
 
-**A house type's true identity is its geometry, not its name.** The whole platform
-already runs on "the drawing is truth; title-block text is noise." Names and codes
-drift across tenders, clients, revisions and handings — but a Denton's walls,
-storeys, height, birdcage areas and apex count *are* the Denton.
-
-So the bank **matches on measurements**, and treats name/code only as a cheap hint
-that surfaces a candidate. And — this is a human-in-the-loop tool — the matcher
-**never decides** that two types are the same. It **proposes** a candidate with the
-evidence and the field-by-field diff; the estimator confirms. (Same discipline as the
-rest of the app: nothing uncertain is guessed.)
-
----
-
-## 2. How it fits the existing model
-
-Today `HouseType` + `Takeoff` are **per-project** (`prisma/schema.prisma`): every
-tender re-creates them from scratch. `HouseType.clientId` exists but nothing reads
-across projects — a latent hook.
-
-The bank is a thin **client-owned layer above**:
-
-- **Bank entry = the "class"** — the reusable measured identity of a type ("Miller Denton").
-- **Project `HouseType` / `Takeoff` = an "instance"** — this tender's copy, with its
-  own plots / configuration / render / quote.
-
-The single integration seam is `takeoffInputFromStored(measurements, walls, warnings,
-config, buildSystem)` (`src/lib/takeoff/fromStored.ts`). Materialise a bank snapshot
-into a project `Takeoff` and `buildTakeoff` → `priceTakeoffLine` → quote/Excel all run
-**unchanged**. That is the whole reason this is a low-risk build: nothing downstream
-of the take-off changes.
+1. **Nothing goes into the bank on its own.** Confirming a take-off does NOT save it.
+   A person presses **Save to house bank** (beside Confirm take-off).
+2. **Every save is a choice:** a *new house type*, a *new version* of one, or "already
+   saved as vN". **Versions are never edited or replaced** — v1 stays v1 forever.
+3. **One bank for the whole company.** Matching searches **every builder**; the builder
+   is only a label and a ranking hint (same builder listed first). Only the build type
+   is a hard wall — a timber-frame Denton is never offered for a traditional tender.
+4. **The bank is checked before any reading.** On upload, the moment a pack is split
+   into house types, each one is checked. A repeat's read is **HELD** — never queued, no
+   AI cost — until a person picks a version or says "read the drawing".
+5. **Picking a version is the confirmation.** The take-off is filled from that version
+   and confirmed; no drawing is read; the house type is labelled **From house bank**.
+6. **Not strict on names.** "Denton", "DENTON", "Denton-XYZ", "The Denton (Semi)",
+   "Denton 2B", "11. 250814 Denton", a typo "Milfield", a learned alias, or the same code
+   all find it. The matcher never decides — it offers; the person picks.
 
 ---
 
-## 3. Data model (2 new tables + 1 link column — minimal, additive)
+## 2. Data model
 
-No mirror of the measurement/wall tables. The snapshot is JSON — in-idiom here
-(`Takeoff.warnings`, `Extraction.rawOutput`, frozen `QuoteLineItem`s all work this way).
+### `HouseTypeBankEntry` — one house type in the bank
+- `clientId` — the builder it was first saved from (a **label**, not a scope).
+- `buildType` — TRADITIONAL | TIMBER_FRAME (a hard filter).
+- `canonicalName`, `canonicalCode?`, `matchKey` (normalised name).
+- `aliases String[]` — names/codes a person confirmed as this type (learned when a
+  version is picked for, or saved from, a differently-named house type).
+- `currentVersionId` — just the **newest** version (every version stays pickable).
+- `status` ACTIVE | ARCHIVED, `timesReused`, timestamps.
+- Unique `(clientId, canonicalCode, buildType)` — one entry per builder + code.
 
-### `HouseTypeBankEntry` — the library card (identity)
-- `clientId` — owner (the housebuilder, e.g. Miller). Bank is scoped per client.
-- `buildType` — TRADITIONAL | TIMBER_FRAME.
-- `canonicalName` ("Denton"), `canonicalCode` ("L363", nullable).
-- `matchKey` — normalised name stem used for candidate lookup.
-- `aliases String[]` — every alternate name/code **confirmed** as this type
-  ("Denton XYZ", "DENTON-LH", superseded codes…). Learned on confirmation (§5).
-- `currentVersionId` — pointer to the live reference snapshot.
-- `status` (ACTIVE | ARCHIVED), `timesReused Int`, `createdById`, timestamps.
-- Soft-unique on `(clientId, canonicalCode, buildType)` **when a code is present**
-  (codes are the reliable id); names are never hard-unique — dedup is by matcher +
-  human merge (§7), not a DB constraint.
+### `HouseTypeBankVersion` — one frozen, never-edited take-off
+- `version` (1, 2, 3… per entry), `snapshot Json` (observables only, in the shape
+  `takeoffInputFromStored` reads — `src/lib/bank/snapshot.ts`), `geometryFingerprint`.
+- `sourceTakeoffId?` / `sourceProjectId?` (SetNull — the snapshot outlives its project),
+  `confirmedById`, `confirmedAt` (= when it was saved), `note?`.
 
-### `HouseTypeBankVersion` — a frozen snapshot of one confirmed take-off
-- `bankEntryId`, `version Int` (auto-increment per entry).
-- `snapshot Json` — the frozen **observables**, in exactly the shape
-  `takeoffInputFromStored` reads (§3.1). **Observables only — never a price.**
-- `geometryFingerprint String` — stable hash of the rounded observables, for cheap
-  change-detection.
-- `sourceTakeoffId?` / `sourceProjectId?` — provenance, `onDelete: SetNull`. The
-  snapshot **survives** if the source project is deleted (that is the point).
-- `note String?` ("Rev B — front 8.20→8.45"), `confirmedById`, `confirmedAt`.
+### `HouseType` — the link (migration `20261002180000_house_bank_v2`, additive)
+- `bankEntryId?`, **`bankVersionId?`** (new: the exact version picked from / saved as).
+- `bankMatchState`: **FROM_BANK** (a version was picked, no read) · **SAVED** (saved to
+  the bank by the button). The v1 values NEW / MATCHED / CHANGED / DETACHED are legacy.
 
-### `HouseType` (existing) — add the instance link
-- `bankEntryId String?` (nullable, `onDelete: SetNull`).
-- `bankMatchState` enum: NEW | MATCHED | CHANGED | DETACHED.
-
-### 3.1 The snapshot shape (frozen payload)
-Mirror the inputs of `takeoffInputFromStored` so reuse is a straight deserialise:
-- measurement values: `STOREYS`, `HEIGHT_TO_SOFFIT`, `GABLE_QTY`, `RENDER_LENGTH`,
-  `BIRDCAGE_GF_M2` / `_FF_M2` / `_SF_M2`, `LOW_LEVEL_QTY`, `CORNER_COUNT`
-- `wallSegments[]`: `{ position, lengthM }`
-- categoricals: `roofType`, `roomInRoof`, `rendered`, `chimney`, `structure`,
-  `dwellingsWide`, per-face `elevations[]`
-- `configuration` (the house-type build form)
-- `buildType`
-
-**Not stored:** prices, plots, per-plot config/render, confidences. Prices come from
-rates at quote time (rates change; a stored price would rot). Per-plot facts belong to
-the instance, not the class.
+### `Extraction.status` — two new values
+- **HELD** — the house type was found in the bank; the read is waiting on a person and
+  was never queued.
+- **SKIPPED** — a bank version was picked; this drawing is not read. The row is kept so
+  the review page still shows the drawing.
 
 ---
 
-## 4. The matcher (`src/lib/bank/match.ts`, pure + unit-tested)
+## 3. Matching (`src/lib/bank/match.ts`, pure + unit-tested)
 
-Scope every search to **same client + same buildType**. Two signals.
+### Finding repeats — `findRepeats` (upload time, name/code only)
+Searches the whole bank of the same build type. Per entry:
 
-### Signal 1 — name/code (cheap; generates candidates)
-- exact hit on an `alias` or on `canonicalCode` → **strong**
-- normalised name stem match: prefix relationship, OR token-set Jaccard ≥ ~0.6, OR
-  Levenshtein ratio ≥ ~0.85 → **candidate**
-- reuse `cleanHouseTypeName` / `cleanHouseTypeCode` (`src/lib/extract/houseTypeIdentity.ts`);
-  extend the normaliser to strip handing (lh/rh/mirror/reverse), config
-  (det/semi/end/mid) and garage tokens before comparing.
+| Signal | Strength |
+|---|---|
+| a learned alias (name or code) | STRONG |
+| same name after normalising (exact, a token prefix "Denton" ⊂ "Denton XYZ", or similarity ≥ 0.85) | STRONG |
+| same code, same builder (or the names are similar) | STRONG |
+| same code, another builder, unrelated name (short codes like "B5" recur) | POSSIBLE |
+| similar name 0.6–0.85 ("Benton" vs "Denton") | POSSIBLE |
 
-### Signal 2 — geometry (authoritative; arbitrates)
-Compare the new take-off's observables to the candidate snapshot, field by field →
-a verdict:
-- **IDENTICAL** — all fields within tolerance.
-- **CHANGED** — matches but ≥1 field beyond tolerance → *the "drawing differs" flag*,
-  carrying the exact per-field diff (old→new).
-- **DIFFERENT** — geometry clearly unlike → not the same type despite the name.
+Ranked: STRONG first, then the same builder, then the closer name. Up to 3 entries are
+offered, each with all its versions. POSSIBLE is labelled "possible match — check the
+name"; it still holds the read (one click costs less than a needless read).
 
-Tolerances (wall ±?, birdcage ±?%, height) are **an open Colin question** — reuse the
-same configurable sign-off tolerance flagged in `docs/11 §8 #11`; do **not** invent a
-number. Exact-match fields: storeys, apex count, corner count, roof type, structure.
+**Normalising a name** (`normalize.ts`): lower-case, file/revision noise removed, the
+variant words dropped (handing LH/RH, detached/semi/end/mid/terrace, garage/integral,
+plot, affordable, and filler: the/house/type), and bare numbers dropped when a real name
+remains ("11. 250814 Denton" → "denton"; a name that is only a number, "341", is kept).
 
-### The decision table (what the estimator sees)
-| Name signal | Geometry | Proposed | UI |
-|---|---|---|---|
-| strong | IDENTICAL | **Reuse** | "This is Miller Denton (confirmed 12 Aug, Oadby). Apply?" → one click |
-| strong | CHANGED | **Same, drawing changed** | "Looks like Denton but differs: front 8.20→8.45, birdcage GF 34.9→36.1. Sense-check → apply / save as new version." |
-| strong name | DIFFERENT | **Ambiguous** | "Named like Denton but measurements differ a lot — redesign or different house? You decide." |
-| weak / none | — | **New** | "No match — new type. Added to the bank when confirmed." |
-| several | — | **Choose** | ranked candidates, each with its diff |
-
-Every row is a **proposal**; the estimator confirms. Nothing auto-applies.
+### Comparing numbers — `compareGeometry` / `compareWithEntry`
+Used when saving and after "Check against this drawing". Field-by-field with tolerances
+(`BANK_TOLERANCE` — provisional, Colin's open sign-off number, docs/11 §8): storeys,
+structure, roof, dwellings wide, apex / corner / low-level counts, height, render,
+birdcage per floor, each wall. Verdict IDENTICAL / CHANGED / DIFFERENT (storeys,
+structure, a big perimeter drift or apex jump = looks like a different house).
+`compareWithEntry` checks **every** version — an identical older version means nothing
+new to save — and gives the diff against the newest plus the next version number.
 
 ---
 
-## 5. Denton vs Denton-XYZ — the resolution mechanism
+## 4. The flows
 
-The hard case: house-type names differ slightly across tenders/clients, and
-"Denton-XYZ" may or may not be a "Denton". Resolution:
+### 4a. Save to house bank (review page, beside Confirm)
+- Greyed out until the take-off is confirmed (only confirmed numbers go in).
+- The dialog shows the house type + its numbers in Colin's words, then the bank
+  entries it could be (`saveOptions`), each with:
+  - **Same numbers as vN** → "Yes, it's X — link it to vN" (or "Already in the bank as
+    vN" if it is already linked there). Nothing is duplicated.
+  - **Differs from vN** → the diff (e.g. "Front wall 8.2 → 8.6"), a "looks like a
+    different house" note when the verdict is DIFFERENT, and **Save as vN+1 of X** — the
+    older versions stay exactly as saved.
+  - Always: **It's a different house — save as a new house type**.
+- `saveToBank` re-checks every choice on the server: it refuses a duplicate version
+  and refuses a "same as" whose numbers differ. A clashing code (same builder + code +
+  build type) is not kept on a new entry.
+- After saving, the button reads **In house bank · Denton v2**.
 
-1. New type reads as "Denton XYZ". Bank has "Denton" (Miller) → name stem matches →
-   candidate surfaced.
-2. **Geometry decides, and the estimator confirms:**
-   - identical / changed → "same type" → link to the Denton entry (new version if
-     changed) and **record "Denton XYZ" as an alias**.
-   - genuinely different → "separate type" → create a new entry (optionally a
-     `not-same-as` marker so it stops re-proposing).
-3. **The bank learns the alias on confirmation.** Next time "Denton XYZ" appears it is
-   an *exact* alias hit — no fuzzy needed, instantly right.
+### 4b. Upload — found in the bank (project page)
+- `holdBankRepeats` runs where reads are queued: the per-file path
+  (`segmentPerFileAndQueue` in the worker) and **Confirm grouping** (`confirmGrouping`).
+  Held reads are never sent to the queue.
+- The house type row shows **Found in the house bank** (or "Might already be…" when
+  only POSSIBLE matches): each entry (name · code · builder) with its versions — v2 ·
+  "20.56 m × 4 lifts · birdcage 35.6 m² × 2" · saved date · from which tender — and
+  **Use v2**, plus **Not this house — read the drawing**.
+- **Use vN** (`applyBankVersion`): fills the take-off from that version, confirms it,
+  links the house type (FROM_BANK + the version), marks its reads SKIPPED, learns the
+  name/code as an alias, creates the default plot. No AI call.
+- **Not this house** (`readDrawingInsteadOfBank`): the held read is queued as normal.
 
-So the fuzzy string match only has to be good enough to surface a candidate **once**;
-geometry + a human decide; the alias makes it permanent. Worst case is a one-click
-rejection — it can **never silently get it wrong**. (Same alias-learning shape already
-proven in Construction "Draft from enquiry", `src/lib/construction/draftFromScope.ts`.)
+### 4c. "From house bank" — everywhere it shows
+- Project page: a **From house bank · Denton v2** badge on the row (links to the
+  entry); the read badge says "From house bank"; **Review →** opens it.
+- Review page: a banner — *From house bank · Denton L356 v2 · Miller Homes · saved
+  12 Aug from Whitford Road* — and "This drawing was not read — these are the bank's
+  numbers for v2", with **Check against this drawing**.
+- **Check against this drawing** (`checkBankPickAgainstDrawing`) — optional, one read:
+  re-opens the take-off and reads the drawing; the banner then says **matches v2** or
+  **This drawing differs from v2: Front wall 8.2 → 8.6 …** (acceptance criterion 2).
+  The estimator checks it, confirms, and Saves to house bank → a new version. **Use v2's
+  numbers again** puts the bank's numbers back.
 
----
+### 4d. Nothing reads by accident
+The worker (`handleExtract`) never calls the model for a read that is HELD or SKIPPED,
+whose row is gone, or whose take-off is already confirmed (marked SKIPPED). A read
+already mid-flight when a version is picked cannot overwrite it (persist refuses a
+CONFIRMED take-off).
 
-## 6. Touchpoints & flows (human-in-the-loop throughout)
-
-### 6a. Write on confirm — AUTOMATIC (decided 2026-09-23)
-`confirmTakeoff` (`src/server/actions/takeoff.ts`) already locks the take-off and
-fires `ensureDefaultPlot`. Add: **create-or-new-version the bank entry automatically**
-on confirm. The match was resolved during review, so confirm just freezes the snapshot
-+ learns any alias. A manual **"don't bank this"** escape is available. TRADITIONAL +
-TF only; Construction confirm paths never call it.
-
-### 6b. Match on review
-After extraction, a small **"Bank" panel** on the review screen (`src/app/extractions/[id]`)
-shows the proposal + diff. This is where the "rebuild" collapses into a *glance at
-what changed* — the real admin saving. Non-blocking.
-
-### 6c. Reuse into a quote — SKIP-READ BY DEFAULT (decided 2026-09-23)
-Default: on a confident name/code match, **pull the bank take-off without re-reading
-the drawing** — materialise a `Takeoff` from the snapshot into the project → confirm →
-`ensureDefaultPlot` → priced. This is the "drops into the quote in seconds" path and
-the strongest expression of criterion #1.
-
-**Safeguard (mandatory, to keep criterion #2 true).** A skip-read instance is marked
-**"reused from bank — not yet verified against this drawing."** When a drawing for that
-type *is* present in the pack, surface a prominent, one-click **"Verify against
-drawing"** that runs the normal extract + geometry-diff and flags any change. Skip-read
-buys speed; the verify action preserves change-detection on demand rather than on every
-repeat.
-
-Both entry points exist: skip-read (default, fast) and the auto-extract-then-diff route
-(when the estimator wants the fresh read up front, or no bank match is confident).
-
----
-
-## 7. The `/bank` browse UI (monochrome, existing design system)
-
-- **List:** client · name · code · buildType · storeys · perimeter · #versions · last
-  confirmed · times reused. Search + filter by client / buildType.
-- **Entry detail:** current confirmed take-off (read-only, same review layout) ·
-  version history with diffs · aliases (editable) · where-used (projects/plots) ·
-  source-drawing link.
-- **Actions:** rename / set canonical · edit aliases · set current version · **merge
-  two entries** (duplicates will happen; fold aliases + versions, relink instances —
-  precedent: `scripts/merge-duplicate-house-types.mts`) · archive.
+### 4e. One builder, one name
+New-job form: the builder field suggests the builders already on file, and an existing
+builder is reused ignoring case and extra spaces ("Bloor Homes" = "bloor homes ").
+Matching no longer depends on the builder anyway.
 
 ---
 
-## 8. Explicitly OUT of scope (keep it minimal)
-
-- ❌ Cross-client matching — scope to the client (different builders ≠ same type).
-- ❌ ML / embedding similarity — plain normalised-string + geometry is enough and
-  *explainable* (trust matters more than cleverness in a human-in-the-loop tool).
-- ❌ Auto-merge / auto-apply-without-a-glance — always a human confirm.
-- ❌ Mirror measurement/wall tables — JSON snapshot only.
-- ❌ Storing prices in the bank — observables only.
-- ❌ Touching the pricing/quote engine — plug in at the take-off seam.
-- ❌ Building the Excel seed before Laura's file is in hand — map her real columns,
-  don't guess the format.
+## 5. The `/bank` pages
+- **List** (grouped by builder): name · code · build type · storeys · perimeter ·
+  versions · last saved · times reused.
+- **Entry:** the latest version in full, the version history (each: saved date, the
+  tender it came from, the diff from the previous version), where used ("picked v2" /
+  "saved as v1"), rename, aliases, merge (any builder, same build type), archive.
+  There is no "make current" — every version is pickable on upload.
 
 ---
 
-## 9. Open items (do not guess)
+## 6. Out of scope (kept minimal)
+- Auto-apply or auto-save — always a person.
+- Geometry-only matching across different names (needs a read first; the name/code/
+  alias signal + learned aliases cover the real cases).
+- Prices in the bank — observables only; pricing reads the take-off as always.
+- The Excel seed of Laura's bank — needs her file (TODO P4).
 
-1. **Change-detection tolerance** (wall ±?, birdcage ±?%, height) — reuse the open
-   sign-off tolerance from `docs/11 §8 #11`; flag until Colin gives it.
-2. **Excel seed of Laura's bank** — needs her actual spreadsheet to map columns →
-   measurement keys. A later phase, gated on the file (house-build only).
-3. **`not-same-as` negative markers** — confirm whether to persist a rejected match so
-   it stops re-proposing (nice-to-have; decide during P2).
-
----
-
-## 10. Decisions locked (2026-09-23)
-
-- **Reuse default = skip-read** (pull from bank without re-reading), with the §6c
-  "Verify against drawing" safeguard so drawing changes are still catchable on demand.
-- **Write-to-bank = automatic on confirm**, with a "don't bank this" escape.
+## 7. Open items (do not guess)
+1. **Change tolerance** (`BANK_TOLERANCE`) — Colin's sign-off number (docs/11 §8 #11).
+2. **Laura's Excel bank import** — map her real columns when the file arrives.
 
 ---
 
-## 11. Phasing / what shipped
-
-- **P0 — foundations. ✅** Migration `house_type_bank` (additive: enum `BankMatchState`,
-  models `HouseTypeBankEntry` + `HouseTypeBankVersion`, `HouseType.bankEntryId` +
-  `bankMatchState`). Pure matcher `src/lib/bank/{snapshot,normalize,match}.ts` +
-  `bank.test.ts` (18 tests). Snapshot mirrors `takeoffInputFromStored`; fingerprint
-  ignores sub-tolerance jitter.
-- **P1 — write path. ✅** `src/server/bank.ts saveTakeoffToBank` — automatic on confirm
-  (hooked in `confirmTakeoff`, best-effort), idempotent on fingerprint, learns aliases,
-  guards the unique code. `forceEntryId` / `markNew` overrides for the panel.
-- **P2 — match + reuse. ✅** Review Bank strip (`bank-match-panel.tsx`, via
-  `ReviewWorkspace.bankPanel`): linked state / proposal + drawing diff / new; link ·
-  it's-new · detach. Skip-read reuse (`materializeBankEntry` + `ReuseFromBank` on the
-  project page) → confirmed take-off + plot, flagged `bankReusedUnverified` (the
-  "Verify against drawing" safeguard surfaced on review).
-- **P2.5 — upload-time auto-detect. ✅ (2026-09-24)** The moment a house type is
-  segmented, its name/code is known — so the project page flags a confident bank repeat
-  *before/while* the drawing is read (`nameCodeMatch` — a name/code-only signal, no
-  geometry yet; `suggestBankForTypes` batches one entries-load per project). The
-  `ReuseSuggestion` chip ("Looks like a repeat of Millfield — reuse without reading")
-  calls `reuseBankEntryIntoHouseType`: fills the EXISTING house type's take-off from the
-  bank, confirms + links it, auto-creates a plot, and **cancels the not-yet-started read
-  (deletes the PENDING extraction) so the drawing isn't billed**. A read already in
-  flight is left to finish — `persist.ts` now bails on a CONFIRMED take-off, so a
-  late-completing read can never clobber a reused one (a general safety fix too). Only
-  strong name/code hits suggest (name alone is weak); a human still clicks. No worker
-  changes — detection is computed at project-page render, so the existing pipeline is
-  untouched.
-- **P3 — browse. ✅** `/bank` list (grouped by client, build filter, archived toggle) +
-  `/bank/[id]` detail (current take-off readout, version history with per-version diff,
-  where-used) + admin (`bank-entry-admin.tsx`: rename, aliases, merge, archive;
-  `bank-version-actions.tsx`: make-current). Nav "Bank" tab.
-- **P4 — later.** Excel seed (needs Laura's file) · optional feed of bank names into
-  grouping/segmentation (`src/lib/ingest`).
-
-### Notes / decisions made during the build
-- **Version/flag decision is TOLERANCE-aware** (fixed 2026-09-24 after a real-DB test):
-  a repeat drawing is never pixel-identical, so `saveTakeoffToBank` decides "new version
-  + CHANGED" vs "MATCHED, no version" from `compareGeometry` against the current version
-  (verdict IDENTICAL ⇒ MATCHED, no version), NOT the byte-rounded fingerprint. The
-  fingerprint is only a stored fast-path value. Without this, every plot's slightly
-  different read spawned a spurious version and a false "drawing differs" flag.
-- **Code is authoritative identity:** an exact-code match always attaches (never spawns
-  a second entry with the same code), respecting `@@unique(clientId, canonicalCode, buildType)`.
-- The matcher is a **pure lib** (no Prisma); all IO lives in `src/server/bank.ts`.
+## 8. Verification (2026-10-02)
+- Unit: `src/lib/bank/bank.test.ts` — every Denton spelling found; another builder found
+  and ranked after the same builder; code-only from another builder = POSSIBLE; typo;
+  "The Sowe" = "Sowe"; unrelated names find nothing; TF B5 never matches traditional B5;
+  save comparisons (identical / older version / diff + next version). Pack progress
+  treats HELD / SKIPPED as done.
+- End-to-end on the real database (`scripts/e2e-bank.mts`, data KEPT for the UI):
+  `seed` (confirm + save 29 Sep types; confirming alone saves nothing), `repeat` (a
+  different builder, the same Miller drawings → repeats HELD, zero queue jobs for them,
+  a new type read as normal), `tf` (timber frame, grouped path), `variant` ("Denton-XYZ",
+  no code, another builder → held), `status`.
+- To empty the bank (bank rows only; take-offs untouched): `scripts/bank-empty.mts --yes`.
 
 ---
 
-*When an open item is resolved, update this doc and `docs/11 §8` together, and bump
-any affected prompt/engine version.*
+## 9. Files
+`src/lib/bank/{snapshot,normalize,match,summary}.ts` (pure) ·
+`src/server/bank.ts` (bankRepeatsFor, holdBankRepeats, applyBankVersion, saveOptions,
+saveToBank, bankOriginFor, listBankEntries) · `src/server/actions/bank.ts` ·
+`src/components/bank/{bank-repeat-picker,save-to-bank-button,bank-origin-strip,bank-entry-admin}.tsx` ·
+`src/app/bank/*` · worker hold in `src/worker/processPack.ts`, guard in `src/worker/index.ts`,
+hold in `src/server/actions/grouping.ts`.
+
+---
+
+## 10. Why v2 (what the v1 build got wrong)
+- **Matching depended on the builder name.** v1 scoped every lookup to the project's
+  client, and a new project found its client by the exact typed text — "Bloor" vs
+  "Bloor Homes" were two clients with separate, empty banks. → whole-bank search.
+- **The drawing kept processing after "reuse".** v1 queued the read the moment the
+  pack was split, before the bank suggestion appeared; reuse only deleted reads not yet
+  started (the queued job then errored + retried), a started read ran and was billed, and
+  the "Reuse from bank" button added a second copy while the uploaded type was still
+  read. → reads are HELD before queueing; SKIPPED reads never reach the model.
+- **Auto-save on confirm** filled the bank with everything confirmed, and a changed
+  drawing silently became the "current" version. → an explicit button and choice;
+  versions never replaced; every version pickable.
+- The separate **Reuse from bank** button is removed — the bank comes to you on upload.
+
+<details><summary>v1 (2026-09-23) — superseded</summary>
+
+v1 shipped: schema (`HouseTypeBankEntry`, `HouseTypeBankVersion`, `HouseType.bankEntryId`
++ `bankMatchState`), the pure snapshot/normalise/geometry matcher (still used), automatic
+`saveTakeoffToBank` on confirm, a review "Bank strip", skip-read `materializeBankEntry` +
+`ReuseFromBank`, an upload-time `ReuseSuggestion` chip, and `/bank` browse. The v1 bank was
+emptied on 2026-10-02 (`scripts/bank-empty.mts`; take-offs untouched).
+</details>

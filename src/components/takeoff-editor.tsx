@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Loader2, Lock, Pencil, Plus, X } from "lucide-react";
 import { buildTakeoff, DEFAULT_PARAMS, type BuildSystem, type Configuration } from "@/lib/takeoff/engine";
@@ -98,6 +98,8 @@ interface Props {
   /** Build system for this tender (project-level — docs/18). TF changes the lifts,
    *  drops the birdcage and adds LM adaptions. Defaults to TRADITIONAL. */
   buildSystem?: BuildSystem;
+  /** "Save to house bank" (docs/20 v2) — shown beside Confirm / Re-open. */
+  bankSave?: ReactNode;
 }
 
 // The editable measurement rows. `birdcage` rows are dropped for timber frame.
@@ -187,6 +189,7 @@ export function TakeoffEditor({
   notes,
   storeyLiftTemplate,
   buildSystem = "TRADITIONAL",
+  bankSave,
 }: Props) {
   const router = useRouter();
   const locked = status === "CONFIRMED";
@@ -875,6 +878,8 @@ export function TakeoffEditor({
       <CardHeader className="flex shrink-0 items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Extracted take-off</h2>
         {locked ? (
+          <div className="flex items-center gap-2">
+          {bankSave}
           <button
             type="button"
             onClick={doReopen}
@@ -888,9 +893,11 @@ export function TakeoffEditor({
             )}
             Re-open to edit
           </button>
+          </div>
         ) : (
           <div className="flex items-center gap-3">
             <SaveIndicator state={saveState} />
+            {bankSave}
             <Button
               size="sm"
               variant="secondary"

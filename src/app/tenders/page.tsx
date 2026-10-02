@@ -28,7 +28,7 @@ export default async function TendersPage() {
   const items: WorkspaceProject[] = projects.map((p) => {
     const exts = p.houseTypes.flatMap((h) => h.extractions);
     const extTotal = exts.length;
-    const extDone = exts.filter((e) => e.status === "COMPLETED").length;
+    const extDone = exts.filter((e) => e.status === "COMPLETED" || e.status === "SKIPPED").length;
     const uploadsPending = p.packs.some((pk) =>
       pk.uploads.some((u) => u.status === "PENDING"),
     );
@@ -60,9 +60,15 @@ export default async function TendersPage() {
     };
   });
 
+  // House builders already on file — suggested in the new-job form so a repeat builder
+  // is picked, not retyped (one builder, one name).
+  const builderNames = (
+    await prisma.client.findMany({ where: { projects: { some: { estimatingMode: "HOUSE_BUILD" } } }, select: { name: true }, orderBy: { name: "asc" } })
+  ).map((c) => c.name);
+
   return (
     <AppShell>
-      <ProjectsWorkspace projects={items} />
+      <ProjectsWorkspace projects={items} builderNames={builderNames} />
     </AppShell>
   );
 }

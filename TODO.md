@@ -211,6 +211,15 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
 
 ## House-Type Bank — follow-ups (docs/20)
 
+- [x] **v2 (2026-10-02):** Save to house bank button (no auto-save on confirm), whole-bank
+      matching (any builder), reads HELD before queueing, pick a version (no read),
+      versions never replaced, "From house bank" labels, Check against this drawing.
+      Old bank emptied (take-offs untouched).
+- [ ] **Decide: a code with a variant suffix** ("Charford L356 DT" vs "Denton L356") is not
+      offered today — should "L356 DT" be a POSSIBLE match for "L356"?
+- [ ] Bank-picked measurements show the "edited" source tag in the editor (they are
+      stored as MANUAL) — consider a "bank" source label.
+
 - [ ] **P4 — seed from Laura's Excel bank** (house-build only) — needs her real
       spreadsheet to map columns → measurement keys. Don't guess the format.
 - [ ] **Change-detection tolerance** (wall ±?, birdcage ±?%, height) — currently the
@@ -218,8 +227,8 @@ skip-read reuse, `/bank` browse. P4 (Excel seed of Laura's bank) pending her fil
       as docs/11 §8 #11) and thread it in.
 - [ ] Optional: feed the client's confirmed bank names into grouping/segmentation
       (`src/lib/ingest`) to improve house-type naming on ingest.
-- [ ] Optional: a `not-same-as` negative marker so a rejected AMBIGUOUS match stops
-      re-proposing (docs/20 §9 #3).
+- [ ] Optional: remember "Not this house" so a rejected match is not offered again for
+      that builder + name.
 
 ## Later phases (NOT Build 1)
 

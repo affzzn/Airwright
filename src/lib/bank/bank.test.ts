@@ -8,7 +8,7 @@ import {
   type TakeoffSnapshot,
 } from "./snapshot";
 import { normalizeName, normalizeCode, nameSimilarity } from "./normalize";
-import { compareGeometry, matchAgainstBank, nameCodeMatch, type BankCandidateInput } from "./match";
+import { compareGeometry, findRepeats, compareWithEntry, builderKey, type BankEntryRef } from "./match";
 
 /**
  * The bank matcher proves the core doctrine (docs/20 §1): identity is GEOMETRY,
@@ -176,119 +176,130 @@ describe("compareGeometry", () => {
   });
 });
 
-describe("matchAgainstBank", () => {
-  const dentonEntry: BankCandidateInput = {
-    entryId: "e-denton",
+describe("findRepeats (upload-time, whole bank, no geometry)", () => {
+  const MILLER = builderKey("Miller Homes");
+  const BLOOR = builderKey("Bloor Homes");
+  const entry = (id: string, name: string, code: string | null, extra: Partial<BankEntryRef> = {}): BankEntryRef => ({
+    entryId: id,
     buildType: "TRADITIONAL",
-    canonicalName: "Denton",
-    canonicalCode: "L363",
+    canonicalName: name,
+    canonicalCode: code,
     aliases: [],
-    snapshot: dentonSnapshot(),
-  };
+    builderKey: MILLER,
+    ...extra,
+  });
+  const bank = [
+    entry("denton", "Denton", "L356"),
+    entry("delmont", "Delmont", "L255"),
+    entry("millfield", "Millfield", "BUNG12"),
+    entry("trent", "The Trent", "B5", { builderKey: builderKey("Vistry") }),
+    entry("tf-b5", "B5", "B5", { buildType: "TIMBER_FRAME", builderKey: builderKey("Vistry") }),
+  ];
+  const find = (name: string, code: string | null, builder = MILLER, buildType: "TRADITIONAL" | "TIMBER_FRAME" = "TRADITIONAL") =>
+    findRepeats({ name, code, builderKey: builder, buildType }, bank);
 
-  it("NEW when nothing matches", () => {
-    const r = matchAgainstBank(
-      { buildType: "TRADITIONAL", name: "Aspen", code: null, snapshot: dentonSnapshot() },
-      [dentonEntry],
-    );
-    expect(r.state).toBe("NEW");
-    expect(r.best).toBeNull();
+  it.each([
+    "Denton",
+    "DENTON",
+    "Denton-XYZ",
+    "Denton XYZ",
+    "The Denton (Semi)",
+    "Denton 2B",
+    "11. 250814 Denton",
+    "Denton LH",
+    "Denton House Type",
+  ])("finds Denton for %s (not too strict)", (name) => {
+    const r = find(name, null);
+    expect(r[0]?.entryId).toBe("denton");
+    expect(r[0]?.strength).toBe("STRONG");
   });
 
-  it("REUSE: same name + identical geometry → one-click reuse", () => {
-    const r = matchAgainstBank(
-      { buildType: "TRADITIONAL", name: "Denton", code: "L363", snapshot: dentonSnapshot() },
-      [dentonEntry],
-    );
-    expect(r.state).toBe("REUSE");
-    expect(r.best?.kind).toBe("REUSE");
-    expect(r.best?.codeEqual).toBe(true);
+  it("finds a repeat from ANOTHER builder — the builder is never a filter", () => {
+    const r = find("Denton", null, BLOOR);
+    expect(r[0]).toMatchObject({ entryId: "denton", strength: "STRONG", sameBuilder: false });
   });
 
-  it("CHANGED: Denton-XYZ, same geometry-family but a wall moved → flag the diff", () => {
-    const moved = dentonSnapshot({
-      walls: [
-        { position: "FRONT", lengthM: 8.6 },
-        { position: "REAR", lengthM: 8.2 },
-        { position: "GABLE_LEFT", lengthM: 6.5 },
-        { position: "GABLE_RIGHT", lengthM: 6.5 },
-      ],
-    });
-    const r = matchAgainstBank(
-      { buildType: "TRADITIONAL", name: "Denton XYZ", code: null, snapshot: moved },
-      [dentonEntry],
-    );
-    expect(r.state).toBe("CHANGED");
-    expect(r.best?.geometry?.diffs.some((d) => d.field === "wall_front")).toBe(true);
+  it("ranks the same builder's entry first when two builders have the name", () => {
+    const two = [...bank, entry("denton-bloor", "Denton", null, { builderKey: BLOOR })];
+    const r = findRepeats({ name: "Denton", code: null, builderKey: BLOOR, buildType: "TRADITIONAL" }, two);
+    expect(r.map((x) => x.entryId).slice(0, 2)).toEqual(["denton-bloor", "denton"]);
   });
 
-  it("AMBIGUOUS: named like Denton but the measurements are a different house", () => {
-    const big = dentonSnapshot({
-      walls: [
-        { position: "FRONT", lengthM: 12 },
-        { position: "REAR", lengthM: 12 },
-        { position: "GABLE_LEFT", lengthM: 9 },
-        { position: "GABLE_RIGHT", lengthM: 9 },
-      ],
-    });
-    const r = matchAgainstBank(
-      { buildType: "TRADITIONAL", name: "Denton", code: null, snapshot: big },
-      [dentonEntry],
-    );
-    expect(r.state).toBe("AMBIGUOUS");
-    expect(r.best?.kind).toBe("AMBIGUOUS");
+  it("the same code finds it whatever the name (same builder)", () => {
+    const r = find("Type A", "L356");
+    expect(r[0]).toMatchObject({ entryId: "denton", strength: "STRONG", reason: "code" });
   });
 
-  it("a learned alias makes Denton-XYZ an exact hit", () => {
-    const withAlias: BankCandidateInput = { ...dentonEntry, aliases: ["Denton XYZ"] };
-    const r = matchAgainstBank(
-      { buildType: "TRADITIONAL", name: "Denton XYZ", code: null, snapshot: dentonSnapshot() },
-      [withAlias],
-    );
-    expect(r.best?.aliasHit).toBe(true);
-    expect(r.state).toBe("REUSE");
+  it("a short code from another builder with an unrelated name is only POSSIBLE", () => {
+    const r = find("Aspen", "B5", MILLER);
+    expect(r[0]).toMatchObject({ entryId: "trent", strength: "POSSIBLE", reason: "code" });
   });
 
-  it("never matches across build types", () => {
-    const r = matchAgainstBank(
-      { buildType: "TIMBER_FRAME", name: "Denton", code: "L363", snapshot: dentonSnapshot({ buildType: "TIMBER_FRAME" }) },
-      [dentonEntry],
+  it("a learned alias is a STRONG hit", () => {
+    const withAlias = [entry("denton", "Denton", "L356", { aliases: ["Kensington"] })];
+    const r = findRepeats({ name: "Kensington", code: null, builderKey: BLOOR, buildType: "TRADITIONAL" }, withAlias);
+    expect(r[0]).toMatchObject({ strength: "STRONG", reason: "alias" });
+  });
+
+  it("a typo is still found (Milfield → Millfield)", () => {
+    expect(find("Milfield", null)[0]?.entryId).toBe("millfield");
+  });
+
+  it("'The Sowe' and 'Sowe' are the same name", () => {
+    const r = findRepeats(
+      { name: "Sowe", code: null, builderKey: MILLER, buildType: "TRADITIONAL" },
+      [entry("sowe", "The Sowe", null)],
     );
-    expect(r.state).toBe("NEW");
+    expect(r[0]?.strength).toBe("STRONG");
+  });
+
+  it("a similar-but-different name is offered as POSSIBLE, not STRONG", () => {
+    const r = find("Benton", null);
+    expect(r[0]).toMatchObject({ entryId: "denton", strength: "POSSIBLE" });
+  });
+
+  it("an unrelated name finds nothing", () => {
+    expect(find("Aspen", null)).toEqual([]);
+    expect(find("Hayton", "AL30")).toEqual([]);
+  });
+
+  it("never matches across build types (TF B5 vs traditional B5)", () => {
+    const r = find("B5", "B5", builderKey("Vistry"), "TIMBER_FRAME");
+    expect(r.map((x) => x.entryId)).toEqual(["tf-b5"]);
+  });
+
+  it("builderKey folds case, spacing and punctuation", () => {
+    expect(builderKey(" Bloor  Homes ")).toBe(builderKey("BLOOR homes"));
   });
 });
 
-describe("nameCodeMatch (upload-time, no geometry)", () => {
-  const dentonEntry: BankCandidateInput = {
-    entryId: "e-denton",
-    buildType: "TRADITIONAL",
-    canonicalName: "Denton",
-    canonicalCode: "L363",
-    aliases: ["Denton XYZ"],
-    snapshot: null,
-  };
-
-  it("suggests on an exact code match", () => {
-    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Something", code: "L363" }, [dentonEntry]);
-    expect(hits[0]?.entryId).toBe("e-denton");
-    expect(hits[0]?.codeEqual).toBe(true);
+describe("compareWithEntry (Save to house bank)", () => {
+  const v = (n: number, snap: TakeoffSnapshot) => ({ versionId: `v${n}`, version: n, snapshot: snap });
+  const moved = dentonSnapshot({
+    walls: [
+      { position: "FRONT", lengthM: 8.6 },
+      { position: "REAR", lengthM: 8.6 },
+      { position: "GABLE_LEFT", lengthM: 6.5 },
+      { position: "GABLE_RIGHT", lengthM: 6.5 },
+    ],
   });
 
-  it("suggests on a learned alias", () => {
-    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Denton XYZ", code: null }, [dentonEntry]);
-    expect(hits[0]?.aliasHit).toBe(true);
+  it("same numbers as a stored version → nothing new to save", () => {
+    const c = compareWithEntry(dentonSnapshot(), [v(1, dentonSnapshot())]);
+    expect(c.identicalTo).toEqual({ versionId: "v1", version: 1 });
   });
 
-  it("suggests on a strong name (prefix), no code", () => {
-    const hits = nameCodeMatch({ buildType: "TRADITIONAL", name: "Denton", code: null }, [dentonEntry]);
-    expect(hits[0]?.entryId).toBe("e-denton");
+  it("matches an OLDER version too (v1 picked again after v2 was saved)", () => {
+    const c = compareWithEntry(dentonSnapshot(), [v(1, dentonSnapshot()), v(2, moved)]);
+    expect(c.identicalTo?.version).toBe(1);
+    expect(c.nextVersion).toBe(3);
   });
 
-  it("does NOT suggest on a weak/unrelated name", () => {
-    expect(nameCodeMatch({ buildType: "TRADITIONAL", name: "Aspen", code: null }, [dentonEntry])).toHaveLength(0);
-  });
-
-  it("does NOT suggest across build types", () => {
-    expect(nameCodeMatch({ buildType: "TIMBER_FRAME", name: "Denton", code: "L363" }, [dentonEntry])).toHaveLength(0);
+  it("different numbers → the diff against the newest version + the next version number", () => {
+    const c = compareWithEntry(moved, [v(1, dentonSnapshot())]);
+    expect(c.identicalTo).toBeNull();
+    expect(c.latest?.comparison?.verdict).toBe("CHANGED");
+    expect(c.latest?.comparison?.diffs.map((d) => d.label)).toEqual(["Front wall", "Rear wall"]);
+    expect(c.nextVersion).toBe(2);
   });
 });

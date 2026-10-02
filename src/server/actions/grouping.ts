@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { getBoss } from "@/lib/queue/boss";
 import { EXTRACT_DRAWING_QUEUE } from "@/lib/queue/jobs";
+import { holdBankRepeats } from "@/server/bank";
 import {
   updateGroupingData,
   deleteHouseTypeArtifacts,
@@ -39,8 +40,11 @@ export async function confirmGrouping(packId: string): Promise<void> {
     select: { id: true, documentId: true, pageRange: true },
   });
 
+  // House bank (docs/20 v2): a house type already in the bank is HELD, not read.
+  const { held } = await holdBankRepeats(pending.map((e) => e.id));
   const boss = await getBoss();
   for (const e of pending) {
+    if (held.has(e.id)) continue;
     await boss.send(EXTRACT_DRAWING_QUEUE, {
       documentId: e.documentId,
       extractionId: e.id,

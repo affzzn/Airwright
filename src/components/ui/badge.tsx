@@ -63,11 +63,13 @@ const STATUS_LABEL: Record<string, string> = {
   PROCESSING: "Reading…",
   COMPLETED: "Ready",
   FAILED: "Failed",
+  HELD: "In house bank",
+  SKIPPED: "From house bank",
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const variant =
-    status === "COMPLETED"
+    status === "COMPLETED" || status === "SKIPPED"
       ? "solid"
       : status === "FAILED"
         ? "outline"

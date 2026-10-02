@@ -82,6 +82,11 @@ enum ExtractionStatus {
   PROCESSING
   COMPLETED
   FAILED
+  // House bank (docs/20 v2): the house type was found in the bank, so the read is
+  // HELD (never queued) until a person picks a version or says "read the drawing".
+  HELD
+  // A bank version was picked instead — this drawing is never read (no AI cost).
+  SKIPPED
 }
 
 enum ReviewStatus {
@@ -211,10 +216,15 @@ enum OperationAction {
 // geometry identical; CHANGED = linked but the drawing differs from the stored
 // version (flagged for a sense-check); DETACHED = a human unlinked it from the bank.
 enum BankMatchState {
+  // Legacy v1 values (automatic save on confirm) — no longer written.
   NEW
   MATCHED
   CHANGED
   DETACHED
+  // v2: a person picked a bank version for this house type (no drawing read).
+  FROM_BANK
+  // v2: a person pressed "Save to house bank" for this take-off.
+  SAVED
 }
 
 enum OperationGroup {
@@ -451,6 +461,10 @@ model HouseType {
   bankEntryId    String?
   bankEntry      HouseTypeBankEntry? @relation(fields: [bankEntryId], references: [id], onDelete: SetNull)
   bankMatchState BankMatchState?
+  // The exact bank version this house type was picked from (FROM_BANK) or saved as
+  // (SAVED). Versions are never edited, so this pins the numbers it came from.
+  bankVersionId  String?
+  bankVersion    HouseTypeBankVersion? @relation("HouseTypeBankVersion", fields: [bankVersionId], references: [id], onDelete: SetNull)
   createdAt      DateTime            @default(now())
   extractions    Extraction[]
   takeoff        Takeoff?
@@ -460,6 +474,7 @@ model HouseType {
   @@index([projectId])
   @@index([clientId, code])
   @@index([bankEntryId])
+  @@index([bankVersionId])
 }
 
 // ---------- House-Type Bank (docs/20) ----------
@@ -518,6 +533,7 @@ model HouseTypeBankVersion {
   confirmedAt         DateTime?
   createdAt           DateTime            @default(now())
   currentFor          HouseTypeBankEntry? @relation("CurrentVersion")
+  houseTypes          HouseType[]         @relation("HouseTypeBankVersion")
 
   @@unique([bankEntryId, version])
   @@index([bankEntryId])
